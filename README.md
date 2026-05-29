@@ -1,6 +1,8 @@
 # Veritrace
 
-**Verifiable trust infrastructure for production AI agents.**
+**Trust middleware for AI agents.**
+
+Veritrace v0.2 is a strong MVP, not mature enterprise infrastructure. It is useful for demos and low/medium-stakes internal tools today; high-stakes regulated deployment still needs distributed state, stronger classifiers, deeper tool sandboxing, and broader adversarial testing.
 
 Most agent frameworks help you *build* an agent. None help you *trust* one in production. Veritrace is the missing layer: deterministic safety, human-in-the-loop control, tamper-evident audit trails, and production-grade reliability — wrapped around any LLM provider, in a few lines of code.
 
@@ -81,6 +83,7 @@ curl -s localhost:8000/v1/run -H 'content-type: application/json' \
 |--------|----------|---------|
 | GET | `/health`, `/health/ready` | Liveness; readiness + audit-chain validity + auth mode |
 | POST | `/v1/run` | Run one agent call through the full stack |
+| POST | `/v1/tools/validate` | Validate a proposed tool call before execution |
 | GET | `/v1/trace/{call_id}` | Fetch the complete immutable trace |
 | GET | `/v1/audit/verify` | Verify the tamper-evident hash chain |
 | GET | `/v1/metrics` | Observability snapshot |
@@ -114,6 +117,30 @@ https://your-public-url.example/v1/hitl/slack/action
 
 If Slack is not configured, HITL keeps the safe default: consequential actions
 return `idle` and are not executed.
+
+## Tool-call guardrails
+
+Agents should validate side-effecting tool calls before execution:
+
+```bash
+curl -s localhost:8000/v1/tools/validate -H "content-type: application/json" \
+  -d '{"tool_name":"wire_transfer","arguments":{"amount_usd":25,"destination_account":"acct-123456"},"tenant_id":"bank","session_id":"s1","action":"wire_transfer"}'
+```
+
+The response is a deterministic decision:
+
+```json
+{
+  "verdict": "escalate",
+  "reason": "payment tools require human approval",
+  "side_effect": "payment"
+}
+```
+
+`ToolGuardLayer` supports explicit tool registration, JSON-schema-style
+argument checks, tenant/action allow-lists, per-session call limits, side-effect
+labels, and an in-process decision audit log. It validates proposed calls; it
+does not sandbox arbitrary tool execution yet.
 
 ## Multi-tenant security
 

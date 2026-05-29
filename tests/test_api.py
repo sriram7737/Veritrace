@@ -71,6 +71,35 @@ def test_missing_trace_404(client):
     assert client.get("/v1/trace/does-not-exist").status_code == 404
 
 
+def test_tool_validate_endpoint_blocks_unknown_tool(client):
+    r = client.post("/v1/tools/validate", json={
+        "tool_name": "shell",
+        "arguments": {},
+        "tenant_id": "t",
+        "session_id": "s",
+    })
+
+    assert r.status_code == 200
+    assert r.json()["verdict"] == "block"
+
+
+def test_tool_validate_endpoint_escalates_payment_tool(client):
+    r = client.post("/v1/tools/validate", json={
+        "tool_name": "wire_transfer",
+        "arguments": {
+            "amount_usd": 25.0,
+            "destination_account": "acct-123456",
+        },
+        "tenant_id": "bank",
+        "session_id": "s",
+        "action": "wire_transfer",
+    })
+
+    assert r.status_code == 200
+    assert r.json()["verdict"] == "escalate"
+    assert r.json()["side_effect"] == "payment"
+
+
 def test_default_api_provider_can_be_selected_from_env(monkeypatch):
     monkeypatch.setenv("VERITRACE_PROVIDER", "anthropic")
     monkeypatch.setenv("ANTHROPIC_MODEL", "claude-test-model")

@@ -10,6 +10,7 @@ Layers shipped here:
     SafetyLayer        - pre/post classifier + deterministic rule engine
     ReliabilityLayer   - semaphore-bounded concurrency + timeout + circuit breaker
     HITLLayer          - propose-and-wait gateway; idle on silence
+    ToolGuardLayer     - deterministic pre-execution tool-call policy checks
     IsolationLayer     - tenant-scoped memory + injection heuristics + size limits
                          (see veritrace.layers.isolation)
     ObservabilityLayer - call counters, block rate, p50/p95 latency
@@ -32,6 +33,7 @@ from ..types import HITLStatus, RuleResult, Verdict
 from .isolation import (IsolationLayer, IsolationViolation, InputTooLarge,
                         InjectionSuspected)
 from .observability import ObservabilityLayer
+from .tool_guard import ToolDecision, ToolGuardLayer, ToolPolicy
 
 
 

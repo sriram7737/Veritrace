@@ -42,7 +42,7 @@ from ..core import Veritrace
 from ..hitl.slack import (SlackApprovalError, SlackHITLApprover,
                           verify_slack_signature)
 from ..layers import (ComplianceLayer, HITLLayer, ReliabilityLayer, Rule,
-                      SafetyLayer)
+                      SafetyLayer, ToolGuardLayer, ToolPolicy)
 from ..providers import (AnthropicProvider, GeminiProvider, MockProvider,
                          OllamaProvider, OpenAICompatibleProvider,
                          OpenAIProvider)
@@ -83,6 +83,28 @@ class RunResponse(BaseModel):
 
 class CounterfactualRequest(BaseModel):
     disable_rule: str = Field(..., description="rule_id to disable in the recomputation")
+
+
+class ToolValidateRequest(BaseModel):
+    tool_name: str
+    arguments: dict
+    tenant_id: Optional[str] = Field(
+        None,
+        description="Ignored when API-key/JWT auth is enabled.",
+    )
+    session_id: str = "default"
+    action: str = "tool_call"
+
+
+class ToolValidateResponse(BaseModel):
+    decision_id: str
+    tool_name: str
+    verdict: str
+    reason: str
+    side_effect: str
+    tenant_id: str
+    session_id: str
+    action_label: str
 
 
 class TokenRequest(BaseModel):
@@ -176,9 +198,49 @@ def build_slack_approver_from_env() -> Optional[SlackHITLApprover]:
     )
 
 
+def build_default_tool_guard() -> ToolGuardLayer:
+    """Demo-safe policies. Real deployments should register their own tools."""
+    return ToolGuardLayer(policies=[
+        ToolPolicy(
+            name="read_record",
+            side_effect="read",
+            action=Verdict.ALLOW,
+            schema={
+                "type": "object",
+                "required": ["record_id"],
+                "additionalProperties": False,
+                "properties": {
+                    "record_id": {"type": "string", "maxLength": 128},
+                },
+            },
+            detail="read-only lookup allowed",
+        ),
+        ToolPolicy(
+            name="wire_transfer",
+            side_effect="payment",
+            action=Verdict.ESCALATE,
+            allowed_actions={"wire_transfer"},
+            schema={
+                "type": "object",
+                "required": ["amount_usd", "destination_account"],
+                "additionalProperties": False,
+                "properties": {
+                    "amount_usd": {"type": "number", "minimum": 0.01, "maximum": 10000},
+                    "destination_account": {
+                        "type": "string",
+                        "pattern": r"acct[-_ ][0-9]{6,18}",
+                    },
+                },
+            },
+            detail="payment tools require human approval",
+        ),
+    ])
+
+
 # ───────────────────────────────── app factory ─────────────────────────────
 def create_app(armor: Optional[Veritrace] = None,
-               registry: Optional[APIKeyRegistry] = None):
+               registry: Optional[APIKeyRegistry] = None,
+               tool_guard: Optional[ToolGuardLayer] = None):
     """Build the FastAPI app.
 
     Auth behavior:
@@ -199,6 +261,7 @@ def create_app(armor: Optional[Veritrace] = None,
     app.state.armor = armor or build_default_armor()
     app.state.registry = registry if registry is not None else load_registry_from_env()
     app.state.slack_hitl = getattr(app.state.armor.hitl, "approver", None)
+    app.state.tool_guard = tool_guard or build_default_tool_guard()
     app.state.jwt = JWTManager(
         os.environ.get("VERITRACE_JWT_SECRET") or secrets.token_urlsafe(32)
     )
@@ -312,6 +375,19 @@ def create_app(armor: Optional[Veritrace] = None,
     @app.get("/v1/metrics")
     async def metrics(tenant: str = Depends(require_tenant)):
         return app.state.armor.observability.report()
+
+    @app.post("/v1/tools/validate", response_model=ToolValidateResponse)
+    async def validate_tool(req: ToolValidateRequest,
+                            tenant: str = Depends(require_tenant)):
+        effective_tenant = tenant if tenant else (req.tenant_id or "default")
+        decision = app.state.tool_guard.evaluate(
+            req.tool_name,
+            req.arguments,
+            tenant_id=effective_tenant,
+            session_id=req.session_id,
+            action_label=req.action,
+        )
+        return ToolValidateResponse(**decision.to_dict())
 
     @app.post("/v1/hitl/slack/action")
     async def slack_hitl_action(request: Request):

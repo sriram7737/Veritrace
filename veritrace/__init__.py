@@ -18,7 +18,9 @@ Quick start
     print(resp.trace.this_hash)
 """
 from .core import Veritrace
-from .layers import IsolationLayer, ObservabilityLayer, ComplianceLayer, SafetyLayer, ReliabilityLayer, HITLLayer, Rule
+from .layers import (ComplianceLayer, HITLLayer, IsolationLayer,
+                     ObservabilityLayer, ReliabilityLayer, Rule, SafetyLayer,
+                     ToolDecision, ToolGuardLayer, ToolPolicy)
 from .providers import (AnthropicProvider, BaseProvider, FallbackProvider,
                         GeminiProvider, MockProvider, OllamaProvider,
                         OpenAICompatibleProvider, OpenAIProvider)
@@ -40,6 +42,9 @@ __all__ = [
     "SafetyLayer",
     "ReliabilityLayer",
     "HITLLayer",
+    "ToolGuardLayer",
+    "ToolPolicy",
+    "ToolDecision",
     "Rule",
     "MemoryStore",
     "SQLiteStore",
