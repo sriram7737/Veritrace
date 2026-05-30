@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Metrics</h1>
+<div id="metrics-content"
+     hx-get="/metrics/fragment"
+     hx-trigger="every 10s"
+     hx-swap="innerHTML">
+  {% include "metrics_fragment.html" %}
+</div>
+{% endblock %}

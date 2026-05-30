@@ -62,3 +62,7 @@ __all__ = [
     "FallbackProvider",
     "__version__",
 ]
+from .classifier import (
+    build_classifier, EmbeddingInjectionClassifier, KeywordFallbackClassifier,
+    INJECTION_EXEMPLARS, BENIGN_EXEMPLARS,
+)

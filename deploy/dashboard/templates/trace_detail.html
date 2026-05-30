@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block content %}
+{% set t = trace %}
+<h1>Trace Detail</h1>
+<div style="display:flex;gap:1rem;flex-wrap:wrap;margin-bottom:1rem">
+  <span class="badge {% if t.get('blocked') %}badge-block{% else %}badge-ok{% endif %}">
+    {% if t.get("blocked") %}BLOCKED{% else %}ALLOWED{% endif %}
+  </span>
+  <span class="mono" style="color:#64748b">{{ t.get("this_hash","") }}</span>
+</div>
+
+<div class="grid grid-2" style="margin-bottom:1rem">
+  <div class="card">
+    <div style="color:#64748b;font-size:0.8rem;margin-bottom:0.5rem">INPUT</div>
+    <div style="white-space:pre-wrap;font-size:0.85rem">{{ t.get("input_text","") }}</div>
+  </div>
+  <div class="card">
+    <div style="color:#64748b;font-size:0.8rem;margin-bottom:0.5rem">OUTPUT</div>
+    <div style="white-space:pre-wrap;font-size:0.85rem">{{ t.get("output_text","") }}</div>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom:1rem">
+  <h2>Metadata</h2>
+  <table>
+    <tr><th>Tenant</th><td>{{ t.get("tenant_id","") }}</td></tr>
+    <tr><th>Session</th><td>{{ t.get("session_id","") }}</td></tr>
+    <tr><th>Provider</th><td>{{ t.get("provider","") }} / {{ t.get("provider_model","") }}</td></tr>
+    <tr><th>Cost</th><td>${{ "%.6f"|format(t.get("provider_cost_usd",0)) }}</td></tr>
+    <tr><th>Total latency</th><td>{{ "%.1f"|format(t.get("total_latency_ms",0)) }} ms</td></tr>
+    <tr><th>PII redactions</th><td>{{ t.get("pii_redactions",[]) | join(", ") or "none" }}</td></tr>
+    <tr><th>HITL status</th><td>{{ t.get("hitl_status","") }}</td></tr>
+    {% if t.get("blocked") %}
+    <tr><th>Block reason</th><td style="color:#f87171">{{ t.get("block_reason","") }}</td></tr>
+    {% endif %}
+  </table>
+</div>
+
+<div class="card">
+  <h2>Layer Events</h2>
+  {% for ev in t.get("layer_events", []) %}
+  <div class="layer-row">
+    <span class="layer-name">{{ ev.get("layer","") }}</span>
+    <span class="badge {% if ev.get('decision')=='blocked' %}badge-block
+                       {% elif ev.get('decision')=='escalate' %}badge-escalate
+                       {% else %}badge-allow{% endif %}">
+      {{ ev.get("decision","") }}
+    </span>
+    <span class="layer-detail">{{ ev.get("detail","") }}</span>
+    <span class="latency">{{ "%.1f"|format(ev.get("latency_ms",0)) }}ms</span>
+  </div>
+  {% else %}
+  <div class="empty">No layer events.</div>
+  {% endfor %}
+</div>
+{% endblock %}

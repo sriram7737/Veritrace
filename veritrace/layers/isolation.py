@@ -1,30 +1,24 @@
 """
 veritrace.layers.isolation
 ==========================
-Real isolation primitives. The previous IsolationLayer was a bare dict — this
-module adds the three defenses that actually matter:
+Real isolation primitives. Three defenses:
 
-  1. **Tenant-scoped memory** with strict key checks. Attempting to read another
-     tenant's memory raises IsolationViolation; the orchestrator records the
-     violation in the trace.
+  1. Tenant-scoped memory backed by an AbstractBackend (in-process default,
+     Redis for multi-worker deployments). Writing to tenant A does not bleed
+     into tenant B; cross-scope reads raise IsolationViolation.
 
-  2. **Injection heuristics**. Scan inbound prompts for the dozen-or-so common
-     instruction-override and exfiltration patterns ("ignore previous
-     instructions", "system:" overrides, base64 dump requests, etc.). These are
-     heuristics, not a complete defense — the documentation says so plainly.
-     A real defense layers an ML classifier on top; the hook is provided.
+  2. Injection heuristics. Scans inbound prompts for common instruction-override
+     and exfiltration patterns. These are heuristics, not a complete defense.
+     An ML classifier hook is provided for layering stronger detection.
 
-  3. **Hard size limits**. Input and output bytes are capped per call to prevent
-     trivial DoS via 100 MB prompts and to bound LLM costs. Configurable per
-     deployment.
+  3. Hard size limits. Input and output bytes are capped per call to prevent
+     trivial DoS and bound LLM costs. Configurable per deployment.
 
 What this layer does NOT claim to do
-------------------------------------
-It does not defend against a determined attacker who can author novel injection
-prompts. State-of-the-art injection defense requires fine-tuned classifiers,
-provenance tracking on tool outputs, and runtime constraints on the model's
-action space. Those are roadmap items. This module is *defense-in-depth*, not
-defense-in-totality.
+-------------------------------------
+It does not defend against a determined attacker with novel injection prompts.
+Real defense requires fine-tuned classifiers, provenance tracking on tool
+outputs, and runtime constraints on the model action space.
 """
 from __future__ import annotations
 
@@ -44,10 +38,6 @@ class InjectionSuspected(Exception):
     """Raised when injection heuristics fire on the input. Heuristic, not proof."""
 
 
-# ── injection heuristic patterns ──────────────────────────────────────────
-# Each pattern is documented with what it's trying to catch. These are
-# deliberately conservative — false positives are recoverable, false negatives
-# are not.
 _INJECTION_PATTERNS: list[tuple[str, re.Pattern, str]] = [
     ("instruction_override",
      re.compile(r"ignore\s+(all\s+)?(previous|prior|above|earlier)\s+(instructions?|prompts?|rules?)",
@@ -68,7 +58,7 @@ _INJECTION_PATTERNS: list[tuple[str, re.Pattern, str]] = [
      re.compile(
          r"(pretend|act|behave|roleplay)\s+"
          r"(?:(?:as|like)\s+(?:if\s+)?)?"
-         r"(?:you\s+are\s+|you're\s+)?"
+         r"(?:you\s+are\s+|you\'re\s+)?"
          r"(?:an?\s+)?"
          r"(unrestricted|uncensored|jailbroken|dan\b)",
          re.IGNORECASE),
@@ -93,12 +83,11 @@ class IsolationLayer:
     max_input_bytes   : cap on input prompt size (default 64 KiB)
     max_output_bytes  : cap on output text size (default 64 KiB)
     block_on_injection: True (default) raises InjectionSuspected on a hit;
-                        False just records the hits in trace metadata. Set to
-                        False during initial deployment to gather false-positive
-                        data, then flip to True.
-    classifier        : optional async callable(text) -> bool returning True
-                        if the input is malicious. Layered on top of heuristics
-                        for stronger defense.
+                        False just records the hits in trace metadata.
+    classifier        : optional callable(text) -> bool; True = malicious.
+    backend           : AbstractBackend for tenant memory. Defaults to
+                        InProcessBackend. Pass RedisBackend for multi-worker.
+    memory_ttl_s      : TTL for memory entries in seconds (default 3600).
     """
 
     def __init__(
@@ -107,25 +96,33 @@ class IsolationLayer:
         max_output_bytes: int = 64 * 1024,
         block_on_injection: bool = True,
         classifier: Optional[Callable[[str], bool]] = None,
+        backend=None,
+        memory_ttl_s: int = 3600,
     ) -> None:
         self.max_input_bytes = max_input_bytes
         self.max_output_bytes = max_output_bytes
         self.block_on_injection = block_on_injection
         self.classifier = classifier
-        # Per-scope memory. The key is (tenant_id, session_id); reads from a
-        # different scope raise IsolationViolation rather than returning None,
-        # because silently returning an empty list hides bugs.
-        self._memory: dict[tuple[str, str], list[str]] = {}
+        self.memory_ttl_s = memory_ttl_s
+        if backend is None:
+            from ..backends import InProcessBackend
+            backend = InProcessBackend()
+        self._backend = backend
 
-    # ── memory ────────────────────────────────────────────────────────────
+    @staticmethod
+    def _scope_key(tenant_id: str, session_id: str) -> str:
+        return f"{tenant_id}:{session_id}"
+
     def memory_for(self, tenant_id: str, session_id: str) -> list[str]:
-        """Return this scope's memory, creating it on first access."""
-        return self._memory.setdefault((tenant_id, session_id), [])
+        """Return a copy of this scope\'s memory."""
+        return self._backend.memory_get(self._scope_key(tenant_id, session_id))
+
+    def memory_append(self, tenant_id: str, session_id: str, item: str) -> None:
+        """Append an item to scope memory (safe for multi-worker)."""
+        self._backend.memory_append(self._scope_key(tenant_id, session_id), item)
 
     def assert_scope(self, tenant_id: str, session_id: str,
                      expected_tenant: str, expected_session: str) -> None:
-        """Hard-fail if a scope doesn't match what the caller expects.
-        Used by code paths that hand a memory reference between layers."""
         if tenant_id != expected_tenant or session_id != expected_session:
             raise IsolationViolation(
                 f"scope mismatch: got ({tenant_id},{session_id}) "
@@ -133,9 +130,8 @@ class IsolationLayer:
             )
 
     def clear_scope(self, tenant_id: str, session_id: str) -> None:
-        self._memory.pop((tenant_id, session_id), None)
+        self._backend.memory_clear(self._scope_key(tenant_id, session_id))
 
-    # ── size limits ───────────────────────────────────────────────────────
     def check_input_size(self, text: str) -> None:
         size = len(text.encode("utf-8"))
         if size > self.max_input_bytes:
@@ -144,17 +140,13 @@ class IsolationLayer:
             )
 
     def truncate_output(self, text: str) -> tuple[str, bool]:
-        """Cap output bytes. Returns (text, was_truncated)."""
         b = text.encode("utf-8")
         if len(b) <= self.max_output_bytes:
             return text, False
-        # safe utf-8 truncation: decode with errors='ignore' on the slice
         return b[: self.max_output_bytes].decode("utf-8", errors="ignore"), True
 
-    # ── injection heuristics ──────────────────────────────────────────────
     def scan_for_injection(self, text: str) -> list[dict]:
-        """Return a list of {pattern_id, detail} for every heuristic that fires.
-        An empty list means no heuristic matched (does NOT mean the input is safe)."""
+        """Return hits for every heuristic that fires. Empty = no match (not safe)."""
         hits = []
         for pid, rx, detail in _INJECTION_PATTERNS:
             if rx.search(text):
@@ -163,9 +155,7 @@ class IsolationLayer:
 
     async def evaluate_input(self, text: str, *, tenant_id: str,
                              session_id: str) -> dict:
-        """Run all checks on an inbound prompt. Raises on hard violations;
-        returns metadata for the trace. The orchestrator calls this right
-        after Compliance."""
+        """Run all checks on an inbound prompt. Raises on hard violations."""
         self.check_input_size(text)
 
         hits = self.scan_for_injection(text)

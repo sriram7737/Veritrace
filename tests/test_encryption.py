@@ -17,7 +17,7 @@ from veritrace.store_encrypted import EncryptedSQLiteStore  # noqa: E402
 
 
 def run(coro):
-    return asyncio.get_event_loop().run_until_complete(coro)
+    return asyncio.run(coro)
 
 
 def _new_db():

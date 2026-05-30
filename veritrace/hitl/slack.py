@@ -1,9 +1,16 @@
 """Slack-backed human approval adapter.
 
-This module intentionally keeps state in-process. That is good enough for a
-single-process demo and local interview walkthrough. Production deployments
-should put pending decisions in Redis/Postgres so callbacks can land on any
-worker.
+In single-process deployments the default InProcessBackend works fine.
+For multi-worker / multi-instance production deployments, pass a RedisBackend
+so approval callbacks can land on any worker::
+
+    from veritrace.backends import RedisBackend
+    from veritrace.hitl.slack import SlackApprovalRegistry
+
+    backend  = RedisBackend.from_url(os.environ["REDIS_URL"])
+    registry = SlackApprovalRegistry(backend=backend)
+
+The registry interface is identical regardless of backend.
 """
 from __future__ import annotations
 
@@ -34,6 +41,7 @@ class PendingApproval:
     context: dict[str, Any]
     created_at: float = field(default_factory=time.time)
     decision: Optional[bool] = None
+    # Only used by InProcessBackend path — RedisBackend uses its own wait()
     event: asyncio.Event = field(default_factory=asyncio.Event)
 
 
@@ -51,9 +59,15 @@ class SlackMessageClient(Protocol):
 
 
 class SlackApprovalRegistry:
-    """Tracks pending approval requests for one process."""
+    """Tracks pending approval requests.
 
-    def __init__(self):
+    Backed by an AbstractBackend (in-process by default, Redis for prod).
+    """
+
+    def __init__(self, backend: Optional[Any] = None) -> None:
+        from ..backends import InProcessBackend
+        self._backend = backend or InProcessBackend()
+        # in-process fallback for legacy callers that rely on PendingApproval objects
         self._pending: dict[str, PendingApproval] = {}
 
     def create(self, action: str, context: dict[str, Any]) -> PendingApproval:
@@ -63,25 +77,45 @@ class SlackApprovalRegistry:
             context=dict(context),
         )
         self._pending[request.request_id] = request
+        # also write to backend so other workers can resolve it
+        self._backend.set(
+            f"hitl:{request.request_id}",
+            {"action": action, "context": context, "created_at": request.created_at},
+            ttl_s=3600,
+        )
         return request
 
-    async def wait(self, request_id: str) -> Optional[bool]:
+    async def wait(self, request_id: str, *, timeout_s: float = 300.0) -> Optional[bool]:
+        # Try the distributed backend first (works across workers).
+        val = await self._backend.wait(f"hitl:decision:{request_id}", timeout_s=timeout_s)
+        if val is not None:
+            return bool(val)
+        # Fall back to in-process event for single-process use.
         request = self._pending.get(request_id)
         if request is None:
             return None
-        await request.event.wait()
+        try:
+            await asyncio.wait_for(request.event.wait(), timeout=timeout_s)
+        except asyncio.TimeoutError:
+            return None
         return request.decision
 
     def decide(self, request_id: str, approved: bool) -> bool:
+        # Signal via backend (visible to all workers).
+        self._backend.signal(f"hitl:decision:{request_id}", int(approved))
+        self._backend.delete(f"hitl:{request_id}")
+        # Also resolve in-process for same-process callbacks.
         request = self._pending.get(request_id)
-        if request is None:
-            return False
-        request.decision = approved
-        request.event.set()
+        if request is not None:
+            request.decision = approved
+            request.event.set()
+            return True
+        # Request came in on a different worker — that's fine.
         return True
 
     def discard(self, request_id: str) -> None:
         self._pending.pop(request_id, None)
+        self._backend.delete(f"hitl:{request_id}")
 
 
 class HTTPSlackMessageClient:

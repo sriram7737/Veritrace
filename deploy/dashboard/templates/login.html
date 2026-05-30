@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Veritrace — Sign in</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #0f1117; color: #e2e8f0;
+           display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+    .card { background: #1a1f2e; border: 1px solid #2d3748; border-radius: 10px;
+            padding: 2.5rem; width: 360px; }
+    h1 { font-size: 1.3rem; font-weight: 700; color: #7c3aed; margin-bottom: 0.25rem; }
+    .sub { color: #64748b; font-size: 0.85rem; margin-bottom: 1.75rem; }
+    label { display: block; font-size: 0.8rem; color: #94a3b8; margin-bottom: 0.35rem; }
+    input { width: 100%; background: #0f1117; border: 1px solid #2d3748; color: #e2e8f0;
+            padding: 0.55rem 0.75rem; border-radius: 6px; font-size: 0.9rem;
+            margin-bottom: 1rem; }
+    input:focus { outline: none; border-color: #7c3aed; }
+    button { width: 100%; background: #7c3aed; color: #fff; border: none;
+             padding: 0.65rem; border-radius: 6px; font-size: 0.95rem; font-weight: 600;
+             cursor: pointer; margin-top: 0.5rem; }
+    button:hover { background: #6d28d9; }
+    .error { background: #450a0a; color: #fca5a5; padding: 0.5rem 0.75rem;
+             border-radius: 5px; font-size: 0.85rem; margin-bottom: 1rem; }
+  </style>
+</head>
+<body>
+<div class="card">
+  <h1>▸ Veritrace</h1>
+  <div class="sub">Admin Dashboard — Sign in</div>
+  {% if error %}
+  <div class="error">{{ error }}</div>
+  {% endif %}
+  <form method="post" action="/login">
+    <label for="username">Username</label>
+    <input id="username" name="username" type="text" autocomplete="username" required>
+    <label for="password">Password</label>
+    <input id="password" name="password" type="password" autocomplete="current-password" required>
+    <button type="submit">Sign in</button>
+  </form>
+</div>
+</body>
+</html>

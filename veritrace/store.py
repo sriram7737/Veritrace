@@ -35,7 +35,7 @@ class TraceStore(Protocol):
     def save(self, trace: TraceEvent) -> None: ...
     def get(self, call_id: str, tenant_id: str | None = None) -> TraceEvent: ...
     def list_all(self) -> list[TraceEvent]: ...
-    def prune_older_than(self, cutoff_ts: float) -> int: ...
+    def prune_older_than(self, cutoff_ts: float, tenant_id: str | None = None) -> int: ...
     def delete_for_tenant(self, tenant_id: str) -> int: ...
 
 
@@ -61,11 +61,20 @@ class MemoryStore:
     def list_all(self) -> list[TraceEvent]:
         return list(self._traces)
 
-    def prune_older_than(self, cutoff_ts: float) -> int:
+    def prune_older_than(self, cutoff_ts: float, tenant_id: str | None = None) -> int:
         """Delete traces older than cutoff. Returns the count deleted. Use only
-        after the EU AI Act minimum retention (six months) has elapsed."""
+        after the EU AI Act minimum retention (six months) has elapsed.
+
+        When tenant_id is given the prune is scoped to that tenant only, so one
+        tenant can never prune another tenant's records."""
         before = len(self._traces)
-        self._traces = [t for t in self._traces if t.created_at >= cutoff_ts]
+        if tenant_id is None:
+            self._traces = [t for t in self._traces if t.created_at >= cutoff_ts]
+        else:
+            self._traces = [
+                t for t in self._traces
+                if not (t.tenant_id == tenant_id and t.created_at < cutoff_ts)
+            ]
         return before - len(self._traces)
 
     def delete_for_tenant(self, tenant_id: str) -> int:
@@ -163,11 +172,18 @@ class SQLiteStore:
             ).fetchall()
         return [TraceEvent.from_dict(json.loads(r[0])) for r in rows]
 
-    def prune_older_than(self, cutoff_ts: float) -> int:
+    def prune_older_than(self, cutoff_ts: float, tenant_id: str | None = None) -> int:
         """Delete trace rows older than cutoff. Use only after the EU AI Act
-        minimum retention (six months) has elapsed."""
-        cur = self._conn.execute(
-            "DELETE FROM traces WHERE created_at < ?", (cutoff_ts,))
+        minimum retention (six months) has elapsed.
+
+        When tenant_id is given the prune is scoped to that tenant only."""
+        if tenant_id is None:
+            cur = self._conn.execute(
+                "DELETE FROM traces WHERE created_at < ?", (cutoff_ts,))
+        else:
+            cur = self._conn.execute(
+                "DELETE FROM traces WHERE created_at < ? AND tenant_id = ?",
+                (cutoff_ts, tenant_id))
         self._conn.commit()
         return cur.rowcount
 
@@ -204,24 +220,4 @@ class SQLiteStore:
         ).fetchall()
         prev = GENESIS
         for payload_json, stored_prev, stored_hash in rows:
-            payload = json.loads(payload_json)
-            expected = canonical_hash(payload, prev)
-            if expected != stored_hash or stored_prev != prev:
-                return False
-            prev = stored_hash
-        return True
-
-    def records(self) -> list[dict]:
-        rows = self._conn.execute(
-            "SELECT payload, prev_hash, this_hash FROM audit_chain ORDER BY seq"
-        ).fetchall()
-        return [
-            {"payload": json.loads(r[0]), "prev_hash": r[1], "this_hash": r[2]}
-            for r in rows
-        ]
-
-    def _load_head(self) -> str:
-        row = self._conn.execute(
-            "SELECT this_hash FROM audit_chain ORDER BY seq DESC LIMIT 1"
-        ).fetchone()
-        return row[0] if row else GENESIS
+            payload = json.loads(payl

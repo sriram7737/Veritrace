@@ -10,7 +10,7 @@ from veritrace.providers import MockProvider
 
 
 def run(c):
-    return asyncio.get_event_loop().run_until_complete(c)
+    return asyncio.run(c)
 
 
 # ── size limits ────────────────────────────────────────────────────────
@@ -95,10 +95,9 @@ def test_assert_scope_raises_on_mismatch():
 
 def test_memory_is_scoped():
     iso = IsolationLayer()
-    mem_a = iso.memory_for("tenant_a", "s1")
+    iso.memory_append("tenant_a", "s1", "data for A")
     mem_b = iso.memory_for("tenant_b", "s1")
-    mem_a.append("data for A")
-    assert mem_b == [], "tenant_b's memory must not see tenant_a's data"
+    assert mem_b == [], "tenant_b\'s memory must not see tenant_a\'s data"
     assert iso.memory_for("tenant_a", "s1") == ["data for A"]
 
 

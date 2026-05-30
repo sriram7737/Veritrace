@@ -1,0 +1,431 @@
+
+==================================== ERRORS ====================================
+__________________ ERROR collecting tests/test_adversarial.py __________________
+../../.local/lib/python3.10/site-packages/_pytest/python.py:507: in importtestmodule
+    mod = import_path(
+../../.local/lib/python3.10/site-packages/_pytest/pathlib.py:587: in import_path
+    importlib.import_module(module_name)
+/usr/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+<frozen importlib._bootstrap>:1050: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1027: in _find_and_load
+    ???
+<frozen importlib._bootstrap>:1006: in _find_and_load_unlocked
+    ???
+<frozen importlib._bootstrap>:688: in _load_unlocked
+    ???
+../../.local/lib/python3.10/site-packages/_pytest/assertion/rewrite.py:197: in exec_module
+    exec(co, module.__dict__)
+/sessions/quirky-modest-ritchie/mnt/veritrace/tests/test_adversarial.py:20: in <module>
+    ???
+veritrace/__init__.py:20: in <module>
+    from .core import Veritrace
+veritrace/core.py:32: in <module>
+    from .store import MemoryStore
+E     File "/sessions/eloquent-hopeful-pascal/mnt/veritrace/veritrace/store.py", line 223
+E       payload = json.loads(payl
+E                           ^
+E   SyntaxError: '(' was never closed
+______________________ ERROR collecting tests/test_api.py ______________________
+../../.local/lib/python3.10/site-packages/_pytest/python.py:507: in importtestmodule
+    mod = import_path(
+../../.local/lib/python3.10/site-packages/_pytest/pathlib.py:587: in import_path
+    importlib.import_module(module_name)
+/usr/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+<frozen importlib._bootstrap>:1050: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1027: in _find_and_load
+    ???
+<frozen importlib._bootstrap>:1006: in _find_and_load_unlocked
+    ???
+<frozen importlib._bootstrap>:688: in _load_unlocked
+    ???
+../../.local/lib/python3.10/site-packages/_pytest/assertion/rewrite.py:197: in exec_module
+    exec(co, module.__dict__)
+/sessions/quirky-modest-ritchie/mnt/veritrace/tests/test_api.py:7: in <module>
+    ???
+veritrace/__init__.py:20: in <module>
+    from .core import Veritrace
+veritrace/core.py:32: in <module>
+    from .store import MemoryStore
+E     File "/sessions/eloquent-hopeful-pascal/mnt/veritrace/veritrace/store.py", line 223
+E       payload = json.loads(payl
+E                           ^
+E   SyntaxError: '(' was never closed
+_____________________ ERROR collecting tests/test_auth.py ______________________
+../../.local/lib/python3.10/site-packages/_pytest/python.py:507: in importtestmodule
+    mod = import_path(
+../../.local/lib/python3.10/site-packages/_pytest/pathlib.py:587: in import_path
+    importlib.import_module(module_name)
+/usr/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+<frozen importlib._bootstrap>:1050: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1027: in _find_and_load
+    ???
+<frozen importlib._bootstrap>:1006: in _find_and_load_unlocked
+    ???
+<frozen importlib._bootstrap>:688: in _load_unlocked
+    ???
+../../.local/lib/python3.10/site-packages/_pytest/assertion/rewrite.py:197: in exec_module
+    exec(co, module.__dict__)
+/sessions/quirky-modest-ritchie/mnt/veritrace/tests/test_auth.py:13: in <module>
+    ???
+veritrace/__init__.py:20: in <module>
+    from .core import Veritrace
+veritrace/core.py:32: in <module>
+    from .store import MemoryStore
+E     File "/sessions/eloquent-hopeful-pascal/mnt/veritrace/veritrace/store.py", line 223
+E       payload = json.loads(payl
+E                           ^
+E   SyntaxError: '(' was never closed
+__________________ ERROR collecting tests/test_classifier.py ___________________
+../../.local/lib/python3.10/site-packages/_pytest/python.py:507: in importtestmodule
+    mod = import_path(
+../../.local/lib/python3.10/site-packages/_pytest/pathlib.py:587: in import_path
+    importlib.import_module(module_name)
+/usr/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+<frozen importlib._bootstrap>:1050: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1027: in _find_and_load
+    ???
+<frozen importlib._bootstrap>:1006: in _find_and_load_unlocked
+    ???
+<frozen importlib._bootstrap>:688: in _load_unlocked
+    ???
+../../.local/lib/python3.10/site-packages/_pytest/assertion/rewrite.py:197: in exec_module
+    exec(co, module.__dict__)
+/sessions/quirky-modest-ritchie/mnt/veritrace/tests/test_classifier.py:14: in <module>
+    ???
+veritrace/__init__.py:20: in <module>
+    from .core import Veritrace
+veritrace/core.py:32: in <module>
+    from .store import MemoryStore
+E     File "/sessions/eloquent-hopeful-pascal/mnt/veritrace/veritrace/store.py", line 223
+E       payload = json.loads(payl
+E                           ^
+E   SyntaxError: '(' was never closed
+__________________ ERROR collecting tests/test_encryption.py ___________________
+../../.local/lib/python3.10/site-packages/_pytest/python.py:507: in importtestmodule
+    mod = import_path(
+../../.local/lib/python3.10/site-packages/_pytest/pathlib.py:587: in import_path
+    importlib.import_module(module_name)
+/usr/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+<frozen importlib._bootstrap>:1050: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1027: in _find_and_load
+    ???
+<frozen importlib._bootstrap>:1006: in _find_and_load_unlocked
+    ???
+<frozen importlib._bootstrap>:688: in _load_unlocked
+    ???
+../../.local/lib/python3.10/site-packages/_pytest/assertion/rewrite.py:197: in exec_module
+    exec(co, module.__dict__)
+/sessions/quirky-modest-ritchie/mnt/veritrace/tests/test_encryption.py:13: in <module>
+    ???
+veritrace/__init__.py:20: in <module>
+    from .core import Veritrace
+veritrace/core.py:32: in <module>
+    from .store import MemoryStore
+E     File "/sessions/eloquent-hopeful-pascal/mnt/veritrace/veritrace/store.py", line 223
+E       payload = json.loads(payl
+E                           ^
+E   SyntaxError: '(' was never closed
+___________________ ERROR collecting tests/test_isolation.py ___________________
+../../.local/lib/python3.10/site-packages/_pytest/python.py:507: in importtestmodule
+    mod = import_path(
+../../.local/lib/python3.10/site-packages/_pytest/pathlib.py:587: in import_path
+    importlib.import_module(module_name)
+/usr/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+<frozen importlib._bootstrap>:1050: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1027: in _find_and_load
+    ???
+<frozen importlib._bootstrap>:1006: in _find_and_load_unlocked
+    ???
+<frozen importlib._bootstrap>:688: in _load_unlocked
+    ???
+../../.local/lib/python3.10/site-packages/_pytest/assertion/rewrite.py:197: in exec_module
+    exec(co, module.__dict__)
+/sessions/quirky-modest-ritchie/mnt/veritrace/tests/test_isolation.py:6: in <module>
+    ???
+veritrace/__init__.py:20: in <module>
+    from .core import Veritrace
+veritrace/core.py:32: in <module>
+    from .store import MemoryStore
+E     File "/sessions/eloquent-hopeful-pascal/mnt/veritrace/veritrace/store.py", line 223
+E       payload = json.loads(payl
+E                           ^
+E   SyntaxError: '(' was never closed
+__________________ ERROR collecting tests/test_new_modules.py __________________
+../../.local/lib/python3.10/site-packages/_pytest/python.py:507: in importtestmodule
+    mod = import_path(
+../../.local/lib/python3.10/site-packages/_pytest/pathlib.py:587: in import_path
+    importlib.import_module(module_name)
+/usr/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+<frozen importlib._bootstrap>:1050: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1027: in _find_and_load
+    ???
+<frozen importlib._bootstrap>:1006: in _find_and_load_unlocked
+    ???
+<frozen importlib._bootstrap>:688: in _load_unlocked
+    ???
+../../.local/lib/python3.10/site-packages/_pytest/assertion/rewrite.py:197: in exec_module
+    exec(co, module.__dict__)
+/sessions/quirky-modest-ritchie/mnt/veritrace/tests/test_new_modules.py:9: in <module>
+    ???
+veritrace/__init__.py:20: in <module>
+    from .core import Veritrace
+veritrace/core.py:32: in <module>
+    from .store import MemoryStore
+E     File "/sessions/eloquent-hopeful-pascal/mnt/veritrace/veritrace/store.py", line 223
+E       payload = json.loads(payl
+E                           ^
+E   SyntaxError: '(' was never closed
+_____________________ ERROR collecting tests/test_otel.py ______________________
+../../.local/lib/python3.10/site-packages/_pytest/python.py:507: in importtestmodule
+    mod = import_path(
+../../.local/lib/python3.10/site-packages/_pytest/pathlib.py:587: in import_path
+    importlib.import_module(module_name)
+/usr/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+<frozen importlib._bootstrap>:1050: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1027: in _find_and_load
+    ???
+<frozen importlib._bootstrap>:1006: in _find_and_load_unlocked
+    ???
+<frozen importlib._bootstrap>:688: in _load_unlocked
+    ???
+../../.local/lib/python3.10/site-packages/_pytest/assertion/rewrite.py:197: in exec_module
+    exec(co, module.__dict__)
+/sessions/quirky-modest-ritchie/mnt/veritrace/tests/test_otel.py:4: in <module>
+    ???
+veritrace/__init__.py:20: in <module>
+    from .core import Veritrace
+veritrace/core.py:32: in <module>
+    from .store import MemoryStore
+E     File "/sessions/eloquent-hopeful-pascal/mnt/veritrace/veritrace/store.py", line 223
+E       payload = json.loads(payl
+E                           ^
+E   SyntaxError: '(' was never closed
+__________________ ERROR collecting tests/test_persistence.py __________________
+../../.local/lib/python3.10/site-packages/_pytest/python.py:507: in importtestmodule
+    mod = import_path(
+../../.local/lib/python3.10/site-packages/_pytest/pathlib.py:587: in import_path
+    importlib.import_module(module_name)
+/usr/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+<frozen importlib._bootstrap>:1050: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1027: in _find_and_load
+    ???
+<frozen importlib._bootstrap>:1006: in _find_and_load_unlocked
+    ???
+<frozen importlib._bootstrap>:688: in _load_unlocked
+    ???
+../../.local/lib/python3.10/site-packages/_pytest/assertion/rewrite.py:197: in exec_module
+    exec(co, module.__dict__)
+/sessions/quirky-modest-ritchie/mnt/veritrace/tests/test_persistence.py:6: in <module>
+    ???
+veritrace/__init__.py:20: in <module>
+    from .core import Veritrace
+veritrace/core.py:32: in <module>
+    from .store import MemoryStore
+E     File "/sessions/eloquent-hopeful-pascal/mnt/veritrace/veritrace/store.py", line 223
+E       payload = json.loads(payl
+E                           ^
+E   SyntaxError: '(' was never closed
+___________________ ERROR collecting tests/test_pipeline.py ____________________
+../../.local/lib/python3.10/site-packages/_pytest/python.py:507: in importtestmodule
+    mod = import_path(
+../../.local/lib/python3.10/site-packages/_pytest/pathlib.py:587: in import_path
+    importlib.import_module(module_name)
+/usr/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+<frozen importlib._bootstrap>:1050: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1027: in _find_and_load
+    ???
+<frozen importlib._bootstrap>:1006: in _find_and_load_unlocked
+    ???
+<frozen importlib._bootstrap>:688: in _load_unlocked
+    ???
+../../.local/lib/python3.10/site-packages/_pytest/assertion/rewrite.py:197: in exec_module
+    exec(co, module.__dict__)
+/sessions/quirky-modest-ritchie/mnt/veritrace/tests/test_pipeline.py:4: in <module>
+    ???
+veritrace/__init__.py:20: in <module>
+    from .core import Veritrace
+veritrace/core.py:32: in <module>
+    from .store import MemoryStore
+E     File "/sessions/eloquent-hopeful-pascal/mnt/veritrace/veritrace/store.py", line 223
+E       payload = json.loads(payl
+E                           ^
+E   SyntaxError: '(' was never closed
+___________________ ERROR collecting tests/test_ratelimit.py ___________________
+../../.local/lib/python3.10/site-packages/_pytest/python.py:507: in importtestmodule
+    mod = import_path(
+../../.local/lib/python3.10/site-packages/_pytest/pathlib.py:587: in import_path
+    importlib.import_module(module_name)
+/usr/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+<frozen importlib._bootstrap>:1050: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1027: in _find_and_load
+    ???
+<frozen importlib._bootstrap>:1006: in _find_and_load_unlocked
+    ???
+<frozen importlib._bootstrap>:688: in _load_unlocked
+    ???
+../../.local/lib/python3.10/site-packages/_pytest/assertion/rewrite.py:197: in exec_module
+    exec(co, module.__dict__)
+/sessions/quirky-modest-ritchie/mnt/veritrace/tests/test_ratelimit.py:7: in <module>
+    ???
+veritrace/__init__.py:20: in <module>
+    from .core import Veritrace
+veritrace/core.py:32: in <module>
+    from .store import MemoryStore
+E     File "/sessions/eloquent-hopeful-pascal/mnt/veritrace/veritrace/store.py", line 223
+E       payload = json.loads(payl
+E                           ^
+E   SyntaxError: '(' was never closed
+____________________ ERROR collecting tests/test_redteam.py ____________________
+../../.local/lib/python3.10/site-packages/_pytest/python.py:507: in importtestmodule
+    mod = import_path(
+../../.local/lib/python3.10/site-packages/_pytest/pathlib.py:587: in import_path
+    importlib.import_module(module_name)
+/usr/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+<frozen importlib._bootstrap>:1050: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1027: in _find_and_load
+    ???
+<frozen importlib._bootstrap>:1006: in _find_and_load_unlocked
+    ???
+<frozen importlib._bootstrap>:688: in _load_unlocked
+    ???
+../../.local/lib/python3.10/site-packages/_pytest/assertion/rewrite.py:197: in exec_module
+    exec(co, module.__dict__)
+/sessions/quirky-modest-ritchie/mnt/veritrace/tests/test_redteam.py:20: in <module>
+    ???
+veritrace/__init__.py:20: in <module>
+    from .core import Veritrace
+veritrace/core.py:32: in <module>
+    from .store import MemoryStore
+E     File "/sessions/eloquent-hopeful-pascal/mnt/veritrace/veritrace/store.py", line 223
+E       payload = json.loads(payl
+E                           ^
+E   SyntaxError: '(' was never closed
+___________________ ERROR collecting tests/test_retention.py ___________________
+../../.local/lib/python3.10/site-packages/_pytest/python.py:507: in importtestmodule
+    mod = import_path(
+../../.local/lib/python3.10/site-packages/_pytest/pathlib.py:587: in import_path
+    importlib.import_module(module_name)
+/usr/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+<frozen importlib._bootstrap>:1050: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1027: in _find_and_load
+    ???
+<frozen importlib._bootstrap>:1006: in _find_and_load_unlocked
+    ???
+<frozen importlib._bootstrap>:688: in _load_unlocked
+    ???
+../../.local/lib/python3.10/site-packages/_pytest/assertion/rewrite.py:197: in exec_module
+    exec(co, module.__dict__)
+/sessions/quirky-modest-ritchie/mnt/veritrace/tests/test_retention.py:7: in <module>
+    ???
+veritrace/__init__.py:20: in <module>
+    from .core import Veritrace
+veritrace/core.py:32: in <module>
+    from .store import MemoryStore
+E     File "/sessions/eloquent-hopeful-pascal/mnt/veritrace/veritrace/store.py", line 223
+E       payload = json.loads(payl
+E                           ^
+E   SyntaxError: '(' was never closed
+__________________ ERROR collecting tests/test_slack_hitl.py ___________________
+../../.local/lib/python3.10/site-packages/_pytest/python.py:507: in importtestmodule
+    mod = import_path(
+../../.local/lib/python3.10/site-packages/_pytest/pathlib.py:587: in import_path
+    importlib.import_module(module_name)
+/usr/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+<frozen importlib._bootstrap>:1050: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1027: in _find_and_load
+    ???
+<frozen importlib._bootstrap>:1006: in _find_and_load_unlocked
+    ???
+<frozen importlib._bootstrap>:688: in _load_unlocked
+    ???
+../../.local/lib/python3.10/site-packages/_pytest/assertion/rewrite.py:197: in exec_module
+    exec(co, module.__dict__)
+/sessions/quirky-modest-ritchie/mnt/veritrace/tests/test_slack_hitl.py:12: in <module>
+    ???
+veritrace/__init__.py:20: in <module>
+    from .core import Veritrace
+veritrace/core.py:32: in <module>
+    from .store import MemoryStore
+E     File "/sessions/eloquent-hopeful-pascal/mnt/veritrace/veritrace/store.py", line 223
+E       payload = json.loads(payl
+E                           ^
+E   SyntaxError: '(' was never closed
+__________________ ERROR collecting tests/test_tool_guard.py ___________________
+../../.local/lib/python3.10/site-packages/_pytest/python.py:507: in importtestmodule
+    mod = import_path(
+../../.local/lib/python3.10/site-packages/_pytest/pathlib.py:587: in import_path
+    importlib.import_module(module_name)
+/usr/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+<frozen importlib._bootstrap>:1050: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1027: in _find_and_load
+    ???
+<frozen importlib._bootstrap>:1006: in _find_and_load_unlocked
+    ???
+<frozen importlib._bootstrap>:688: in _load_unlocked
+    ???
+../../.local/lib/python3.10/site-packages/_pytest/assertion/rewrite.py:197: in exec_module
+    exec(co, module.__dict__)
+/sessions/quirky-modest-ritchie/mnt/veritrace/tests/test_tool_guard.py:1: in <module>
+    ???
+veritrace/__init__.py:20: in <module>
+    from .core import Veritrace
+veritrace/core.py:32: in <module>
+    from .store import MemoryStore
+E     File "/sessions/eloquent-hopeful-pascal/mnt/veritrace/veritrace/store.py", line 223
+E       payload = json.loads(payl
+E                           ^
+E   SyntaxError: '(' was never closed
+=============================== warnings summary ===============================
+../../.local/lib/python3.10/site-packages/fastapi/testclient.py:1
+  /sessions/eloquent-hopeful-pascal/.local/lib/python3.10/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+ERROR tests/test_adversarial.py
+ERROR tests/test_api.py
+ERROR tests/test_auth.py
+ERROR tests/test_classifier.py
+ERROR tests/test_encryption.py
+ERROR tests/test_isolation.py
+ERROR tests/test_new_modules.py
+ERROR tests/test_otel.py
+ERROR tests/test_persistence.py
+ERROR tests/test_pipeline.py
+ERROR tests/test_ratelimit.py
+ERROR tests/test_redteam.py
+ERROR tests/test_retention.py
+ERROR tests/test_slack_hitl.py
+ERROR tests/test_tool_guard.py
+!!!!!!!!!!!!!!!!!!! Interrupted: 15 errors during collection !!!!!!!!!!!!!!!!!!!
+1 warning, 15 errors in 1.31s

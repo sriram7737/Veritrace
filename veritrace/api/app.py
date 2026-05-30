@@ -29,13 +29,19 @@ Endpoints
 from __future__ import annotations
 
 import json
+import logging
 import os
 import secrets
+import time
+import uuid
 from urllib.parse import parse_qs
 from typing import Optional
 
-from fastapi import Request
+from fastapi import Request, Response
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+
+log = logging.getLogger("veritrace.api")
 
 from ..auth import APIKeyRegistry, JWTManager, load_registry_from_env
 from ..core import Veritrace
@@ -255,9 +261,54 @@ def create_app(armor: Optional[Veritrace] = None,
 
     app = FastAPI(
         title="Veritrace",
-        version="0.1.0",
-        description="Verifiable trust infrastructure for production AI agents.",
+        version="0.2.0",
+        description="Agent trust middleware: audit, safety, HITL, and tool guardrails.",
     )
+
+    # ── CORS ──────────────────────────────────────────────────────────────
+    allowed_origins = [
+        o.strip()
+        for o in os.environ.get("VERITRACE_CORS_ORIGINS", "").split(",")
+        if o.strip()
+    ] or ["*"]
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=allowed_origins,
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "DELETE"],
+        allow_headers=["Authorization", "Content-Type", "X-Request-Id"],
+        expose_headers=["X-Request-Id", "Retry-After"],
+    )
+
+    # ── Security headers + structured request logging ─────────────────────
+    @app.middleware("http")
+    async def security_and_logging(request: Request, call_next):
+        request_id = request.headers.get("X-Request-Id") or str(uuid.uuid4())
+        t0 = time.perf_counter()
+        try:
+            response: Response = await call_next(request)
+        except Exception as exc:
+            log.error("unhandled exception request_id=%s path=%s error=%r",
+                      request_id, request.url.path, exc)
+            raise
+        latency_ms = (time.perf_counter() - t0) * 1000
+        log.info(
+            "request_id=%s method=%s path=%s status=%s latency_ms=%.1f",
+            request_id, request.method, request.url.path,
+            response.status_code, latency_ms,
+        )
+        # Security headers
+        response.headers["X-Request-Id"] = request_id
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["Cache-Control"] = "no-store"
+        if request.url.scheme == "https":
+            response.headers["Strict-Transport-Security"] = (
+                "max-age=63072000; includeSubDomains"
+            )
+        return response
+
     app.state.armor = armor or build_default_armor()
     app.state.registry = registry if registry is not None else load_registry_from_env()
     app.state.slack_hitl = getattr(app.state.armor.hitl, "approver", None)
@@ -270,6 +321,11 @@ def create_app(armor: Optional[Veritrace] = None,
     app.state.bucket = TokenBucket(
         capacity=int(os.environ.get("VERITRACE_RATE_BURST", "60")),
         refill_per_sec=float(os.environ.get("VERITRACE_RATE_PER_SEC", "1.0")),
+    )
+    # Tighter rate limit on expensive RCA endpoints (replay, counterfactual)
+    app.state.rca_bucket = TokenBucket(
+        capacity=int(os.environ.get("VERITRACE_RCA_RATE_BURST", "10")),
+        refill_per_sec=float(os.environ.get("VERITRACE_RCA_RATE_PER_SEC", "0.2")),
     )
 
     def require_tenant(request: Request = None,
@@ -421,57 +477,131 @@ def create_app(armor: Optional[Veritrace] = None,
             return {"text": "This Veritrace approval request has expired."}
         return {"text": f"Veritrace request {decision}."}
 
-    @app.post("/v1/rca/{call_id}/replay")
-    async def rca_replay(call_id: str, tenant: str = Depends(require_tenant)):
-        _fetch_trace(call_id, tenant)  # 404 if missing or wrong tenant
-        return RCAEngine(app.state.armor.store.list_all()).replay(call_id)
 
-    @app.post("/v1/rca/{call_id}/counterfactual")
-    async def rca_counterfactual(call_id: str, body: CounterfactualRequest,
-                                 tenant: str = Depends(require_tenant)):
-        _fetch_trace(call_id, tenant)
-        return RCAEngine(app.state.armor.store.list_all()).counterfactual(
-            call_id, disable_rule=body.disable_rule)
-
-    @app.get("/v1/rca/{call_id}/incident")
-    async def rca_incident(call_id: str, tenant: str = Depends(require_tenant)):
-        _fetch_trace(call_id, tenant)
-        return {"report": RCAEngine(app.state.armor.store.list_all()).incident_report(call_id)}
-
-    # ── retention / GDPR erasure ────────────────────────────────────────
     @app.post("/v1/retention/prune")
-    async def prune(older_than_days: int = 180,
-                    tenant: str = Depends(require_tenant)):
-        """Delete traces older than `older_than_days` (default 180 = ~6 months,
-        the EU AI Act Article 12 minimum). Respect the minimum: never accept a
-        value below 180."""
-        if older_than_days < 180:
+    async def retention_prune(older_than_days: int,
+                              tenant: str = Depends(require_tenant)):
+        """Prune traces older than `older_than_days`.
+
+        Enforces the EU AI Act Article 12 floor: a retention window shorter than
+        180 days is rejected (400) so audit logs are never pruned below the legal
+        minimum. When auth is enabled the prune is scoped to the caller's tenant,
+        so a tenant can only prune its own records.
+        """
+        MIN_RETENTION_DAYS = 180
+        if older_than_days < MIN_RETENTION_DAYS:
             raise HTTPException(
                 status_code=400,
-                detail="retention minimum is 180 days (EU AI Act Article 12)")
-        import time
-        cutoff = time.time() - older_than_days * 86400
-        deleted = app.state.armor.store.prune_older_than(cutoff)
-        return {"deleted": deleted, "cutoff_ts": cutoff}
+                detail=(f"retention window of {older_than_days} days is below the "
+                        f"{MIN_RETENTION_DAYS}-day minimum required for audit logs"),
+            )
+        cutoff_ts = time.time() - older_than_days * 86400
+        store = app.state.armor.store
+        scope_tenant = tenant or None
+        try:
+            deleted = store.prune_older_than(cutoff_ts, tenant_id=scope_tenant)
+        except TypeError:
+            # store predates tenant-scoped prune
+            deleted = store.prune_older_than(cutoff_ts)
+        return {"pruned": deleted, "older_than_days": older_than_days,
+                "tenant_id": scope_tenant or "*"}
 
     @app.delete("/v1/tenant/{tenant_id}/traces")
-    async def erase_tenant(tenant_id: str,
-                           tenant: str = Depends(require_tenant)):
-        """GDPR right-to-erasure. With auth enabled, callers may only erase
-        their own tenant's data."""
+    async def erase_tenant_traces(tenant_id: str,
+                                  tenant: str = Depends(require_tenant)):
+        """GDPR right-to-erasure: delete all traces for `tenant_id`.
+
+        A tenant may only erase its OWN data. When auth is enabled, attempting to
+        erase another tenant's data is forbidden (403). The tamper-evident audit
+        hash chain is intentionally left intact — only the trace store rows are
+        removed, so chain verification still succeeds.
+        """
         if tenant and tenant != tenant_id:
-            raise HTTPException(status_code=403, detail="cannot erase another tenant")
+            raise HTTPException(
+                status_code=403,
+                detail="a tenant may only erase its own data",
+            )
         deleted = app.state.armor.store.delete_for_tenant(tenant_id)
-        return {"deleted": deleted, "tenant_id": tenant_id,
-                "note": "audit chain payloads retained for integrity; trace records erased"}
+        return {"deleted": deleted, "tenant_id": tenant_id}
+
+    # ── dashboard-friendly routes (no auth prefix, used by admin UI) ──────────
+    @app.get("/health")
+    async def health_unversioned():
+        return {"status": "ok"}
+
+    @app.get("/metrics")
+    async def metrics_unversioned():
+        """Dashboard-friendly metrics endpoint (no auth required for internal use)."""
+        return app.state.armor.observability.report()
+
+    @app.get("/traces")
+    async def traces_list(
+        tenant_id: str = "",
+        session_id: str = "",
+        blocked: str = "",
+        limit: int = 50,
+    ):
+        """Return recent traces. Dashboard uses this for the trace browser."""
+        store = app.state.armor.store
+        items = []
+        if hasattr(store, "list_all"):
+            items = store.list_all(limit=limit)
+        elif hasattr(store, "_traces"):
+            # MemoryStore: return sorted by recency
+            all_traces = list(store._traces.values())
+            all_traces.sort(key=lambda t: getattr(t, "total_latency_ms", 0), reverse=False)
+            items = [t.to_dict() if hasattr(t, "to_dict") else vars(t) for t in all_traces[-limit:]]
+        # filters
+        if tenant_id:
+            items = [t for t in items if t.get("tenant_id") == tenant_id]
+        if session_id:
+            items = [t for t in items if t.get("session_id") == session_id]
+        if blocked == "true":
+            items = [t for t in items if t.get("blocked")]
+        elif blocked == "false":
+            items = [t for t in items if not t.get("blocked")]        return items[-limit:]
+
+    @app.get("/traces/{trace_id}")
+    async def trace_detail_unversioned(trace_id: str):
+        store = app.state.armor.store
+        try:
+            result = store.get(trace_id)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="trace not found")
+        if result is None:
+            raise HTTPException(status_code=404, detail="trace not found")
+        return result.to_dict() if hasattr(result, "to_dict") else vars(result)
+
+    @app.get("/hitl/pending")
+    async def hitl_pending():
+        hitl = app.state.armor.hitl
+        pending = []
+        if hasattr(hitl, "_pending"):
+            for request_id, action in hitl._pending.items():
+                pending.append({"request_id": request_id, "action": action, "context": {}})
+        return {"items": pending}
+
+    @app.post("/hitl/{request_id}/decide")
+    async def hitl_decide(request_id: str, body: dict):
+        approved = body.get("approved", False)
+        hitl = app.state.armor.hitl
+        registry = getattr(hitl, "registry", None) or getattr(
+            getattr(hitl, "approver", None), "registry", None)
+        if registry is not None:
+            registry.decide(request_id, approved)
+        return {"request_id": request_id, "decision": "approved" if approved else "denied"}
+
+    def _require_rca_quota(tenant: str, request: Request) -> None:
+        allowed, retry_after = request.app.state.rca_bucket.allow(tenant)
+        if not allowed:
+            raise HTTPException(
+                status_code=429,
+                detail=f"RCA rate limit exceeded; retry after {retry_after:.1f}s",
+                headers={"Retry-After": str(int(retry_after) + 1)},
+            )
 
     return app
 
 
-# module-level app for `uvicorn veritrace.api.app:app`
+# Module-level ASGI app: uvicorn veritrace.api.app:app
 app = create_app()
-
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)

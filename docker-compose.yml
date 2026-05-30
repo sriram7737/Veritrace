@@ -1,0 +1,129 @@
+# Veritrace — production-grade docker-compose
+# ─────────────────────────────────────────────────────────────────────────────
+# Services:
+#   postgres  — audit store + hash chain persistence
+#   redis     — HITL signalling, rate-limit buckets, session memory
+#   api       — Veritrace FastAPI sidecar (trust pipeline)
+#   dashboard — lightweight admin UI (trace browser, approvals, metrics)
+#
+# Quick start:
+#   cp .env.example .env   # fill in secrets
+#   docker compose up -d
+#   open http://localhost:8080/docs       # OpenAPI
+#   open http://localhost:8501/          # Dashboard
+# ─────────────────────────────────────────────────────────────────────────────
+
+version: "3.9"
+
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+
+  # ── Postgres ───────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-veritrace}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:-veritrace}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./deploy/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-veritrace} -d ${POSTGRES_DB:-veritrace}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    logging: *default-logging
+
+  # ── Redis ──────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: >
+      redis-server
+      --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+      --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging: *default-logging
+
+  # ── Veritrace API ──────────────────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      VT_HOST: "0.0.0.0"
+      VT_PORT: "8080"
+      VT_LOG_LEVEL: ${VT_LOG_LEVEL:-info}
+      VT_REDIS_URL: "redis://:${REDIS_PASSWORD}@redis:6379/0"
+      VT_POSTGRES_DSN: "postgresql://${POSTGRES_USER:-veritrace}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-veritrace}"
+      VT_API_KEY: ${VT_API_KEY:?VT_API_KEY is required}
+      VT_SIGNING_KEY: ${VT_SIGNING_KEY:?VT_SIGNING_KEY is required}
+      VT_MAX_INPUT_BYTES: ${VT_MAX_INPUT_BYTES:-65536}
+      VT_RATE_LIMIT_CAPACITY: ${VT_RATE_LIMIT_CAPACITY:-100}
+      VT_RATE_LIMIT_REFILL: ${VT_RATE_LIMIT_REFILL:-10}
+      VT_HITL_SLACK_TOKEN: ${VT_HITL_SLACK_TOKEN:-}
+      VT_HITL_SLACK_CHANNEL: ${VT_HITL_SLACK_CHANNEL:-}
+      VT_OTEL_ENDPOINT: ${VT_OTEL_ENDPOINT:-}
+    ports:
+      - "${API_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    logging: *default-logging
+
+  # ── Dashboard ──────────────────────────────────────────────────────────────
+  dashboard:
+    build:
+      context: .
+      dockerfile: deploy/dashboard/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      VT_API_URL: "http://api:8080"
+      VT_API_KEY: ${VT_API_KEY}
+      DASHBOARD_PORT: ${DASHBOARD_PORT:-8501}
+    ports:
+      - "${DASHBOARD_PORT:-8501}:8501"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    logging: *default-logging
+
+volumes:
+  postgres_data:
+  redis_data:

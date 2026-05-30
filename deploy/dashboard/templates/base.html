@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Veritrace Dashboard</title>
+  <script src="https://unpkg.com/htmx.org@1.9.10/dist/htmx.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #0f1117; color: #e2e8f0; min-height: 100vh; }
+    nav { background: #1a1f2e; border-bottom: 1px solid #2d3748; padding: 0.75rem 1.5rem;
+          display: flex; align-items: center; gap: 2rem; }
+    nav .brand { font-weight: 700; font-size: 1.1rem; color: #7c3aed; letter-spacing: -0.5px; }
+    nav a { color: #94a3b8; text-decoration: none; font-size: 0.9rem; }
+    nav a:hover, nav a.active { color: #e2e8f0; }
+    main { max-width: 1280px; margin: 0 auto; padding: 1.5rem; }
+    h1 { font-size: 1.4rem; font-weight: 600; margin-bottom: 1rem; color: #f1f5f9; }
+    h2 { font-size: 1.1rem; font-weight: 600; margin-bottom: 0.75rem; color: #cbd5e1; }
+    .grid { display: grid; gap: 1rem; }
+    .grid-2 { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+    .grid-3 { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+    .card { background: #1a1f2e; border: 1px solid #2d3748; border-radius: 8px; padding: 1.25rem; }
+    .stat-value { font-size: 2rem; font-weight: 700; color: #f8fafc; }
+    .stat-label { font-size: 0.8rem; color: #64748b; margin-top: 0.25rem; text-transform: uppercase; letter-spacing: 0.05em; }
+    .badge { padding: 0.2em 0.6em; border-radius: 4px; font-size: 0.75rem; font-weight: 600; }
+    .badge-ok { background: #064e3b; color: #6ee7b7; }
+    .badge-block { background: #450a0a; color: #fca5a5; }
+    .badge-escalate { background: #431407; color: #fdba74; }
+    .badge-allow { background: #042f2e; color: #5eead4; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+    th { text-align: left; padding: 0.5rem 0.75rem; color: #64748b; font-weight: 500;
+         border-bottom: 1px solid #2d3748; white-space: nowrap; }
+    td { padding: 0.5rem 0.75rem; border-bottom: 1px solid #1e293b; }
+    tr:hover td { background: #1e293b; }
+    .mono { font-family: 'Courier New', monospace; font-size: 0.8rem; }
+    a { color: #818cf8; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .btn { padding: 0.4rem 0.9rem; border-radius: 5px; font-size: 0.8rem; font-weight: 600;
+           cursor: pointer; border: none; transition: opacity 0.15s; }
+    .btn:hover { opacity: 0.85; }
+    .btn-approve { background: #065f46; color: #a7f3d0; }
+    .btn-deny    { background: #7f1d1d; color: #fecaca; }
+    .filter-bar { display: flex; gap: 0.75rem; margin-bottom: 1rem; flex-wrap: wrap; }
+    .filter-bar input, .filter-bar select {
+      background: #1a1f2e; border: 1px solid #2d3748; color: #e2e8f0;
+      padding: 0.4rem 0.75rem; border-radius: 5px; font-size: 0.85rem; }
+    .filter-bar button { background: #312e81; color: #c7d2fe; }
+    .empty { color: #475569; text-align: center; padding: 2rem; }
+    .layer-row { display: flex; gap: 0.5rem; padding: 0.5rem 0; border-bottom: 1px solid #1e293b; align-items: baseline; }
+    .layer-name { font-family: monospace; font-size: 0.8rem; color: #94a3b8; min-width: 200px; }
+    .layer-detail { color: #64748b; font-size: 0.8rem; }
+    .latency { color: #475569; font-size: 0.75rem; margin-left: auto; }
+  </style>
+</head>
+<body>
+<nav>
+  <span class="brand">▸ Veritrace</span>
+  <a href="/">Overview</a>
+  <a href="/traces">Traces</a>
+  <a href="/approvals">Approvals</a>
+  <a href="/metrics">Metrics</a>
+  <div style="margin-left:auto;display:flex;align-items:center;gap:1rem">
+    {% if user is defined %}<span style="color:#475569;font-size:0.85rem">{{ user }}</span>{% endif %}
+    <a href="/export/traces.csv" style="font-size:0.8rem;color:#475569">Export CSV</a>
+    <a href="/logout" style="font-size:0.8rem;color:#475569">Sign out</a>
+  </div>
+</nav>
+<main>
+{% block content %}{% endblock %}
+</main>
+</body>
+</html>
