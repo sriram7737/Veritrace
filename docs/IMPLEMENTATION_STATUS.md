@@ -9,7 +9,7 @@ below to know exactly what you are getting.
 
 ## Test status
 
-`python -m pytest -q` -> **334 passing, 3 xfailed** (xfail = injection paraphrases
+`python -m pytest -q --tb=no` -> **336 passing, 3 xfailed** (xfail = injection paraphrases
 the zero-dependency keyword classifier intentionally defers to the embedding
 classifier, which is optional). No skips hiding failures.
 
@@ -38,20 +38,23 @@ classifier, which is optional). No skips hiding failures.
   Provider, HITL) + W3C trace-context propagation
 - FastAPI sidecar (auth, CORS, security headers, structured logging, RCA +
   retention + GDPR-erasure endpoints, `/v1/usage` quota snapshots)
+- Dashboard usage page + Redis-backed dashboard rate limiting with local fallback
 - Built-in red-team benchmark CLI (`veritrace redteam --json`) with bypass and
   false-positive rates
+- Public red-team result/methodology doc and load-test runbook
 - Syntax-health test that compiles every Python source file before release
 - Small concurrency smoke test for trace uniqueness and hash-chain integrity
 
 ### MVP / needs hardening
 - Usage quotas: enforced before expensive routes and integrated with rate
   limiting; webhook events exist, but there is no Stripe/Chargebee billing ledger
-- Dashboard auth: tenant-scoped config, secure-cookie support, and explicit
-  all-tenant opt-in exist; still not SSO/OIDC/RBAC-grade
+- Dashboard auth: tenant-scoped config, secure-cookie support, Redis-backed
+  throttling, and explicit all-tenant opt-in exist; still not SSO/OIDC/RBAC-grade
 - Prompt-injection defense — keyword pass is solid; embedding classifier is
   optional (needs `sentence-transformers`); bypass rate is measured by the
   red-team CLI, not zero
 - Multi-process scaling — Redis backend exists; not yet load-tested at scale
+- Load testing — runbook exists; no published sustained-load results yet
 - RCA for complex branching agents — graph support added; heuristic, not a solver
 - OTel tracing — spans emitted; Grafana dashboards are provided as config, not battle-tested
 

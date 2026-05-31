@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Usage</h1>
+
+<div class="filter-bar">
+  <form method="get" action="/usage" style="display:flex;gap:0.75rem;flex-wrap:wrap">
+    <input name="tenant_id" value="{{ tenant_id }}" placeholder="tenant_id"
+           {% if tenant != "*" %}readonly{% endif %}>
+    <button class="btn" type="submit">Refresh</button>
+  </form>
+</div>
+
+{% if usage.get("error") %}
+  <div class="card"><span class="badge badge-block">{{ usage.get("error") }}</span></div>
+{% else %}
+  {% set remaining = usage.get("remaining", {}) %}
+  {% set limits = usage.get("limits", {}) %}
+  <div class="grid grid-3" style="margin-bottom:1.5rem">
+    <div class="card">
+      <div class="stat-value">{{ usage.get("calls", 0) }}</div>
+      <div class="stat-label">Calls Used</div>
+      <div class="layer-detail">remaining {{ remaining.get("calls", "unlimited") }}</div>
+    </div>
+    <div class="card">
+      <div class="stat-value">{{ usage.get("tool_validations", 0) }}</div>
+      <div class="stat-label">Tool Checks</div>
+      <div class="layer-detail">remaining {{ remaining.get("tool_validations", "unlimited") }}</div>
+    </div>
+    <div class="card">
+      <div class="stat-value">${{ "%.4f"|format(usage.get("cost_usd", 0)) }}</div>
+      <div class="stat-label">Tracked Cost</div>
+      <div class="layer-detail">remaining {{ remaining.get("cost_usd", "unlimited") }}</div>
+    </div>
+    <div class="card">
+      <div class="stat-value">{{ "%.0f"|format(limits.get("window_s", 0)) }}s</div>
+      <div class="stat-label">Quota Window</div>
+      <div class="layer-detail">tenant {{ usage.get("tenant_id", tenant_id) }}</div>
+    </div>
+    <div class="card">
+      <div class="stat-value">{{ metrics.get("usage_event_sinks", 0) }}</div>
+      <div class="stat-label">Usage Event Sinks</div>
+      <div class="layer-detail">billing hooks configured</div>
+    </div>
+    <div class="card">
+      <div class="stat-value">{% if metrics.get("usage_quota_enabled") %}ON{% else %}OFF{% endif %}</div>
+      <div class="stat-label">Quota Enforcement</div>
+      <div class="layer-detail">API-side hard limit</div>
+    </div>
+  </div>
+{% endif %}
+{% endblock %}

@@ -5,8 +5,8 @@ veritrace.cli
 
 Commands
 --------
-veritrace init          Generate .env, docker-compose.yml scaffold, and a
-                        starter veritrace_config.py in the current directory.
+veritrace init          Generate .env and starter veritrace_config.py in the
+                        current directory.
 veritrace validate      Check configuration and connectivity to Redis/Postgres.
 veritrace test-inject   Run built-in injection detection against a prompt.
 veritrace redteam       Run the built-in prompt-injection benchmark.
@@ -109,7 +109,7 @@ def cmd_init(args) -> int:
     print("\nNext steps:")
     print("  1. Edit .env (secrets are pre-generated)")
     print("  2. Edit veritrace_config.py to register your tools")
-    print("  3. docker compose up -d")
+    print("  3. From the Veritrace repo root, run: docker compose up -d")
     print("  4. veritrace validate")
     return 0
 

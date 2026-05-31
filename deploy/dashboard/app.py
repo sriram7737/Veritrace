@@ -23,8 +23,10 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import logging
 import os
 import time
+from pathlib import Path
 from typing import Optional
 
 import httpx
@@ -56,9 +58,14 @@ VT_DASHBOARD_SECURE_COOKIE = os.environ.get(
     "VT_DASHBOARD_SECURE_COOKIE", "false"
 ).lower() in {"1", "true", "yes", "on"}
 SESSION_TTL_S    = int(os.environ.get("VT_SESSION_TTL_S", "3600"))
+VT_DASHBOARD_REDIS_URL = os.environ.get(
+    "VT_DASHBOARD_REDIS_URL",
+    os.environ.get("VT_REDIS_URL", ""),
+)
 
 app = FastAPI(title="Veritrace Dashboard", docs_url=None, redoc_url=None)
-templates = Jinja2Templates(directory="templates")
+templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
+log = logging.getLogger("veritrace.dashboard")
 
 
 # ── minimal JWT (HS256, no external deps) ────────────────────────────────────
@@ -130,14 +137,68 @@ def require_auth(request: Request) -> AuthContext:
     return ctx
 
 
-# ── rate limit (simple per-IP token bucket, in-process) ──────────────────────
+# ── rate limit (Redis-backed when configured, in-process fallback) ────────────
 
 _rl_state: dict[str, tuple[float, float]] = {}  # ip -> (tokens, last_refill)
 _RL_CAPACITY    = float(os.environ.get("VT_DASHBOARD_RL_CAPACITY", "60"))
 _RL_REFILL_S    = float(os.environ.get("VT_DASHBOARD_RL_REFILL", "60"))  # tokens/minute
+_redis_client = None
+
+
+def _dashboard_redis():
+    global _redis_client
+    if not VT_DASHBOARD_REDIS_URL:
+        return None
+    if _redis_client is not None:
+        return _redis_client
+    try:
+        import redis  # type: ignore
+        _redis_client = redis.Redis.from_url(
+            VT_DASHBOARD_REDIS_URL,
+            decode_responses=True,
+            socket_timeout=1.0,
+            socket_connect_timeout=1.0,
+        )
+        _redis_client.ping()
+        return _redis_client
+    except Exception as exc:
+        log.warning("dashboard redis rate limit unavailable; using local bucket: %s", exc)
+        _redis_client = None
+        return None
+
+
+def _redis_rate_limit(key: str) -> bool:
+    client = _dashboard_redis()
+    if client is None:
+        return False
+    now = time.monotonic()
+    redis_key = f"veritrace:dashboard:rl:{key}"
+    raw = client.get(redis_key)
+    if raw:
+        try:
+            tokens, last = json.loads(raw)
+            tokens = float(tokens)
+            last = float(last)
+        except Exception:
+            tokens, last = _RL_CAPACITY, now
+    else:
+        tokens, last = _RL_CAPACITY, now
+    tokens = min(_RL_CAPACITY, tokens + (now - last) * (_RL_CAPACITY / _RL_REFILL_S))
+    if tokens < 1:
+        client.set(redis_key, json.dumps([tokens, now]), ex=max(1, int(_RL_REFILL_S * 2)))
+        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+    client.set(redis_key, json.dumps([tokens - 1, now]), ex=max(1, int(_RL_REFILL_S * 2)))
+    return True
 
 def _rate_limit(request: Request) -> None:
     ip = request.client.host if request.client else "unknown"
+    try:
+        if _redis_rate_limit(ip):
+            return
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log.warning("dashboard redis rate limit failed open to local bucket: %s", exc)
     now = time.monotonic()
     tokens, last = _rl_state.get(ip, (_RL_CAPACITY, now))
     tokens = min(_RL_CAPACITY, tokens + (now - last) * (_RL_CAPACITY / _RL_REFILL_S))
@@ -203,7 +264,7 @@ async def health():
 
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request, error: str = ""):
-    return templates.TemplateResponse("login.html", {"request": request, "error": error})
+    return templates.TemplateResponse(request, "login.html", {"error": error})
 
 
 @app.post("/login")
@@ -257,8 +318,7 @@ async def overview(
     except Exception:
         traces = []
     items = traces if isinstance(traces, list) else traces.get("items", [])
-    return templates.TemplateResponse("overview.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "overview.html", {
         "metrics": metrics,
         "recent_traces": _filter_by_tenant(items, ctx),
         "api_url": VT_API_URL,
@@ -293,8 +353,7 @@ async def trace_browser(
     except Exception as exc:
         data = {"items": [], "error": str(exc)}
     traces = data if isinstance(data, list) else data.get("items", [])
-    return templates.TemplateResponse("traces.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "traces.html", {
         "traces": _filter_by_tenant(traces, ctx),
         "tenant_id": effective_tenant,
         "session_id": session_id,
@@ -318,8 +377,8 @@ async def trace_detail(
     # Tenant scope check
     if not ctx.scope(trace.get("tenant_id", "")):
         raise HTTPException(status_code=403, detail="Access denied")
-    return templates.TemplateResponse("trace_detail.html", {
-        "request": request, "trace": trace, "user": ctx.username,
+    return templates.TemplateResponse(request, "trace_detail.html", {
+        "trace": trace, "user": ctx.username,
     })
 
 
@@ -336,8 +395,7 @@ async def approvals(
     except Exception as exc:
         data = {"items": [], "error": str(exc)}
     items = data if isinstance(data, list) else data.get("items", [])
-    return templates.TemplateResponse("approvals.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "approvals.html", {
         "approvals": _filter_by_tenant(items, ctx),
         "user": ctx.username,
     })
@@ -385,8 +443,35 @@ async def metrics_page(
         data = await _get("/metrics")
     except Exception as exc:
         data = {"error": str(exc)}
-    return templates.TemplateResponse("metrics.html", {
-        "request": request, "metrics": data, "user": ctx.username,
+    return templates.TemplateResponse(request, "metrics.html", {
+        "metrics": data, "user": ctx.username,
+    })
+
+
+@app.get("/usage", response_class=HTMLResponse)
+async def usage_page(
+    request: Request,
+    tenant_id: str = "",
+    ctx: AuthContext = Depends(require_auth),
+    _rl=Depends(_rate_limit),
+):
+    effective_tenant = tenant_id if ctx.tenant == "*" else ctx.tenant
+    if not effective_tenant:
+        effective_tenant = "default"
+    try:
+        usage = await _get("/usage", {"tenant_id": effective_tenant})
+    except Exception as exc:
+        usage = {"error": str(exc)}
+    try:
+        metrics = await _get("/metrics")
+    except Exception:
+        metrics = {}
+    return templates.TemplateResponse(request, "usage.html", {
+        "usage": usage,
+        "metrics": metrics,
+        "tenant_id": effective_tenant,
+        "user": ctx.username,
+        "tenant": ctx.tenant,
     })
 
 
@@ -399,8 +484,8 @@ async def metrics_fragment(
         data = await _get("/metrics")
     except Exception as exc:
         data = {"error": str(exc)}
-    return templates.TemplateResponse("metrics_fragment.html", {
-        "request": request, "metrics": data,
+    return templates.TemplateResponse(request, "metrics_fragment.html", {
+        "metrics": data,
     })
 
 

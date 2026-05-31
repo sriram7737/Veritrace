@@ -121,6 +121,7 @@ services:
     environment:
       VT_API_URL: "http://api:8080"
       VT_API_KEY: ${VT_API_KEY}
+      VT_DASHBOARD_REDIS_URL: "redis://:${REDIS_PASSWORD}@redis:6379/1"
       VT_DASHBOARD_KEY: ${VT_DASHBOARD_KEY:?VT_DASHBOARD_KEY is required}
       VT_JWT_SECRET: ${VT_JWT_SECRET:?VT_JWT_SECRET is required}
       VT_DASHBOARD_TENANT: ${VT_DASHBOARD_TENANT:-default}

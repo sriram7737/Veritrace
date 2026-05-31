@@ -3,11 +3,11 @@ veritrace.store_postgres
 ========================
 PostgreSQL implementations of the Store and HashChainBackend interfaces.
 
-Production features
--------------------
+Operational features
+--------------------
 - Connection pooling via a thread-local connection cache with max_pool_size cap
   (True pooling would use psycopg2.pool.ThreadedConnectionPool or pgbouncer; this
-  is a lightweight production-grade approach without adding another dependency)
+  is a lightweight production-oriented approach without adding another dependency)
 - Exponential-backoff retry on transient errors (OperationalError, InterfaceError)
 - Circuit breaker: opens after threshold consecutive failures, auto-resets after
   cooldown_s; prevents cascade when Postgres is flapping
