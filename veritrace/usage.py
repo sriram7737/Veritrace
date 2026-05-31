@@ -1,0 +1,296 @@
+"""
+veritrace.usage
+===============
+Per-tenant usage accounting and quota enforcement.
+
+This is deliberately small and deterministic: it counts calls, tool validation
+requests, and provider spend inside a rolling window. The tracker can use the
+in-process store for tests/dev or any backend implementing get/set for shared
+state in multi-worker deployments.
+"""
+from __future__ import annotations
+
+import logging
+import os
+import time
+from dataclasses import dataclass
+from threading import Lock
+from typing import Any, Callable, Optional
+
+
+log = logging.getLogger(__name__)
+
+
+def _env_int_optional(*names: str) -> Optional[int]:
+    for name in names:
+        raw = os.environ.get(name)
+        if raw is not None and raw.strip() != "":
+            try:
+                return int(raw)
+            except ValueError:
+                log.warning("invalid integer env %s=%r; ignoring", name, raw)
+                return None
+    return None
+
+
+def _env_float_optional(*names: str) -> Optional[float]:
+    for name in names:
+        raw = os.environ.get(name)
+        if raw is not None and raw.strip() != "":
+            try:
+                return float(raw)
+            except ValueError:
+                log.warning("invalid float env %s=%r; ignoring", name, raw)
+                return None
+    return None
+
+
+@dataclass(frozen=True)
+class UsageLimits:
+    max_calls: Optional[int] = None
+    max_tool_validations: Optional[int] = None
+    max_cost_usd: Optional[float] = None
+    window_s: int = 86_400
+
+    @property
+    def enabled(self) -> bool:
+        return any(
+            value is not None
+            for value in (self.max_calls, self.max_tool_validations, self.max_cost_usd)
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "max_calls": self.max_calls,
+            "max_tool_validations": self.max_tool_validations,
+            "max_cost_usd": self.max_cost_usd,
+            "window_s": self.window_s,
+        }
+
+
+@dataclass(frozen=True)
+class UsageSnapshot:
+    tenant_id: str
+    window_started_at: float
+    window_ends_at: float
+    calls: int = 0
+    tool_validations: int = 0
+    cost_usd: float = 0.0
+    limits: UsageLimits = UsageLimits()
+
+    def remaining_calls(self) -> Optional[int]:
+        if self.limits.max_calls is None:
+            return None
+        return max(0, self.limits.max_calls - self.calls)
+
+    def remaining_tool_validations(self) -> Optional[int]:
+        if self.limits.max_tool_validations is None:
+            return None
+        return max(0, self.limits.max_tool_validations - self.tool_validations)
+
+    def remaining_cost_usd(self) -> Optional[float]:
+        if self.limits.max_cost_usd is None:
+            return None
+        return max(0.0, self.limits.max_cost_usd - self.cost_usd)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "tenant_id": self.tenant_id,
+            "window_started_at": self.window_started_at,
+            "window_ends_at": self.window_ends_at,
+            "calls": self.calls,
+            "tool_validations": self.tool_validations,
+            "cost_usd": self.cost_usd,
+            "limits": self.limits.to_dict(),
+            "remaining": {
+                "calls": self.remaining_calls(),
+                "tool_validations": self.remaining_tool_validations(),
+                "cost_usd": self.remaining_cost_usd(),
+            },
+        }
+
+
+@dataclass(frozen=True)
+class UsageDecision:
+    allowed: bool
+    reason: str = ""
+    retry_after_s: float = 0.0
+    snapshot: Optional[UsageSnapshot] = None
+
+
+class UsageTracker:
+    """Windowed per-tenant usage tracker.
+
+    Limits are disabled by default. Set any max value to enforce that quota.
+    Backend errors fail open by default so a quota store outage does not become
+    a production outage; set fail_open=False for stricter deployments.
+    """
+
+    def __init__(
+        self,
+        limits: Optional[UsageLimits] = None,
+        *,
+        backend: Optional[Any] = None,
+        namespace: str = "veritrace:usage",
+        now_fn: Optional[Callable[[], float]] = None,
+        fail_open: bool = True,
+    ) -> None:
+        self.limits = limits or UsageLimits()
+        self.backend = backend
+        self.namespace = namespace
+        self.now_fn = now_fn or time.time
+        self.fail_open = fail_open
+        self._local: dict[str, dict[str, Any]] = {}
+        self._lock = Lock()
+
+    @classmethod
+    def from_env(cls, *, backend: Optional[Any] = None) -> "UsageTracker":
+        limits = UsageLimits(
+            max_calls=_env_int_optional("VERITRACE_QUOTA_CALLS", "VT_QUOTA_CALLS"),
+            max_tool_validations=_env_int_optional(
+                "VERITRACE_QUOTA_TOOL_VALIDATIONS", "VT_QUOTA_TOOL_VALIDATIONS"
+            ),
+            max_cost_usd=_env_float_optional(
+                "VERITRACE_QUOTA_COST_USD", "VT_QUOTA_COST_USD"
+            ),
+            window_s=_env_int_optional(
+                "VERITRACE_QUOTA_WINDOW_S", "VT_QUOTA_WINDOW_S"
+            ) or 86_400,
+        )
+        fail_open_raw = os.environ.get("VERITRACE_QUOTA_FAIL_OPEN", "true").lower()
+        fail_open = fail_open_raw not in {"0", "false", "no", "off"}
+        return cls(limits=limits, backend=backend, fail_open=fail_open)
+
+    @property
+    def enabled(self) -> bool:
+        return self.limits.enabled
+
+    def reserve_call(self, tenant_id: str) -> UsageDecision:
+        return self._reserve(tenant_id, call_delta=1)
+
+    def reserve_tool_validation(self, tenant_id: str) -> UsageDecision:
+        return self._reserve(tenant_id, tool_delta=1)
+
+    def record_cost(self, tenant_id: str, cost_usd: float) -> UsageDecision:
+        if cost_usd <= 0:
+            return UsageDecision(True, snapshot=self.snapshot(tenant_id))
+        return self._reserve(tenant_id, cost_delta=float(cost_usd), enforce_before=False)
+
+    def snapshot(self, tenant_id: str) -> UsageSnapshot:
+        state = self._load_state(tenant_id)
+        return self._snapshot(tenant_id, state)
+
+    def _reserve(
+        self,
+        tenant_id: str,
+        *,
+        call_delta: int = 0,
+        tool_delta: int = 0,
+        cost_delta: float = 0.0,
+        enforce_before: bool = True,
+    ) -> UsageDecision:
+        if not self.enabled:
+            return UsageDecision(True, snapshot=self.snapshot(tenant_id))
+
+        try:
+            with self._lock:
+                state = self._load_state(tenant_id)
+                snap = self._snapshot(tenant_id, state)
+                reason = self._quota_reason(
+                    snap,
+                    call_delta=call_delta if enforce_before else 0,
+                    tool_delta=tool_delta if enforce_before else 0,
+                    cost_delta=cost_delta if enforce_before else 0.0,
+                )
+                if reason:
+                    return UsageDecision(
+                        False,
+                        reason=reason,
+                        retry_after_s=max(0.0, snap.window_ends_at - self.now_fn()),
+                        snapshot=snap,
+                    )
+
+                state["calls"] = int(state.get("calls", 0)) + call_delta
+                state["tool_validations"] = int(
+                    state.get("tool_validations", 0)
+                ) + tool_delta
+                state["cost_usd"] = float(state.get("cost_usd", 0.0)) + cost_delta
+                self._save_state(tenant_id, state)
+                return UsageDecision(True, snapshot=self._snapshot(tenant_id, state))
+        except Exception as exc:
+            if self.fail_open:
+                log.warning("usage tracker failed open for tenant=%s: %s", tenant_id, exc)
+                return UsageDecision(True, reason="usage tracker failed open")
+            raise
+
+    def _quota_reason(
+        self,
+        snap: UsageSnapshot,
+        *,
+        call_delta: int,
+        tool_delta: int,
+        cost_delta: float,
+    ) -> str:
+        if (
+            self.limits.max_calls is not None
+            and snap.calls + call_delta > self.limits.max_calls
+        ):
+            return f"tenant call quota exceeded: {snap.calls}/{self.limits.max_calls}"
+        if (
+            self.limits.max_tool_validations is not None
+            and snap.tool_validations + tool_delta > self.limits.max_tool_validations
+        ):
+            return (
+                "tenant tool-validation quota exceeded: "
+                f"{snap.tool_validations}/{self.limits.max_tool_validations}"
+            )
+        if (
+            self.limits.max_cost_usd is not None
+            and snap.cost_usd + cost_delta > self.limits.max_cost_usd
+        ):
+            return (
+                "tenant cost quota exceeded: "
+                f"{snap.cost_usd:.6f}/{self.limits.max_cost_usd:.6f}"
+            )
+        return ""
+
+    def _snapshot(self, tenant_id: str, state: dict[str, Any]) -> UsageSnapshot:
+        started = float(state.get("window_started_at", self.now_fn()))
+        return UsageSnapshot(
+            tenant_id=tenant_id,
+            window_started_at=started,
+            window_ends_at=started + self.limits.window_s,
+            calls=int(state.get("calls", 0)),
+            tool_validations=int(state.get("tool_validations", 0)),
+            cost_usd=float(state.get("cost_usd", 0.0)),
+            limits=self.limits,
+        )
+
+    def _empty_state(self) -> dict[str, Any]:
+        return {
+            "window_started_at": self.now_fn(),
+            "calls": 0,
+            "tool_validations": 0,
+            "cost_usd": 0.0,
+        }
+
+    def _load_state(self, tenant_id: str) -> dict[str, Any]:
+        key = self._key(tenant_id)
+        state = self.backend.get(key) if self.backend is not None else self._local.get(key)
+        if not isinstance(state, dict):
+            state = self._empty_state()
+        started = float(state.get("window_started_at", self.now_fn()))
+        if self.now_fn() - started >= self.limits.window_s:
+            state = self._empty_state()
+        return dict(state)
+
+    def _save_state(self, tenant_id: str, state: dict[str, Any]) -> None:
+        key = self._key(tenant_id)
+        ttl = max(1, int(self.limits.window_s * 2))
+        if self.backend is not None:
+            self.backend.set(key, state, ttl_s=ttl)
+        else:
+            self._local[key] = dict(state)
+
+    def _key(self, tenant_id: str) -> str:
+        return f"{self.namespace}:{tenant_id or 'default'}"

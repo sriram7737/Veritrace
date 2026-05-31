@@ -29,6 +29,7 @@ from .store import MemoryStore, SQLiteStore
 from .auth import APIKeyRegistry, JWTManager
 from .otel import OpenTelemetryExporter, OpenTelemetryNotInstalled
 from .types import AgentResponse, HITLStatus, TraceEvent, Verdict
+from .usage import UsageDecision, UsageLimits, UsageSnapshot, UsageTracker
 
 __version__ = "0.2.0"
 __all__ = [
@@ -51,6 +52,10 @@ __all__ = [
     "SQLiteStore",
     "APIKeyRegistry",
     "JWTManager",
+    "UsageTracker",
+    "UsageLimits",
+    "UsageSnapshot",
+    "UsageDecision",
     "OpenTelemetryExporter",
     "OpenTelemetryNotInstalled",
     "BaseProvider",

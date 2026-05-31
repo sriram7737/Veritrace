@@ -12,7 +12,7 @@ veritrace validate       # checks config + Redis/Postgres connectivity
 ## Local without Docker (dev)
 ```bash
 pip install -e ".[dev,api,redis,postgres,otel,encrypted]"
-python -m pytest -q  # 307 passing
+python -m pytest -q  # 322 passing
 uvicorn veritrace.api.app:app --port 8080
 ```
 
@@ -22,6 +22,19 @@ from veritrace.backends.migrations import MigrationRunner, MIGRATIONS
 MigrationRunner(sqlite_path="veritrace.db").run(MIGRATIONS)      # dev
 MigrationRunner(dsn="postgresql://...").run(MIGRATIONS)          # prod
 ```
+
+## Tenant usage quotas
+Set any of these env vars to enable quota enforcement. Omit them to leave quotas disabled.
+
+```bash
+VT_QUOTA_CALLS=10000
+VT_QUOTA_TOOL_VALIDATIONS=50000
+VT_QUOTA_COST_USD=100.00
+VT_QUOTA_WINDOW_S=86400
+```
+
+The API returns HTTP 429 when a tenant exceeds a quota and exposes current
+window usage at `GET /v1/usage`.
 
 ## Kubernetes (Helm)
 ```bash

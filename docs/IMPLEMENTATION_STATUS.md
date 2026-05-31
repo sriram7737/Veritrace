@@ -9,7 +9,7 @@ below to know exactly what you are getting.
 
 ## Test status
 
-`python -m pytest -q` → **307 passing, 3 xfailed** (xfail = injection paraphrases
+`python -m pytest -q` → **322 passing, 3 xfailed** (xfail = injection paraphrases
 the zero-dependency keyword classifier intentionally defers to the embedding
 classifier, which is optional). No skips hiding failures.
 
@@ -28,7 +28,7 @@ classifier, which is optional). No skips hiding failures.
 - Tamper-evident hash chain (SHA-256), optional Ethereum/Hyperledger anchoring
 - RCA: replay, causality, counterfactual **+ tool-call graphs, multi-rule
   counterfactuals, critical-path** for complex agents
-- JWT / API-key auth, per-tenant rate limiting, cross-tenant trace guard
+- JWT / API-key auth, per-tenant rate limiting, usage quotas, cross-tenant trace guard
 - SQLite + encrypted SQLite; **Postgres** store; **Redis** distributed backend
 - **Migration runner** (stdlib, SQLite + Postgres)
 - **Compliance reporter** — consent registry, purpose limitation, retention
@@ -36,7 +36,7 @@ classifier, which is optional). No skips hiding failures.
 - OpenTelemetry per-layer spans (Compliance, Isolation, Safety, ToolGuard,
   Provider, HITL) + W3C trace-context propagation
 - FastAPI sidecar (auth, CORS, security headers, structured logging, RCA +
-  retention + GDPR-erasure endpoints)
+  retention + GDPR-erasure endpoints, `/v1/usage` quota snapshots)
 
 ### MVP / needs hardening
 - Prompt-injection defense — keyword pass is solid; embedding classifier is

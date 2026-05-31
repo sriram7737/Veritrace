@@ -59,6 +59,7 @@ from ..rca import RCAEngine
 from ..store import MemoryStore, SQLiteStore
 from ..telemetry import configure_otel
 from ..types import Verdict
+from ..usage import UsageTracker
 
 
 # ──────────────────────────── request / response ───────────────────────────
@@ -257,7 +258,8 @@ def build_default_tool_guard() -> ToolGuardLayer:
 # ───────────────────────────────── app factory ─────────────────────────────
 def create_app(armor: Optional[Veritrace] = None,
                registry: Optional[APIKeyRegistry] = None,
-               tool_guard: Optional[ToolGuardLayer] = None):
+               tool_guard: Optional[ToolGuardLayer] = None,
+               usage_tracker: Optional[UsageTracker] = None):
     """Build the FastAPI app.
 
     Auth behavior:
@@ -329,6 +331,7 @@ def create_app(armor: Optional[Veritrace] = None,
     app.state.registry = registry if registry is not None else load_registry_from_env()
     app.state.slack_hitl = getattr(app.state.armor.hitl, "approver", None)
     app.state.tool_guard = tool_guard or build_default_tool_guard()
+    app.state.usage = usage_tracker or UsageTracker.from_env()
     app.state.jwt = JWTManager(
         os.environ.get("VERITRACE_JWT_SECRET") or secrets.token_urlsafe(32)
     )
@@ -383,6 +386,14 @@ def create_app(armor: Optional[Veritrace] = None,
             # do not leak existence to other tenants — return 404 not 403
             raise HTTPException(status_code=404, detail="trace not found")
 
+    def _raise_quota(decision):
+        retry_after = int(decision.retry_after_s) + 1 if decision.retry_after_s else 1
+        raise HTTPException(
+            status_code=429,
+            detail=decision.reason or "tenant usage quota exceeded",
+            headers={"Retry-After": str(retry_after)},
+        )
+
     @app.get("/health")
     async def health():
         return {"status": "ok"}
@@ -413,6 +424,7 @@ def create_app(armor: Optional[Veritrace] = None,
             "jwt_enabled": len(app.state.registry) > 0,
             "slack_hitl_configured": isinstance(slack, SlackHITLApprover),
             "slack_last_error": getattr(slack, "last_error", "") if slack else "",
+            "usage_quota_enabled": app.state.usage.enabled,
         }
 
     @app.post("/v1/run", response_model=RunResponse)
@@ -422,10 +434,14 @@ def create_app(armor: Optional[Veritrace] = None,
         # When auth is on, the tenant comes from the key — ignore any body assertion.
         # When auth is off, fall back to body or "default".
         effective_tenant = tenant if tenant else (req.tenant_id or "default")
+        quota_decision = app.state.usage.reserve_call(effective_tenant)
+        if not quota_decision.allowed:
+            _raise_quota(quota_decision)
         r = await a.run(req.prompt, tenant_id=effective_tenant,
                         session_id=req.session_id, action=req.action,
                         trace_headers=dict(request.headers))
         t = r.trace
+        app.state.usage.record_cost(effective_tenant, t.provider_cost_usd)
         return RunResponse(
             call_id=t.call_id, output=r.output, blocked=r.blocked,
             block_reason=r.block_reason, hitl=r.hitl,
@@ -448,12 +464,23 @@ def create_app(armor: Optional[Veritrace] = None,
 
     @app.get("/v1/metrics")
     async def metrics(tenant: str = Depends(require_tenant)):
-        return app.state.armor.observability.report()
+        report = app.state.armor.observability.report()
+        report["usage_quota_enabled"] = app.state.usage.enabled
+        return report
+
+    @app.get("/v1/usage")
+    async def usage(tenant_id: str = "",
+                    tenant: str = Depends(require_tenant)):
+        effective_tenant = tenant if tenant else (tenant_id or "default")
+        return app.state.usage.snapshot(effective_tenant).to_dict()
 
     @app.post("/v1/tools/validate", response_model=ToolValidateResponse)
     async def validate_tool(req: ToolValidateRequest,
                             tenant: str = Depends(require_tenant)):
         effective_tenant = tenant if tenant else (req.tenant_id or "default")
+        quota_decision = app.state.usage.reserve_tool_validation(effective_tenant)
+        if not quota_decision.allowed:
+            _raise_quota(quota_decision)
         decision = await app.state.tool_guard.evaluate_async(
             req.tool_name,
             req.arguments,
@@ -575,7 +602,13 @@ def create_app(armor: Optional[Veritrace] = None,
     @app.get("/metrics")
     async def metrics_unversioned():
         """Dashboard-friendly metrics endpoint (no auth required for internal use)."""
-        return app.state.armor.observability.report()
+        report = app.state.armor.observability.report()
+        report["usage_quota_enabled"] = app.state.usage.enabled
+        return report
+
+    @app.get("/usage")
+    async def usage_unversioned(tenant_id: str = "default"):
+        return app.state.usage.snapshot(tenant_id).to_dict()
 
     @app.get("/traces")
     async def traces_list(

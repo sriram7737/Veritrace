@@ -2,7 +2,7 @@
 
 **Trust middleware for AI agents: deterministic guardrails, HITL, tool policy, and tamper-evident traces.**
 
-Veritrace wraps any LLM provider in a layered safety pipeline: injection detection, tool-call guardrails, human-in-the-loop approvals, cryptographic audit trail, and distributed tracing — all in one composable Python library.
+Veritrace wraps supported LLM providers in a layered safety pipeline: injection detection, tool-call guardrails, human-in-the-loop approvals, usage quotas, cryptographic audit trail, and distributed tracing — all in one composable Python library.
 
 ---
 
@@ -14,7 +14,7 @@ pip install veritrace
 
 ```python
 import asyncio
-from veritrace import Veritrace
+from veritrace import Veritrace, Verdict
 from veritrace.layers import ToolGuardLayer, ToolPolicy
 from veritrace.layers.tool_guard import SideEffect
 
@@ -158,9 +158,9 @@ The stack includes Postgres (audit store), Redis (HITL + rate limiting), the Ver
 | FastAPI sidecar | ✅ Production-ready | Auth, CORS, security headers, structured logging |
 | Admin dashboard | ✅ Beta | HTMX, auth, tenant isolation, CSV export |
 | Embedding classifier fine-tuning | ⚠️ Manual | Expand exemplar corpus; auto-retrain planned |
-| Compliance report generator (PDF) | 🔲 Roadmap | JSONL export available; PDF planned |
-| Kubernetes Helm chart | 🔲 Roadmap | docker-compose shipped; Helm in progress |
-| Usage quotas + billing hooks | 🔲 Roadmap | Basic rate limiting available |
+| Compliance report generator (PDF/JSON/text) | ✅ Beta | Consent, purpose, retention, audit summary |
+| Kubernetes Helm chart | ✅ Beta | API deployment, service, HPA, configurable values |
+| Usage quotas + budget hooks | ✅ Beta | Per-tenant call/tool/spend caps + `/v1/usage` |
 | Semantic safety (beyond regex) | ⚠️ Partial | Embedding classifier covers injection; output grounding planned |
 
 ---

@@ -27,6 +27,10 @@ VT_MAX_INPUT_BYTES        65536
 VT_MAX_OUTPUT_BYTES       65536
 VT_RATE_LIMIT_CAPACITY    100
 VT_RATE_LIMIT_REFILL      10          tokens/second
+VT_QUOTA_CALLS            10000       per-tenant window cap (optional)
+VT_QUOTA_TOOL_VALIDATIONS 50000       per-tenant window cap (optional)
+VT_QUOTA_COST_USD         100.0       per-tenant provider spend cap (optional)
+VT_QUOTA_WINDOW_S         86400       quota window in seconds
 VT_INJECTION_THRESHOLD    0.65        cosine similarity for embedding classifier
 VT_BREAKER_THRESHOLD      5           failures before circuit opens
 VT_BREAKER_COOLDOWN_S     30.0
@@ -100,6 +104,21 @@ class Settings:
         # ── rate limiting ─────────────────────────────────────────────────────
         self.rate_limit_capacity: float = _env_float("VT_RATE_LIMIT_CAPACITY", 100.0)
         self.rate_limit_refill:   float = _env_float("VT_RATE_LIMIT_REFILL",   10.0)
+
+        # usage quotas / budget controls
+        self.quota_calls: Optional[int] = (
+            _env_int("VT_QUOTA_CALLS", -1)
+            if _env("VT_QUOTA_CALLS") else None
+        )
+        self.quota_tool_validations: Optional[int] = (
+            _env_int("VT_QUOTA_TOOL_VALIDATIONS", -1)
+            if _env("VT_QUOTA_TOOL_VALIDATIONS") else None
+        )
+        self.quota_cost_usd: Optional[float] = (
+            _env_float("VT_QUOTA_COST_USD", -1.0)
+            if _env("VT_QUOTA_COST_USD") else None
+        )
+        self.quota_window_s: int = _env_int("VT_QUOTA_WINDOW_S", 86_400)
 
         # ── circuit breaker ───────────────────────────────────────────────────
         self.breaker_threshold:  int   = _env_int("VT_BREAKER_THRESHOLD", 5)

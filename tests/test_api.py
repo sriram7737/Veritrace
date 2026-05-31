@@ -10,6 +10,7 @@ from veritrace import Veritrace, Verdict  # noqa: E402
 from veritrace.hitl.slack import SlackApprovalRegistry  # noqa: E402
 from veritrace.layers import HITLLayer, ToolGuardLayer, ToolPolicy  # noqa: E402
 from veritrace.layers.tool_guard import SideEffect  # noqa: E402
+from veritrace.usage import UsageLimits, UsageTracker  # noqa: E402
 
 
 @pytest.fixture
@@ -92,6 +93,46 @@ def test_metrics_increment(client):
     client.post("/v1/run", json={"prompt": "b"})
     m = client.get("/v1/metrics").json()
     assert m["total_calls"] >= 2
+    assert "usage_quota_enabled" in m
+
+
+def test_run_quota_blocks_after_limit():
+    usage = UsageTracker(UsageLimits(max_calls=1, window_s=60))
+    local_client = TestClient(create_app(usage_tracker=usage))
+
+    first = local_client.post(
+        "/v1/run",
+        json={"prompt": "hello", "tenant_id": "acme", "session_id": "s"},
+    )
+    second = local_client.post(
+        "/v1/run",
+        json={"prompt": "again", "tenant_id": "acme", "session_id": "s"},
+    )
+    usage_resp = local_client.get("/v1/usage", params={"tenant_id": "acme"})
+
+    assert first.status_code == 200
+    assert second.status_code == 429
+    assert "call quota" in second.json()["detail"]
+    assert usage_resp.json()["calls"] == 1
+    assert usage_resp.json()["remaining"]["calls"] == 0
+
+
+def test_tool_validation_quota_blocks_after_limit():
+    usage = UsageTracker(UsageLimits(max_tool_validations=1, window_s=60))
+    local_client = TestClient(create_app(usage_tracker=usage))
+    body = {
+        "tool_name": "read_record",
+        "arguments": {"record_id": "abc"},
+        "tenant_id": "acme",
+        "session_id": "s",
+    }
+
+    first = local_client.post("/v1/tools/validate", json=body)
+    second = local_client.post("/v1/tools/validate", json=body)
+
+    assert first.status_code == 200
+    assert second.status_code == 429
+    assert "tool-validation quota" in second.json()["detail"]
 
 
 def test_missing_trace_404(client):
