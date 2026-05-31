@@ -425,6 +425,7 @@ def create_app(armor: Optional[Veritrace] = None,
             "slack_hitl_configured": isinstance(slack, SlackHITLApprover),
             "slack_last_error": getattr(slack, "last_error", "") if slack else "",
             "usage_quota_enabled": app.state.usage.enabled,
+            "usage_event_sinks": len(getattr(app.state.usage, "event_sinks", [])),
         }
 
     @app.post("/v1/run", response_model=RunResponse)
@@ -466,6 +467,7 @@ def create_app(armor: Optional[Veritrace] = None,
     async def metrics(tenant: str = Depends(require_tenant)):
         report = app.state.armor.observability.report()
         report["usage_quota_enabled"] = app.state.usage.enabled
+        report["usage_event_sinks"] = len(getattr(app.state.usage, "event_sinks", []))
         return report
 
     @app.get("/v1/usage")
@@ -604,6 +606,7 @@ def create_app(armor: Optional[Veritrace] = None,
         """Dashboard-friendly metrics endpoint (no auth required for internal use)."""
         report = app.state.armor.observability.report()
         report["usage_quota_enabled"] = app.state.usage.enabled
+        report["usage_event_sinks"] = len(getattr(app.state.usage, "event_sinks", []))
         return report
 
     @app.get("/usage")

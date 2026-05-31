@@ -2,7 +2,7 @@
 
 **Trust middleware for AI agents: deterministic guardrails, HITL, tool policy, and tamper-evident traces.**
 
-Veritrace wraps supported LLM providers in a layered safety pipeline: injection detection, tool-call guardrails, human-in-the-loop approvals, usage quotas, cryptographic audit trail, and distributed tracing — all in one composable Python library.
+Veritrace wraps supported LLM providers in a layered safety pipeline: injection detection, tool-call guardrails, human-in-the-loop approvals, usage quotas, usage-event hooks, cryptographic audit trail, and distributed tracing - all in one composable Python library.
 
 ---
 
@@ -164,7 +164,8 @@ impossible to bypass under serious adversarial pressure.
 | Embedding classifier fine-tuning | ⚠️ Manual | Expand exemplar corpus; auto-retrain planned |
 | Compliance report generator (PDF/JSON/text) | ✅ Beta | Consent, purpose, retention, audit summary |
 | Kubernetes Helm chart | ✅ Beta | API deployment, service, HPA, configurable values |
-| Usage quotas + budget hooks | Beta | Per-tenant call/tool/spend caps + `/v1/usage`; no billing provider integration |
+| Usage quotas + budget hooks | Beta | Per-tenant call/tool/spend caps, `/v1/usage`, fail-open billing webhook; no Stripe/Chargebee ledger |
+| Red-team benchmark CLI | MVP | `veritrace redteam --json` reports bypass/false-positive rates; not a professional red team |
 | Semantic safety (beyond regex) | ⚠️ Partial | Embedding classifier covers injection; output grounding planned |
 
 ---
@@ -282,6 +283,15 @@ spec:
 
 Set `VT_OTEL_ENDPOINT=http://otel-collector:4317` to ship traces to any OpenTelemetry-compatible backend (Jaeger, Honeycomb, Datadog, Grafana Tempo).
 
+### Red-team smoke check
+
+```bash
+veritrace redteam --json
+```
+
+The built-in corpus is deliberately small. Treat the reported bypass rate as a
+release sanity check, not proof that prompt injection is solved.
+
 ---
 
 ## Security Model
@@ -305,4 +315,4 @@ Set `VT_OTEL_ENDPOINT=http://otel-collector:4317` to ship traces to any OpenTele
 
 ## License
 
-MIT. Enterprise support and managed SaaS available — contact the maintainers.
+MIT. Managed SaaS and formal enterprise support are roadmap items, not bundled with this repo today.

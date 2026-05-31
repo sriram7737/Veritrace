@@ -61,6 +61,12 @@ def test_dashboard_api_key_auth_can_be_tenant_scoped(monkeypatch):
     assert ctx.tenant == "tenant_a"
 
 
+def test_dashboard_super_admin_requires_explicit_opt_in():
+    assert dashboard._normalize_dashboard_tenant("*", False) == "default"
+    assert dashboard._normalize_dashboard_tenant("*", True) == "*"
+    assert dashboard._normalize_dashboard_tenant("tenant_a", False) == "tenant_a"
+
+
 def test_dashboard_login_cookie_uses_configured_tenant_and_secure_flag(monkeypatch):
     monkeypatch.setattr(dashboard, "VT_DASHBOARD_KEY", "secret")
     monkeypatch.setattr(dashboard, "VT_DASHBOARD_TENANT", "tenant_a")

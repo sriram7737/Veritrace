@@ -11,9 +11,12 @@ state in multi-worker deployments.
 from __future__ import annotations
 
 import logging
+import json
 import os
 import time
-from dataclasses import dataclass
+import urllib.error
+import urllib.request
+from dataclasses import dataclass, field
 from threading import Lock
 from typing import Any, Callable, Optional
 
@@ -43,6 +46,14 @@ def _env_float_optional(*names: str) -> Optional[float]:
                 log.warning("invalid float env %s=%r; ignoring", name, raw)
                 return None
     return None
+
+
+def _env_str_optional(*names: str) -> str:
+    for name in names:
+        raw = os.environ.get(name)
+        if raw is not None and raw.strip() != "":
+            return raw.strip()
+    return ""
 
 
 @dataclass(frozen=True)
@@ -118,6 +129,84 @@ class UsageDecision:
     snapshot: Optional[UsageSnapshot] = None
 
 
+PendingUsageEvent = tuple[str, str, float, UsageSnapshot, dict[str, Any]]
+
+
+@dataclass(frozen=True)
+class UsageEvent:
+    event_type: str
+    tenant_id: str
+    amount: float
+    created_at: float
+    snapshot: UsageSnapshot
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "event_type": self.event_type,
+            "tenant_id": self.tenant_id,
+            "amount": self.amount,
+            "created_at": self.created_at,
+            "snapshot": self.snapshot.to_dict(),
+            "metadata": dict(self.metadata),
+        }
+
+
+class UsageEventSink:
+    """Interface for analytics/billing hooks."""
+
+    def emit(self, event: UsageEvent) -> None:
+        raise NotImplementedError
+
+
+class InMemoryUsageSink(UsageEventSink):
+    """Test/dev sink that keeps emitted usage events in memory."""
+
+    def __init__(self) -> None:
+        self.events: list[UsageEvent] = []
+
+    def emit(self, event: UsageEvent) -> None:
+        self.events.append(event)
+
+
+class WebhookUsageSink(UsageEventSink):
+    """Best-effort JSON webhook for billing/analytics ingestion.
+
+    This is intentionally fail-open: billing outage must not break the trust
+    pipeline. Production deployments should put a durable queue in front of the
+    actual billing provider.
+    """
+
+    def __init__(
+        self,
+        url: str,
+        *,
+        secret: str = "",
+        timeout_s: float = 2.0,
+    ) -> None:
+        self.url = url
+        self.secret = secret
+        self.timeout_s = timeout_s
+
+    def emit(self, event: UsageEvent) -> None:
+        data = json.dumps(event.to_dict(), sort_keys=True).encode("utf-8")
+        headers = {"Content-Type": "application/json"}
+        if self.secret:
+            headers["X-Veritrace-Billing-Secret"] = self.secret
+        req = urllib.request.Request(
+            self.url,
+            data=data,
+            headers=headers,
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout_s) as resp:
+                if resp.status >= 400:
+                    log.warning("billing webhook returned HTTP %s", resp.status)
+        except (urllib.error.URLError, TimeoutError) as exc:
+            log.warning("billing webhook failed open: %s", exc)
+
+
 class UsageTracker:
     """Windowed per-tenant usage tracker.
 
@@ -134,12 +223,14 @@ class UsageTracker:
         namespace: str = "veritrace:usage",
         now_fn: Optional[Callable[[], float]] = None,
         fail_open: bool = True,
+        event_sinks: Optional[list[UsageEventSink]] = None,
     ) -> None:
         self.limits = limits or UsageLimits()
         self.backend = backend
         self.namespace = namespace
         self.now_fn = now_fn or time.time
         self.fail_open = fail_open
+        self.event_sinks = list(event_sinks or [])
         self._local: dict[str, dict[str, Any]] = {}
         self._lock = Lock()
 
@@ -159,22 +250,56 @@ class UsageTracker:
         )
         fail_open_raw = os.environ.get("VERITRACE_QUOTA_FAIL_OPEN", "true").lower()
         fail_open = fail_open_raw not in {"0", "false", "no", "off"}
-        return cls(limits=limits, backend=backend, fail_open=fail_open)
+        sinks: list[UsageEventSink] = []
+        webhook_url = _env_str_optional(
+            "VT_BILLING_WEBHOOK_URL",
+            "VERITRACE_BILLING_WEBHOOK_URL",
+        )
+        if webhook_url:
+            sinks.append(
+                WebhookUsageSink(
+                    webhook_url,
+                    secret=_env_str_optional(
+                        "VT_BILLING_WEBHOOK_SECRET",
+                        "VERITRACE_BILLING_WEBHOOK_SECRET",
+                    ),
+                    timeout_s=_env_float_optional(
+                        "VT_BILLING_WEBHOOK_TIMEOUT_S",
+                        "VERITRACE_BILLING_WEBHOOK_TIMEOUT_S",
+                    ) or 2.0,
+                )
+            )
+        return cls(
+            limits=limits,
+            backend=backend,
+            fail_open=fail_open,
+            event_sinks=sinks,
+        )
 
     @property
     def enabled(self) -> bool:
         return self.limits.enabled
 
     def reserve_call(self, tenant_id: str) -> UsageDecision:
-        return self._reserve(tenant_id, call_delta=1)
+        return self._reserve(tenant_id, call_delta=1, event_type="call_reserved")
 
     def reserve_tool_validation(self, tenant_id: str) -> UsageDecision:
-        return self._reserve(tenant_id, tool_delta=1)
+        return self._reserve(
+            tenant_id,
+            tool_delta=1,
+            event_type="tool_validation_reserved",
+        )
 
     def record_cost(self, tenant_id: str, cost_usd: float) -> UsageDecision:
         if cost_usd <= 0:
             return UsageDecision(True, snapshot=self.snapshot(tenant_id))
-        return self._reserve(tenant_id, cost_delta=float(cost_usd), enforce_before=False)
+        return self._reserve(
+            tenant_id,
+            cost_delta=float(cost_usd),
+            enforce_before=False,
+            event_type="cost_recorded",
+            event_amount=float(cost_usd),
+        )
 
     def snapshot(self, tenant_id: str) -> UsageSnapshot:
         state = self._load_state(tenant_id)
@@ -188,10 +313,13 @@ class UsageTracker:
         tool_delta: int = 0,
         cost_delta: float = 0.0,
         enforce_before: bool = True,
+        event_type: str = "",
+        event_amount: Optional[float] = None,
     ) -> UsageDecision:
-        if not self.enabled:
+        if not self.enabled and not self.event_sinks:
             return UsageDecision(True, snapshot=self.snapshot(tenant_id))
 
+        pending_event: Optional[PendingUsageEvent] = None
         try:
             with self._lock:
                 state = self._load_state(tenant_id)
@@ -203,20 +331,36 @@ class UsageTracker:
                     cost_delta=cost_delta if enforce_before else 0.0,
                 )
                 if reason:
-                    return UsageDecision(
+                    pending_event = (
+                        "quota_blocked",
+                        tenant_id,
+                        0.0,
+                        snap,
+                        {"reason": reason},
+                    )
+                    decision = UsageDecision(
                         False,
                         reason=reason,
                         retry_after_s=max(0.0, snap.window_ends_at - self.now_fn()),
                         snapshot=snap,
                     )
-
-                state["calls"] = int(state.get("calls", 0)) + call_delta
-                state["tool_validations"] = int(
-                    state.get("tool_validations", 0)
-                ) + tool_delta
-                state["cost_usd"] = float(state.get("cost_usd", 0.0)) + cost_delta
-                self._save_state(tenant_id, state)
-                return UsageDecision(True, snapshot=self._snapshot(tenant_id, state))
+                else:
+                    state["calls"] = int(state.get("calls", 0)) + call_delta
+                    state["tool_validations"] = int(
+                        state.get("tool_validations", 0)
+                    ) + tool_delta
+                    state["cost_usd"] = float(state.get("cost_usd", 0.0)) + cost_delta
+                    self._save_state(tenant_id, state)
+                    snap = self._snapshot(tenant_id, state)
+                    if event_type:
+                        amount = event_amount
+                        if amount is None:
+                            amount = float(call_delta or tool_delta or cost_delta)
+                        pending_event = (event_type, tenant_id, amount, snap, {})
+                    decision = UsageDecision(True, snapshot=snap)
+            if pending_event:
+                self._emit_event_tuple(pending_event)
+            return decision
         except Exception as exc:
             if self.fail_open:
                 log.warning("usage tracker failed open for tenant=%s: %s", tenant_id, exc)
@@ -294,3 +438,41 @@ class UsageTracker:
 
     def _key(self, tenant_id: str) -> str:
         return f"{self.namespace}:{tenant_id or 'default'}"
+
+    def _emit_event(
+        self,
+        event_type: str,
+        tenant_id: str,
+        *,
+        amount: float,
+        snapshot: UsageSnapshot,
+        metadata: Optional[dict[str, Any]] = None,
+    ) -> None:
+        if not self.event_sinks:
+            return
+        event = UsageEvent(
+            event_type=event_type,
+            tenant_id=tenant_id,
+            amount=amount,
+            created_at=self.now_fn(),
+            snapshot=snapshot,
+            metadata=metadata or {},
+        )
+        for sink in self.event_sinks:
+            try:
+                sink.emit(event)
+            except Exception as exc:
+                log.warning("usage event sink failed open: %s", exc)
+
+    def _emit_event_tuple(
+        self,
+        pending_event: PendingUsageEvent,
+    ) -> None:
+        event_type, tenant_id, amount, snapshot, metadata = pending_event
+        self._emit_event(
+            event_type,
+            tenant_id,
+            amount=amount,
+            snapshot=snapshot,
+            metadata=metadata,
+        )

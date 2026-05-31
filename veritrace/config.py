@@ -31,6 +31,8 @@ VT_QUOTA_CALLS            10000       per-tenant window cap (optional)
 VT_QUOTA_TOOL_VALIDATIONS 50000       per-tenant window cap (optional)
 VT_QUOTA_COST_USD         100.0       per-tenant provider spend cap (optional)
 VT_QUOTA_WINDOW_S         86400       quota window in seconds
+VT_BILLING_WEBHOOK_URL    (optional fail-open usage/billing event sink)
+VT_BILLING_WEBHOOK_SECRET (optional shared secret header for billing webhook)
 VT_INJECTION_THRESHOLD    0.65        cosine similarity for embedding classifier
 VT_BREAKER_THRESHOLD      5           failures before circuit opens
 VT_BREAKER_COOLDOWN_S     30.0
@@ -45,6 +47,8 @@ VT_HITL_SLACK_TOKEN       (optional)
 VT_HITL_SLACK_CHANNEL     (optional)
 VT_HITL_TIMEOUT_S         300
 VT_CHAIN_WINDOW           10
+VT_DASHBOARD_TENANT       default     tenant scope for dashboard sessions
+VT_DASHBOARD_ALLOW_SUPER_ADMIN false  required before tenant "*" is honored
 """
 from __future__ import annotations
 

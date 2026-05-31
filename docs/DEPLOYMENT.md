@@ -12,7 +12,7 @@ veritrace validate       # checks config + Redis/Postgres connectivity
 ## Local without Docker (dev)
 ```bash
 pip install -e ".[dev,api,redis,postgres,otel,encrypted]"
-python -m pytest -q  # 327 passing
+python -m pytest -q  # 334 passing, 3 xfailed
 uvicorn veritrace.api.app:app --port 8080
 ```
 
@@ -36,14 +36,29 @@ VT_QUOTA_WINDOW_S=86400
 The API returns HTTP 429 when a tenant exceeds a quota and exposes current
 window usage at `GET /v1/usage`.
 
+## Usage analytics / billing webhook
+Set `VT_BILLING_WEBHOOK_URL` to emit fail-open JSON usage events for calls,
+tool validations, cost records, and quota blocks. This is a pilot integration
+hook, not a durable billing ledger.
+
+```bash
+VT_BILLING_WEBHOOK_URL=https://billing.example.com/veritrace/events
+VT_BILLING_WEBHOOK_SECRET=shared-secret
+VT_BILLING_WEBHOOK_TIMEOUT_S=2.0
+```
+
 ## Dashboard scope
 The dashboard is still a lightweight admin UI, not an enterprise IAM system.
 Use these env vars to keep it honest in pilots:
 
 ```bash
 VT_DASHBOARD_TENANT=tenant_a        # "*" means super-admin
+VT_DASHBOARD_ALLOW_SUPER_ADMIN=false
 VT_DASHBOARD_SECURE_COOKIE=true     # set true behind TLS
 ```
+
+All-tenant dashboard access is ignored unless both `VT_DASHBOARD_TENANT=*` and
+`VT_DASHBOARD_ALLOW_SUPER_ADMIN=true` are set.
 
 ## Kubernetes (Helm)
 ```bash

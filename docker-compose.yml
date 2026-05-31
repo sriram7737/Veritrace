@@ -1,10 +1,10 @@
-# Veritrace — production-grade docker-compose
+# Veritrace - pilot docker-compose
 # ─────────────────────────────────────────────────────────────────────────────
 # Services:
-#   postgres  — audit store + hash chain persistence
-#   redis     — HITL signalling, rate-limit buckets, session memory
-#   api       — Veritrace FastAPI sidecar (trust pipeline)
-#   dashboard — lightweight admin UI (trace browser, approvals, metrics)
+#   postgres  - audit store + hash chain persistence
+#   redis     - HITL signalling, rate-limit buckets, session memory
+#   api       - Veritrace FastAPI sidecar (trust pipeline)
+#   dashboard - lightweight admin UI (trace browser, approvals, metrics)
 #
 # Quick start:
 #   cp .env.example .env   # fill in secrets
@@ -85,9 +85,17 @@ services:
       VT_POSTGRES_DSN: "postgresql://${POSTGRES_USER:-veritrace}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-veritrace}"
       VT_API_KEY: ${VT_API_KEY:?VT_API_KEY is required}
       VT_SIGNING_KEY: ${VT_SIGNING_KEY:?VT_SIGNING_KEY is required}
+      VT_JWT_SECRET: ${VT_JWT_SECRET:?VT_JWT_SECRET is required}
       VT_MAX_INPUT_BYTES: ${VT_MAX_INPUT_BYTES:-65536}
       VT_RATE_LIMIT_CAPACITY: ${VT_RATE_LIMIT_CAPACITY:-100}
       VT_RATE_LIMIT_REFILL: ${VT_RATE_LIMIT_REFILL:-10}
+      VT_QUOTA_CALLS: ${VT_QUOTA_CALLS:-}
+      VT_QUOTA_TOOL_VALIDATIONS: ${VT_QUOTA_TOOL_VALIDATIONS:-}
+      VT_QUOTA_COST_USD: ${VT_QUOTA_COST_USD:-}
+      VT_QUOTA_WINDOW_S: ${VT_QUOTA_WINDOW_S:-86400}
+      VT_BILLING_WEBHOOK_URL: ${VT_BILLING_WEBHOOK_URL:-}
+      VT_BILLING_WEBHOOK_SECRET: ${VT_BILLING_WEBHOOK_SECRET:-}
+      VT_BILLING_WEBHOOK_TIMEOUT_S: ${VT_BILLING_WEBHOOK_TIMEOUT_S:-2.0}
       VT_HITL_SLACK_TOKEN: ${VT_HITL_SLACK_TOKEN:-}
       VT_HITL_SLACK_CHANNEL: ${VT_HITL_SLACK_CHANNEL:-}
       VT_OTEL_ENDPOINT: ${VT_OTEL_ENDPOINT:-}
@@ -113,6 +121,11 @@ services:
     environment:
       VT_API_URL: "http://api:8080"
       VT_API_KEY: ${VT_API_KEY}
+      VT_DASHBOARD_KEY: ${VT_DASHBOARD_KEY:?VT_DASHBOARD_KEY is required}
+      VT_JWT_SECRET: ${VT_JWT_SECRET:?VT_JWT_SECRET is required}
+      VT_DASHBOARD_TENANT: ${VT_DASHBOARD_TENANT:-default}
+      VT_DASHBOARD_ALLOW_SUPER_ADMIN: ${VT_DASHBOARD_ALLOW_SUPER_ADMIN:-false}
+      VT_DASHBOARD_SECURE_COOKIE: ${VT_DASHBOARD_SECURE_COOKIE:-false}
       DASHBOARD_PORT: ${DASHBOARD_PORT:-8501}
     ports:
       - "${DASHBOARD_PORT:-8501}:8501"

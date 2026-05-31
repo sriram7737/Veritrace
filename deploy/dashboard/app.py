@@ -15,6 +15,8 @@ If tenant == "*" the user sees all tenants (super-admin).
 Otherwise traces, metrics, and approvals are scoped to that tenant only.
 
 Set VT_DASHBOARD_KEY and VT_JWT_SECRET in the environment (or docker-compose).
+To enable all-tenant access, set both VT_DASHBOARD_TENANT=* and
+VT_DASHBOARD_ALLOW_SUPER_ADMIN=true.
 """
 from __future__ import annotations
 
@@ -30,11 +32,26 @@ from fastapi import Cookie, Depends, FastAPI, Form, HTTPException, Request, Resp
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
+
+def _normalize_dashboard_tenant(raw_tenant: str, allow_super_admin: bool) -> str:
+    """Require an explicit opt-in before the dashboard can see every tenant."""
+    if raw_tenant == "*":
+        return "*" if allow_super_admin else "default"
+    return raw_tenant or "default"
+
+
 VT_API_URL       = os.environ.get("VT_API_URL", "http://localhost:8080")
 VT_API_KEY       = os.environ.get("VT_API_KEY", "")
 VT_DASHBOARD_KEY = os.environ.get("VT_DASHBOARD_KEY", VT_API_KEY)  # shared key for browser
 VT_JWT_SECRET    = os.environ.get("VT_JWT_SECRET", "change-me-in-production")
-VT_DASHBOARD_TENANT = os.environ.get("VT_DASHBOARD_TENANT", "*")
+VT_DASHBOARD_ALLOW_SUPER_ADMIN = os.environ.get(
+    "VT_DASHBOARD_ALLOW_SUPER_ADMIN", "false"
+).lower() in {"1", "true", "yes", "on"}
+_VT_DASHBOARD_TENANT_RAW = os.environ.get("VT_DASHBOARD_TENANT", "default")
+VT_DASHBOARD_TENANT = _normalize_dashboard_tenant(
+    _VT_DASHBOARD_TENANT_RAW,
+    VT_DASHBOARD_ALLOW_SUPER_ADMIN,
+)
 VT_DASHBOARD_SECURE_COOKIE = os.environ.get(
     "VT_DASHBOARD_SECURE_COOKIE", "false"
 ).lower() in {"1", "true", "yes", "on"}

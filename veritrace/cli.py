@@ -1,7 +1,7 @@
 """
 veritrace.cli
 =============
-``veritrace`` CLI — project bootstrap, config validation, and quick testing.
+``veritrace`` CLI - project bootstrap, config validation, and quick testing.
 
 Commands
 --------
@@ -9,12 +9,14 @@ veritrace init          Generate .env, docker-compose.yml scaffold, and a
                         starter veritrace_config.py in the current directory.
 veritrace validate      Check configuration and connectivity to Redis/Postgres.
 veritrace test-inject   Run built-in injection detection against a prompt.
+veritrace redteam       Run the built-in prompt-injection benchmark.
 veritrace version       Print version.
 """
 from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import sys
 
 
@@ -46,11 +48,15 @@ def cmd_init(args) -> int:
             VT_MAX_INPUT_BYTES=65536
             VT_RATE_LIMIT_CAPACITY=100
             VT_RATE_LIMIT_REFILL=10
-            # Optional — fill in for HITL Slack integration
+            # Optional - fill in for HITL Slack integration
             VT_HITL_SLACK_TOKEN=
             VT_HITL_SLACK_CHANNEL=
-            # Optional — fill in for OpenTelemetry
+            # Optional - fill in for OpenTelemetry
             VT_OTEL_ENDPOINT=
+            # Optional - usage analytics / billing webhook
+            VT_BILLING_WEBHOOK_URL=
+            VT_BILLING_WEBHOOK_SECRET=
+            VT_BILLING_WEBHOOK_TIMEOUT_S=2.0
         """)
         with open(env_path, "w") as f:
             f.write(env_content)
@@ -174,6 +180,31 @@ def cmd_test_inject(args) -> int:
     return 0
 
 
+def cmd_redteam(args) -> int:
+    from .redteam import run_injection_benchmark
+
+    report = run_injection_benchmark(force_keyword_only=not args.embedding)
+    data = report.to_dict()
+
+    if args.json:
+        print(json.dumps(data, indent=2, sort_keys=True))
+    else:
+        print("Veritrace prompt-injection benchmark")
+        print(f"  attacks:          {report.attacks_caught}/{report.attacks_total} caught")
+        print(f"  bypass rate:      {report.bypass_rate:.1%}")
+        print(f"  benign prompts:   {report.benign_total}")
+        print(
+            "  false positives:  "
+            f"{report.false_positives} ({report.false_positive_rate:.1%})"
+        )
+        if report.bypassed_prompts:
+            print("  bypassed prompts:")
+            for prompt in report.bypassed_prompts:
+                print(f"    - {prompt}")
+
+    return 1 if report.bypass_rate > args.max_bypass_rate else 0
+
+
 def cmd_version(args) -> int:
     try:
         from importlib.metadata import version
@@ -187,7 +218,7 @@ def cmd_version(args) -> int:
 def main():
     parser = argparse.ArgumentParser(
         prog="veritrace",
-        description="Veritrace — AI agent trust infrastructure",
+        description="Veritrace - AI agent trust middleware",
     )
     sub = parser.add_subparsers(dest="command")
 
@@ -203,6 +234,27 @@ def main():
     p_inj.add_argument("--embedding", action="store_true",
                        help="Use embedding classifier (requires sentence-transformers)")
 
+    p_redteam = sub.add_parser(
+        "redteam",
+        help="Run built-in prompt-injection benchmark",
+    )
+    p_redteam.add_argument(
+        "--embedding",
+        action="store_true",
+        help="Use embedding classifier (requires sentence-transformers)",
+    )
+    p_redteam.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit machine-readable JSON",
+    )
+    p_redteam.add_argument(
+        "--max-bypass-rate",
+        type=float,
+        default=0.30,
+        help="Exit non-zero if bypass rate exceeds this fraction",
+    )
+
     sub.add_parser("version", help="Print version")
 
     args = parser.parse_args()
@@ -210,6 +262,7 @@ def main():
         "init":        cmd_init,
         "validate":    cmd_validate,
         "test-inject": cmd_test_inject,
+        "redteam":     cmd_redteam,
         "version":     cmd_version,
     }
     if args.command not in handlers:

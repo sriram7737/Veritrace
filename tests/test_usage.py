@@ -1,4 +1,4 @@
-from veritrace.usage import UsageLimits, UsageTracker
+from veritrace.usage import InMemoryUsageSink, UsageLimits, UsageTracker
 
 
 def test_call_quota_blocks_after_limit():
@@ -60,3 +60,71 @@ def test_disabled_tracker_allows_without_limits():
     assert tracker.reserve_call("acme").allowed
     assert tracker.reserve_tool_validation("acme").allowed
     assert not tracker.enabled
+
+
+def test_usage_sink_tracks_without_enforced_quotas():
+    sink = InMemoryUsageSink()
+    tracker = UsageTracker(event_sinks=[sink])
+
+    assert tracker.reserve_call("acme").allowed
+    assert tracker.reserve_tool_validation("acme").allowed
+    tracker.record_cost("acme", 0.25)
+
+    assert not tracker.enabled
+    assert [e.event_type for e in sink.events] == [
+        "call_reserved",
+        "tool_validation_reserved",
+        "cost_recorded",
+    ]
+    assert tracker.snapshot("acme").calls == 1
+    assert tracker.snapshot("acme").tool_validations == 1
+    assert tracker.snapshot("acme").cost_usd == 0.25
+
+
+def test_usage_events_emit_for_calls_tools_cost_and_blocks():
+    sink = InMemoryUsageSink()
+    tracker = UsageTracker(
+        UsageLimits(max_calls=1, max_tool_validations=1, max_cost_usd=0.01),
+        event_sinks=[sink],
+    )
+
+    assert tracker.reserve_call("acme").allowed
+    assert tracker.reserve_tool_validation("acme").allowed
+    tracker.record_cost("acme", 0.005)
+    assert not tracker.reserve_call("acme").allowed
+
+    assert [e.event_type for e in sink.events] == [
+        "call_reserved",
+        "tool_validation_reserved",
+        "cost_recorded",
+        "quota_blocked",
+    ]
+    assert sink.events[0].to_dict()["tenant_id"] == "acme"
+    assert sink.events[-1].metadata["reason"].startswith("tenant call quota")
+
+
+def test_usage_sink_failure_does_not_break_quota_path():
+    class BrokenSink:
+        def emit(self, event):
+            raise RuntimeError("billing down")
+
+    tracker = UsageTracker(
+        UsageLimits(max_calls=1),
+        event_sinks=[BrokenSink()],
+    )
+
+    assert tracker.reserve_call("acme").allowed
+
+
+def test_usage_from_env_adds_webhook_sink(monkeypatch):
+    monkeypatch.setenv("VT_BILLING_WEBHOOK_URL", "https://billing.example/events")
+    monkeypatch.setenv("VT_BILLING_WEBHOOK_SECRET", "secret")
+    monkeypatch.setenv("VT_BILLING_WEBHOOK_TIMEOUT_S", "0.25")
+
+    tracker = UsageTracker.from_env()
+
+    assert len(tracker.event_sinks) == 1
+    sink = tracker.event_sinks[0]
+    assert sink.url == "https://billing.example/events"
+    assert sink.secret == "secret"
+    assert sink.timeout_s == 0.25

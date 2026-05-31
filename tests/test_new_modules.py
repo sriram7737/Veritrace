@@ -238,3 +238,17 @@ class TestCLI:
         )
         assert r.returncode == 0
         assert "No injection" in r.stdout or "no injection" in r.stdout.lower()
+
+    def test_redteam_json_reports_bypass_rate(self):
+        import json
+        import subprocess
+        import sys
+
+        r = subprocess.run(
+            [sys.executable, "-m", "veritrace.cli", "redteam", "--json"],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+        data = json.loads(r.stdout)
+        assert data["attacks_total"] >= 10
+        assert 0.0 <= data["bypass_rate"] <= 1.0

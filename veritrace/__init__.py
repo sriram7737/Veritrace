@@ -1,5 +1,5 @@
 r"""
-Veritrace — trust middleware for AI agents: deterministic guardrails, HITL,
+Veritrace - trust middleware for AI agents: deterministic guardrails, HITL,
 tool policy, and tamper-evident traces.
 
 Quick start
@@ -28,8 +28,18 @@ from .providers import (AnthropicProvider, BaseProvider, FallbackProvider,
 from .store import MemoryStore, SQLiteStore
 from .auth import APIKeyRegistry, JWTManager
 from .otel import OpenTelemetryExporter, OpenTelemetryNotInstalled
+from .redteam import RedTeamReport, run_injection_benchmark
 from .types import AgentResponse, HITLStatus, TraceEvent, Verdict
-from .usage import UsageDecision, UsageLimits, UsageSnapshot, UsageTracker
+from .usage import (
+    InMemoryUsageSink,
+    UsageDecision,
+    UsageEvent,
+    UsageEventSink,
+    UsageLimits,
+    UsageSnapshot,
+    UsageTracker,
+    WebhookUsageSink,
+)
 
 __version__ = "0.2.0"
 __all__ = [
@@ -56,6 +66,12 @@ __all__ = [
     "UsageLimits",
     "UsageSnapshot",
     "UsageDecision",
+    "UsageEvent",
+    "UsageEventSink",
+    "InMemoryUsageSink",
+    "WebhookUsageSink",
+    "run_injection_benchmark",
+    "RedTeamReport",
     "OpenTelemetryExporter",
     "OpenTelemetryNotInstalled",
     "BaseProvider",

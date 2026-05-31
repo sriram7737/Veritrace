@@ -9,7 +9,7 @@ below to know exactly what you are getting.
 
 ## Test status
 
-`python -m pytest -q` → **327 passing, 3 xfailed** (xfail = injection paraphrases
+`python -m pytest -q` -> **334 passing, 3 xfailed** (xfail = injection paraphrases
 the zero-dependency keyword classifier intentionally defers to the embedding
 classifier, which is optional). No skips hiding failures.
 
@@ -29,6 +29,7 @@ classifier, which is optional). No skips hiding failures.
 - RCA: replay, causality, counterfactual **+ tool-call graphs, multi-rule
   counterfactuals, critical-path** for complex agents
 - JWT / API-key auth, per-tenant rate limiting, usage quotas, cross-tenant trace guard
+- Usage-event hooks for billing/analytics (in-memory sink + fail-open webhook)
 - SQLite + encrypted SQLite; **Postgres** store; **Redis** distributed backend
 - **Migration runner** (stdlib, SQLite + Postgres)
 - **Compliance reporter** — consent registry, purpose limitation, retention
@@ -37,16 +38,19 @@ classifier, which is optional). No skips hiding failures.
   Provider, HITL) + W3C trace-context propagation
 - FastAPI sidecar (auth, CORS, security headers, structured logging, RCA +
   retention + GDPR-erasure endpoints, `/v1/usage` quota snapshots)
+- Built-in red-team benchmark CLI (`veritrace redteam --json`) with bypass and
+  false-positive rates
 - Syntax-health test that compiles every Python source file before release
 - Small concurrency smoke test for trace uniqueness and hash-chain integrity
 
 ### MVP / needs hardening
 - Usage quotas: enforced before expensive routes and integrated with rate
-  limiting, but not connected to Stripe/Chargebee or billing ledgers
-- Dashboard auth: tenant-scoped config and secure-cookie support exist; still
-  not SSO/OIDC/RBAC-grade
+  limiting; webhook events exist, but there is no Stripe/Chargebee billing ledger
+- Dashboard auth: tenant-scoped config, secure-cookie support, and explicit
+  all-tenant opt-in exist; still not SSO/OIDC/RBAC-grade
 - Prompt-injection defense — keyword pass is solid; embedding classifier is
-  optional (needs `sentence-transformers`); bypass rate is measured, not zero
+  optional (needs `sentence-transformers`); bypass rate is measured by the
+  red-team CLI, not zero
 - Multi-process scaling — Redis backend exists; not yet load-tested at scale
 - RCA for complex branching agents — graph support added; heuristic, not a solver
 - OTel tracing — spans emitted; Grafana dashboards are provided as config, not battle-tested

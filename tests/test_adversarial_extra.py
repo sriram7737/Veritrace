@@ -8,6 +8,7 @@ import pytest
 
 from veritrace.classifier import (build_classifier, KeywordFallbackClassifier,
                                    INJECTION_EXEMPLARS, BENIGN_EXEMPLARS)
+from veritrace.redteam import run_injection_benchmark
 from veritrace.layers import IsolationLayer
 from veritrace.layers.isolation import InjectionSuspected
 from veritrace.backends import InProcessBackend
@@ -55,11 +56,25 @@ def test_classifier_low_false_positive_on_benign():
 
 
 def test_bypass_rate_is_reported_and_bounded():
-    clf = build_classifier(force_keyword_only=True)
-    bypassed = [a for a in ATTACKS if not clf(a)]
-    rate = len(bypassed) / len(ATTACKS)
+    report = run_injection_benchmark(
+        force_keyword_only=True,
+        attacks=ATTACKS,
+        benign=BENIGN,
+    )
     # We assert a measurable bound rather than perfection (honest metric).
-    assert rate <= 0.30, f"bypass rate {rate:.0%} exceeds 30% ({bypassed})"
+    assert report.bypass_rate <= 0.30, (
+        f"bypass rate {report.bypass_rate:.0%} exceeds 30% "
+        f"({report.bypassed_prompts})"
+    )
+
+
+def test_redteam_report_shape_is_stable():
+    report = run_injection_benchmark(force_keyword_only=True)
+    data = report.to_dict()
+
+    assert data["attacks_total"] >= 10
+    assert 0.0 <= data["bypass_rate"] <= 1.0
+    assert "bypassed_prompts" in data
 
 
 def test_exemplars_are_all_caught_by_keyword_or_documented():
