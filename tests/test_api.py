@@ -6,6 +6,10 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from veritrace.api.app import create_app  # noqa: E402
 from veritrace.api.app import build_default_armor  # noqa: E402
+from veritrace import Veritrace, Verdict  # noqa: E402
+from veritrace.hitl.slack import SlackApprovalRegistry  # noqa: E402
+from veritrace.layers import HITLLayer, ToolGuardLayer, ToolPolicy  # noqa: E402
+from veritrace.layers.tool_guard import SideEffect  # noqa: E402
 
 
 @pytest.fixture
@@ -30,6 +34,29 @@ def test_run_returns_trace_fields(client):
     assert body["output"]
     assert len(body["this_hash"]) == 64
     assert body["hitl"] == "auto"  # non-consequential action -> auto-approved
+
+
+def test_run_passes_trace_headers_to_core():
+    armor = Veritrace()
+    original_run = armor.run
+    seen = {}
+
+    async def wrapped_run(prompt, **kwargs):
+        seen["trace_headers"] = kwargs.get("trace_headers")
+        return await original_run(prompt, **kwargs)
+
+    armor.run = wrapped_run
+    local_client = TestClient(create_app(armor=armor))
+    r = local_client.post(
+        "/v1/run",
+        json={"prompt": "hello", "tenant_id": "t", "session_id": "s"},
+        headers={
+            "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+        },
+    )
+
+    assert r.status_code == 200
+    assert seen["trace_headers"]["traceparent"].startswith("00-4bf92")
 
 
 def test_run_blocks_disallowed_input(client):
@@ -98,6 +125,69 @@ def test_tool_validate_endpoint_escalates_payment_tool(client):
     assert r.status_code == 200
     assert r.json()["verdict"] == "escalate"
     assert r.json()["side_effect"] == "payment"
+
+
+class BlockingJudge:
+    async def evaluate(self, tool_name, arguments, *, side_effect, tenant_id, session_id):
+        class Decision:
+            verdict = Verdict.BLOCK
+            reason = "semantic judge rejected"
+        return Decision()
+
+
+def test_tool_validate_endpoint_uses_async_judge():
+    guard = ToolGuardLayer(
+        policies=[
+            ToolPolicy(
+                name="wire_transfer",
+                side_effect=SideEffect.PAYMENT,
+                action=Verdict.ALLOW,
+                schema={"type": "object", "properties": {"amount": {"type": "number"}}},
+            )
+        ],
+        judge=BlockingJudge(),
+    )
+    local_client = TestClient(create_app(tool_guard=guard))
+    r = local_client.post("/v1/tools/validate", json={
+        "tool_name": "wire_transfer",
+        "arguments": {"amount": 5},
+        "tenant_id": "bank",
+        "session_id": "s",
+        "action": "wire_transfer",
+    })
+
+    assert r.status_code == 200
+    assert r.json()["verdict"] == "block"
+    assert "judge" in r.json()["reason"].lower()
+
+
+class RegistryBackedApprover:
+    def __init__(self, registry):
+        self.registry = registry
+
+    async def __call__(self, action, context):
+        return None
+
+
+def test_hitl_pending_includes_registry_tenant_context():
+    registry = SlackApprovalRegistry()
+    pending = registry.create(
+        "wire_transfer",
+        {"tenant": "bank", "output_preview": "transfer preview"},
+    )
+    armor = Veritrace(hitl=HITLLayer(
+        require_approval_for=["wire_transfer"],
+        approver=RegistryBackedApprover(registry),
+    ))
+    local_client = TestClient(create_app(armor=armor))
+
+    r = local_client.get("/hitl/pending")
+
+    assert r.status_code == 200
+    item = r.json()["items"][0]
+    assert item["request_id"] == pending.request_id
+    assert item["tenant_id"] == "bank"
+    assert item["context"]["output_preview"] == "transfer preview"
 
 
 def test_default_api_provider_can_be_selected_from_env(monkeypatch):

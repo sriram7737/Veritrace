@@ -1,5 +1,8 @@
-from veritrace import Verdict
+import pytest
+
+from veritrace import Veritrace, Verdict
 from veritrace.layers import ToolGuardLayer, ToolPolicy
+from veritrace.layers.tool_guard import SideEffect
 
 
 def _guard():
@@ -99,3 +102,61 @@ def test_session_call_limit_blocks_repeated_side_effects():
     assert second.verdict == Verdict.BLOCK
     assert "limit" in second.reason
     assert len(guard.audit_log) == 2
+
+
+class BlockingJudge:
+    async def evaluate(self, tool_name, arguments, *, side_effect, tenant_id, session_id):
+        class Decision:
+            verdict = Verdict.BLOCK
+            reason = "semantic judge blocked suspicious tool call"
+        return Decision()
+
+
+@pytest.mark.asyncio
+async def test_async_tool_guard_judge_can_tighten_verdict():
+    guard = ToolGuardLayer(
+        policies=[
+            ToolPolicy(
+                name="wire_transfer",
+                side_effect=SideEffect.PAYMENT,
+                action=Verdict.ALLOW,
+                schema={"type": "object", "properties": {"amount": {"type": "number"}}},
+            )
+        ],
+        judge=BlockingJudge(),
+    )
+
+    decision = await guard.evaluate_async(
+        "wire_transfer", {"amount": 10},
+        tenant_id="bank", session_id="s1", action_label="wire")
+
+    assert decision.verdict == Verdict.BLOCK
+    assert "judge" in decision.reason.lower()
+
+
+@pytest.mark.asyncio
+async def test_core_pipeline_uses_async_tool_guard_judge():
+    guard = ToolGuardLayer(
+        policies=[
+            ToolPolicy(
+                name="wire_transfer",
+                side_effect=SideEffect.PAYMENT,
+                action=Verdict.ALLOW,
+                schema={"type": "object", "properties": {"amount": {"type": "number"}}},
+            )
+        ],
+        judge=BlockingJudge(),
+    )
+    armor = Veritrace(tool_guard=guard)
+
+    response = await armor.run(
+        "transfer funds",
+        tenant_id="bank",
+        session_id="s1",
+        action="wire_transfer",
+        tool_name="wire_transfer",
+        tool_arguments={"amount": 10},
+    )
+
+    assert response.blocked
+    assert "tool blocked" in response.block_reason

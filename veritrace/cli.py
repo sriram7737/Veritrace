@@ -25,7 +25,7 @@ def cmd_init(args) -> int:
     # .env
     env_path = os.path.join(cwd, ".env")
     if os.path.exists(env_path) and not args.force:
-        print(f"  ✗ {env_path} already exists (use --force to overwrite)")
+        print(f"  [skip] {env_path} already exists (use --force to overwrite)")
     else:
         api_key     = secrets.token_hex(32)
         signing_key = secrets.token_hex(32)
@@ -54,12 +54,12 @@ def cmd_init(args) -> int:
         """)
         with open(env_path, "w") as f:
             f.write(env_content)
-        print(f"  ✓ {env_path}")
+        print(f"  [ok] {env_path}")
 
     # starter config
     cfg_path = os.path.join(cwd, "veritrace_config.py")
     if os.path.exists(cfg_path) and not args.force:
-        print(f"  ✗ {cfg_path} already exists (use --force to overwrite)")
+        print(f"  [skip] {cfg_path} already exists (use --force to overwrite)")
     else:
         cfg_content = textwrap.dedent("""\
             \"\"\"
@@ -98,7 +98,7 @@ def cmd_init(args) -> int:
         """)
         with open(cfg_path, "w") as f:
             f.write(cfg_content)
-        print(f"  ✓ {cfg_path}")
+        print(f"  [ok] {cfg_path}")
 
     print("\nNext steps:")
     print("  1. Edit .env (secrets are pre-generated)")
@@ -116,9 +116,9 @@ def cmd_validate(args) -> int:
     print(f"Configuration: {cfg}")
     if warnings:
         for w in warnings:
-            print(f"  ⚠  {w}")
+            print(f"  [warn] {w}")
     else:
-        print("  ✓ all configuration checks passed")
+        print("  [ok] all configuration checks passed")
 
     # Redis connectivity
     if cfg.redis_url:
@@ -126,22 +126,22 @@ def cmd_validate(args) -> int:
             from .backends.redis_backend import RedisBackend
             b = RedisBackend.from_url(cfg.redis_url)
             ok = b.ping()
-            print(f"  {'✓' if ok else '✗'} Redis: {'reachable' if ok else 'unreachable'}")
+            print(f"  {'[ok]' if ok else '[fail]'} Redis: {'reachable' if ok else 'unreachable'}")
         except Exception as exc:
-            print(f"  ✗ Redis: {exc}")
+            print(f"  [fail] Redis: {exc}")
     else:
-        print("  –  Redis: not configured (VT_REDIS_URL not set)")
+        print("  [-] Redis: not configured (VT_REDIS_URL not set)")
 
     # Postgres connectivity
     if cfg.postgres_dsn:
         try:
             from .store_postgres import PostgresStore, PostgresUnavailable
             PostgresStore.from_dsn(cfg.postgres_dsn, max_pool_size=1)
-            print("  ✓ Postgres: reachable, DDL applied")
+            print("  [ok] Postgres: reachable, DDL applied")
         except Exception as exc:
-            print(f"  ✗ Postgres: {exc}")
+            print(f"  [fail] Postgres: {exc}")
     else:
-        print("  –  Postgres: not configured (VT_POSTGRES_DSN not set)")
+        print("  [-] Postgres: not configured (VT_POSTGRES_DSN not set)")
 
     return 1 if warnings else 0
 
@@ -163,13 +163,13 @@ def cmd_test_inject(args) -> int:
     clf_flagged = result.get("classifier_flagged", False)
 
     if hits or clf_flagged:
-        print("⚠  INJECTION SUSPECTED")
+        print("[warn] INJECTION SUSPECTED")
         for h in hits:
-            print(f"   pattern: {h['pattern_id']} — {h['detail']}")
+            print(f"   pattern: {h['pattern_id']} - {h['detail']}")
         if clf_flagged:
             print("   classifier: flagged")
     else:
-        print("✓  No injection detected")
+        print("[ok] No injection detected")
 
     return 0
 

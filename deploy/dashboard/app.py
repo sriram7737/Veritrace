@@ -151,6 +151,26 @@ def _filter_by_tenant(items: list, ctx: AuthContext) -> list:
     return [t for t in items if t.get("tenant_id") == ctx.tenant]
 
 
+async def _require_pending_approval_scope(request_id: str, ctx: AuthContext) -> None:
+    """Authorize approve/deny against the dashboard tenant scope."""
+    if ctx.tenant == "*":
+        return
+    try:
+        data = await _get("/hitl/pending")
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+    items = data if isinstance(data, list) else data.get("items", [])
+    for item in items:
+        rid = item.get("request_id") or item.get("id")
+        if rid == request_id:
+            context = item.get("context") or {}
+            tenant_id = item.get("tenant_id") or context.get("tenant_id") or context.get("tenant") or ""
+            if ctx.scope(tenant_id):
+                return
+            raise HTTPException(status_code=403, detail="Access denied")
+    raise HTTPException(status_code=404, detail="Approval request not found")
+
+
 # ── health (no auth) ──────────────────────────────────────────────────────────
 
 @app.get("/health")
@@ -310,8 +330,9 @@ async def approve(
     ctx: AuthContext = Depends(require_auth),
 ):
     try:
+        await _require_pending_approval_scope(request_id, ctx)
         await _post(f"/hitl/{request_id}/decide", {"approved": True})
-        msg, cls = "Approved ✓", "badge-ok"
+        msg, cls = "Approved", "badge-ok"
     except Exception as exc:
         msg, cls = f"Error: {exc}", "badge-block"
     return HTMLResponse(f'<span class="badge {cls}">{msg}</span>')
@@ -324,8 +345,9 @@ async def deny(
     ctx: AuthContext = Depends(require_auth),
 ):
     try:
+        await _require_pending_approval_scope(request_id, ctx)
         await _post(f"/hitl/{request_id}/decide", {"approved": False})
-        msg, cls = "Denied ✗", "badge-block"
+        msg, cls = "Denied", "badge-block"
     except Exception as exc:
         msg, cls = f"Error: {exc}", "badge-block"
     return HTMLResponse(f'<span class="badge {cls}">{msg}</span>')

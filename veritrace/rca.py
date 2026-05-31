@@ -81,6 +81,75 @@ class RCAEngine:
             "changed": verdict.value != t.pre_verdict,
         }
 
+    # ── tool-call graph (complex agents) ─────────────────────────────
+    def tool_call_graph(self, call_id: str) -> dict:
+        """Build a directed graph of tool calls recorded in the trace.
+
+        Supports complex agents: every ToolGuardLayer decision in the trace
+        becomes a node; edges follow execution order within the call, and
+        branch points (an ESCALATE/BLOCK that diverts the plan) are flagged.
+
+        Returns {"nodes": [...], "edges": [...], "branches": [...]}.
+        """
+        t = self.get(call_id)
+        nodes, edges, branches = [], [], []
+        prev = None
+        for i, ev in enumerate(t.layer_events):
+            if not ev.layer.startswith("ToolGuard"):
+                continue
+            data = ev.data or {}
+            nid = f"tool#{i}"
+            node = {
+                "id": nid,
+                "tool": data.get("tool") or data.get("decision_id") or ev.detail,
+                "verdict": ev.decision,
+                "side_effect": data.get("side_effect", "unknown"),
+                "detail": ev.detail,
+            }
+            nodes.append(node)
+            if prev is not None:
+                edges.append({"from": prev, "to": nid})
+            # a non-ALLOW verdict is a branch point in the plan
+            if ev.decision in ("block", "escalate"):
+                branches.append({"node": nid, "verdict": ev.decision,
+                                 "reason": ev.detail})
+            prev = nid
+        return {"call_id": call_id, "nodes": nodes, "edges": edges,
+                "branches": branches, "is_linear": len(branches) == 0}
+
+    def multi_rule_counterfactual(self, call_id: str,
+                                  disable_rules: list[str]) -> dict:
+        """Recompute the verdict as if MULTIPLE rules had not fired.
+
+        Generalises counterfactual() to complex agents where several rules
+        interact. No production calls — pure re-derivation from the trace.
+        """
+        t = self.get(call_id)
+        precedence = {Verdict.BLOCK: 3, Verdict.ESCALATE: 2,
+                      Verdict.REDACT: 1, Verdict.ALLOW: 0}
+        disabled = set(disable_rules)
+        fired = [r.action for r in t.rules_evaluated
+                 if r.fired and r.rule_id not in disabled]
+        verdict = (max((Verdict(a) for a in fired), key=lambda v: precedence[v])
+                   if fired else Verdict.ALLOW)
+        return {
+            "call_id": call_id,
+            "disabled_rules": sorted(disabled),
+            "original_verdict": t.pre_verdict,
+            "counterfactual_verdict": verdict.value,
+            "changed": verdict.value != t.pre_verdict,
+            "remaining_fired": [r.rule_id for r in t.rules_evaluated
+                                if r.fired and r.rule_id not in disabled],
+        }
+
+    def critical_path(self, call_id: str) -> list[str]:
+        """Return the ordered layers that determined the outcome (the decisive
+        path): every layer whose decision was block/escalate/denied, in order."""
+        t = self.get(call_id)
+        decisive = {"block", "blocked", "escalate", "denied", "idle"}
+        return [ev.layer for ev in t.layer_events
+                if str(ev.decision).lower() in decisive]
+
     # ── incident report ──────────────────────────────────────────────
     def incident_report(self, call_id: str) -> str:
         t = self.get(call_id)

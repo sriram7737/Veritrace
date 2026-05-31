@@ -1,6 +1,6 @@
 # Veritrace
 
-**Production trust infrastructure for autonomous AI agents.**
+**Trust middleware for AI agents: deterministic guardrails, HITL, tool policy, and tamper-evident traces.**
 
 Veritrace wraps any LLM provider in a layered safety pipeline: injection detection, tool-call guardrails, human-in-the-loop approvals, cryptographic audit trail, and distributed tracing — all in one composable Python library.
 

@@ -34,7 +34,7 @@ GENESIS = "0" * 64
 class TraceStore(Protocol):
     def save(self, trace: TraceEvent) -> None: ...
     def get(self, call_id: str, tenant_id: str | None = None) -> TraceEvent: ...
-    def list_all(self) -> list[TraceEvent]: ...
+    def list_all(self, limit: int | None = None) -> list[TraceEvent]: ...
     def prune_older_than(self, cutoff_ts: float, tenant_id: str | None = None) -> int: ...
     def delete_for_tenant(self, tenant_id: str) -> int: ...
 
@@ -58,8 +58,11 @@ class MemoryStore:
                 return t
         raise KeyError(call_id)
 
-    def list_all(self) -> list[TraceEvent]:
-        return list(self._traces)
+    def list_all(self, limit: int | None = None) -> list[TraceEvent]:
+        items = list(self._traces)
+        if limit is not None:
+            return items[-limit:]
+        return items
 
     def prune_older_than(self, cutoff_ts: float, tenant_id: str | None = None) -> int:
         """Delete traces older than cutoff. Returns the count deleted. Use only
@@ -111,7 +114,7 @@ class SQLiteStore:
                 tenant_id  TEXT NOT NULL,
                 session_id TEXT NOT NULL,
                 created_at REAL NOT NULL,
-                data       TEXT NOT NULL          -- JSON blob of TraceEvent.to_dict()
+                data       TEXT NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_traces_tenant
                 ON traces(tenant_id, session_id);
@@ -120,7 +123,7 @@ class SQLiteStore:
 
             CREATE TABLE IF NOT EXISTS audit_chain (
                 seq        INTEGER PRIMARY KEY AUTOINCREMENT,
-                payload    TEXT NOT NULL,          -- canonical JSON that was hashed
+                payload    TEXT NOT NULL,
                 prev_hash  TEXT NOT NULL,
                 this_hash  TEXT NOT NULL
             );
@@ -150,11 +153,15 @@ class SQLiteStore:
                 f"trace {call_id} does not belong to tenant {tenant_id}")
         return TraceEvent.from_dict(json.loads(row[0]))
 
-    def list_all(self) -> list[TraceEvent]:
-        rows = self._conn.execute(
-            "SELECT data FROM traces ORDER BY created_at"
-        ).fetchall()
-        return [TraceEvent.from_dict(json.loads(r[0])) for r in rows]
+    def list_all(self, limit: int | None = None) -> list[TraceEvent]:
+        sql = "SELECT data FROM traces ORDER BY created_at"
+        if limit is not None:
+            sql += f" DESC LIMIT {int(limit)}"
+        rows = self._conn.execute(sql).fetchall()
+        out = [TraceEvent.from_dict(json.loads(r[0])) for r in rows]
+        if limit is not None:
+            out.reverse()
+        return out
 
     def list_by_tenant(self, tenant_id: str, session_id: str | None = None,
                        limit: int = 100) -> list[TraceEvent]:
@@ -189,9 +196,7 @@ class SQLiteStore:
 
     def delete_for_tenant(self, tenant_id: str) -> int:
         """GDPR erasure for one tenant. The audit_chain table is left intact
-        (deleting links would invalidate every subsequent hash). For full
-        erasure of chain contents, the operator should rotate the chain in a
-        controlled procedure outside this method."""
+        (deleting links would invalidate every subsequent hash)."""
         cur = self._conn.execute(
             "DELETE FROM traces WHERE tenant_id = ?", (tenant_id,))
         self._conn.commit()
@@ -220,4 +225,24 @@ class SQLiteStore:
         ).fetchall()
         prev = GENESIS
         for payload_json, stored_prev, stored_hash in rows:
-            payload = json.loads(payl
+            payload = json.loads(payload_json)
+            expected = canonical_hash(payload, prev)
+            if expected != stored_hash or stored_prev != prev:
+                return False
+            prev = stored_hash
+        return True
+
+    def records(self) -> list[dict]:
+        rows = self._conn.execute(
+            "SELECT payload, prev_hash, this_hash FROM audit_chain ORDER BY seq"
+        ).fetchall()
+        return [
+            {"payload": json.loads(r[0]), "prev_hash": r[1], "this_hash": r[2]}
+            for r in rows
+        ]
+
+    def _load_head(self) -> str:
+        row = self._conn.execute(
+            "SELECT this_hash FROM audit_chain ORDER BY seq DESC LIMIT 1"
+        ).fetchone()
+        return row[0] if row else GENESIS

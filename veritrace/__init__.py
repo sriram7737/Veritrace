@@ -1,5 +1,6 @@
 r"""
-Veritrace — Verifiable Trust Infrastructure for Production AI Agents.
+Veritrace — trust middleware for AI agents: deterministic guardrails, HITL,
+tool policy, and tamper-evident traces.
 
 Quick start
 -----------

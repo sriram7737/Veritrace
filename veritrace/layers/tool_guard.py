@@ -568,6 +568,7 @@ class ToolGuardLayer:
         policies: list[ToolPolicy] | None = None,
         default_verdict: Verdict = Verdict.BLOCK,
         chain_window: int = 10,
+        judge: Optional[Any] = None,
     ) -> None:
         self.policies: dict[str, ToolPolicy] = {p.name: p for p in (policies or [])}
         self.default_verdict = default_verdict
@@ -579,6 +580,10 @@ class ToolGuardLayer:
         # per-session output provenance log
         self._provenance_log: list[OutputProvenance] = []
         self.audit_log: list[ToolDecision] = []
+        # Optional LLMJudge: a semantic safety net consulted for
+        # high-severity tools via evaluate_async(). It can only make a
+        # decision STRICTER (ALLOW->ESCALATE/BLOCK), never looser.
+        self.judge = judge
 
     def register(self, policy: ToolPolicy) -> None:
         """Register a new tool policy at runtime."""
@@ -707,6 +712,58 @@ class ToolGuardLayer:
             action_label=action_label, verdict=Verdict.ALLOW,
             reason="all checks passed", side_effect=policy.side_effect,
         ))
+
+    async def evaluate_async(
+        self,
+        tool_name: str,
+        arguments: dict[str, Any],
+        *,
+        tenant_id: str = "default",
+        session_id: str = "default",
+        action_label: str = "tool_call",
+    ) -> ToolDecision:
+        """Async evaluate: run the deterministic checks, then (for high-severity
+        tools) consult the optional LLMJudge as a semantic safety net.
+
+        The judge can only tighten the verdict, never loosen it:
+        final = max_severity(deterministic_verdict, judge_verdict).
+        If no judge is configured this is equivalent to evaluate().
+        """
+        decision = self.evaluate(
+            tool_name, arguments,
+            tenant_id=tenant_id, session_id=session_id,
+            action_label=action_label,
+        )
+        # Only consult the judge when the deterministic layer did not already
+        # BLOCK, and the tool is registered (we know its side_effect).
+        if self.judge is None or decision.verdict == Verdict.BLOCK:
+            return decision
+        policy = self.policies.get(tool_name)
+        if policy is None:
+            return decision
+        try:
+            jd = await self.judge.evaluate(
+                tool_name, arguments,
+                side_effect=policy.side_effect,
+                tenant_id=tenant_id, session_id=session_id,
+            )
+        except Exception:
+            # Judge failure must not loosen the deterministic verdict.
+            return decision
+        order = {Verdict.ALLOW: 0, Verdict.REDACT: 1, Verdict.ESCALATE: 2, Verdict.BLOCK: 3}
+        if order.get(jd.verdict, 0) > order.get(decision.verdict, 0):
+            tightened = ToolDecision(
+                decision_id=decision.decision_id,
+                tool_name=tool_name, tenant_id=tenant_id, session_id=session_id,
+                action_label=action_label, verdict=jd.verdict,
+                reason=f"LLM judge tightened: {jd.reason}",
+                side_effect=decision.side_effect,
+                injection_findings=decision.injection_findings,
+                chain_context=decision.chain_context,
+            )
+            self.audit_log.append(tightened)
+            return tightened
+        return decision
 
     def validate_output(
         self,

@@ -44,7 +44,9 @@ from pydantic import BaseModel, Field
 log = logging.getLogger("veritrace.api")
 
 from ..auth import APIKeyRegistry, JWTManager, load_registry_from_env
+from ..classifier import build_classifier, build_safety_classifier
 from ..core import Veritrace
+from ..layers import IsolationLayer
 from ..hitl.slack import (SlackApprovalError, SlackHITLApprover,
                           verify_slack_signature)
 from ..layers import (ComplianceLayer, HITLLayer, ReliabilityLayer, Rule,
@@ -55,6 +57,7 @@ from ..providers import (AnthropicProvider, GeminiProvider, MockProvider,
 from ..ratelimit import TokenBucket
 from ..rca import RCAEngine
 from ..store import MemoryStore, SQLiteStore
+from ..telemetry import configure_otel
 from ..types import Verdict
 
 
@@ -170,13 +173,21 @@ def build_default_armor() -> Veritrace:
     else:
         provider = MockProvider(model="api-demo")
 
+    # Default prompt-injection defense: embedding classifier when
+    # sentence-transformers is installed, else graceful keyword fallback.
+    # Wired into BOTH IsolationLayer (input scoping) and SafetyLayer (verdicts).
+    kw_only = os.environ.get("VERITRACE_CLASSIFIER", "auto").lower() == "keyword"
+    iso_clf = build_classifier(force_keyword_only=kw_only)
+    safety_clf = build_safety_classifier(force_keyword_only=kw_only)
+
     return Veritrace(
         provider=provider,
+        isolation=IsolationLayer(classifier=iso_clf, block_on_injection=True),
         compliance=ComplianceLayer(standards=["HIPAA", "PCI_DSS", "GDPR"]),
         safety=SafetyLayer(rules=[
             Rule("block_account_dump", Verdict.BLOCK, pattern=r"dump .*accounts?"),
             Rule("escalate_transfer", Verdict.ESCALATE, pattern=r"transfer \$?\d+"),
-        ]),
+        ], classifier=safety_clf),
         reliability=ReliabilityLayer(max_concurrent=20, timeout_s=15.0),
         hitl=HITLLayer(
             require_approval_for=["wire_transfer", "delete_data"],
@@ -262,8 +273,13 @@ def create_app(armor: Optional[Veritrace] = None,
     app = FastAPI(
         title="Veritrace",
         version="0.2.0",
-        description="Agent trust middleware: audit, safety, HITL, and tool guardrails.",
+        description="Trust middleware for AI agents: deterministic guardrails, HITL, tool policy, tamper-evident traces.",
     )
+    if os.environ.get("VT_OTEL_ENDPOINT") or os.environ.get("VT_OTEL_CONSOLE") == "1":
+        configure_otel(
+            service_name=os.environ.get("VT_OTEL_SERVICE_NAME", "veritrace-api"),
+            endpoint=os.environ.get("VT_OTEL_ENDPOINT") or None,
+        )
 
     # ── CORS ──────────────────────────────────────────────────────────────
     allowed_origins = [
@@ -400,13 +416,15 @@ def create_app(armor: Optional[Veritrace] = None,
         }
 
     @app.post("/v1/run", response_model=RunResponse)
-    async def run(req: RunRequest, tenant: str = Depends(require_tenant)):
+    async def run(req: RunRequest, request: Request,
+                  tenant: str = Depends(require_tenant)):
         a = app.state.armor
         # When auth is on, the tenant comes from the key — ignore any body assertion.
         # When auth is off, fall back to body or "default".
         effective_tenant = tenant if tenant else (req.tenant_id or "default")
         r = await a.run(req.prompt, tenant_id=effective_tenant,
-                        session_id=req.session_id, action=req.action)
+                        session_id=req.session_id, action=req.action,
+                        trace_headers=dict(request.headers))
         t = r.trace
         return RunResponse(
             call_id=t.call_id, output=r.output, blocked=r.blocked,
@@ -436,7 +454,7 @@ def create_app(armor: Optional[Veritrace] = None,
     async def validate_tool(req: ToolValidateRequest,
                             tenant: str = Depends(require_tenant)):
         effective_tenant = tenant if tenant else (req.tenant_id or "default")
-        decision = app.state.tool_guard.evaluate(
+        decision = await app.state.tool_guard.evaluate_async(
             req.tool_name,
             req.arguments,
             tenant_id=effective_tenant,
@@ -477,6 +495,31 @@ def create_app(armor: Optional[Veritrace] = None,
             return {"text": "This Veritrace approval request has expired."}
         return {"text": f"Veritrace request {decision}."}
 
+
+    @app.post("/v1/rca/{call_id}/replay")
+    async def rca_replay(call_id: str, request: Request,
+                         tenant: str = Depends(require_tenant)):
+        _require_rca_quota(tenant or "anon", request)
+        _fetch_trace(call_id, tenant)  # enforce tenant ownership (404 if cross-tenant)
+        engine = RCAEngine(app.state.armor.store.list_all())
+        return engine.replay(call_id)
+
+    @app.post("/v1/rca/{call_id}/counterfactual")
+    async def rca_counterfactual(call_id: str, body: CounterfactualRequest,
+                                 request: Request,
+                                 tenant: str = Depends(require_tenant)):
+        _require_rca_quota(tenant or "anon", request)
+        _fetch_trace(call_id, tenant)
+        engine = RCAEngine(app.state.armor.store.list_all())
+        return engine.counterfactual(call_id, disable_rule=body.disable_rule)
+
+    @app.get("/v1/rca/{call_id}/incident")
+    async def rca_incident(call_id: str, request: Request,
+                           tenant: str = Depends(require_tenant)):
+        _require_rca_quota(tenant or "anon", request)
+        _fetch_trace(call_id, tenant)
+        engine = RCAEngine(app.state.armor.store.list_all())
+        return {"report": engine.incident_report(call_id)}
 
     @app.post("/v1/retention/prune")
     async def retention_prune(older_than_days: int,
@@ -559,7 +602,8 @@ def create_app(armor: Optional[Veritrace] = None,
         if blocked == "true":
             items = [t for t in items if t.get("blocked")]
         elif blocked == "false":
-            items = [t for t in items if not t.get("blocked")]        return items[-limit:]
+            items = [t for t in items if not t.get("blocked")]
+        return items[-limit:]
 
     @app.get("/traces/{trace_id}")
     async def trace_detail_unversioned(trace_id: str):
@@ -576,9 +620,33 @@ def create_app(armor: Optional[Veritrace] = None,
     async def hitl_pending():
         hitl = app.state.armor.hitl
         pending = []
+        seen = set()
+
+        registry = getattr(hitl, "registry", None) or getattr(
+            getattr(hitl, "approver", None), "registry", None)
+        registry_pending = getattr(registry, "_pending", {}) if registry is not None else {}
+        for request_id, request in registry_pending.items():
+            context = dict(getattr(request, "context", {}) or {})
+            tenant_id = context.get("tenant_id") or context.get("tenant") or ""
+            pending.append({
+                "request_id": request_id,
+                "action": getattr(request, "action", ""),
+                "tenant_id": tenant_id,
+                "context": context,
+                "created_at": getattr(request, "created_at", None),
+            })
+            seen.add(request_id)
+
         if hasattr(hitl, "_pending"):
             for request_id, action in hitl._pending.items():
-                pending.append({"request_id": request_id, "action": action, "context": {}})
+                if request_id in seen:
+                    continue
+                pending.append({
+                    "request_id": request_id,
+                    "action": action,
+                    "tenant_id": "",
+                    "context": {},
+                })
         return {"items": pending}
 
     @app.post("/hitl/{request_id}/decide")

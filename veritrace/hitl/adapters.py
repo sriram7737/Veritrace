@@ -1,0 +1,270 @@
+"""
+veritrace.hitl.adapters
+=======================
+Notification + approval adapters for the HITL layer. Each adapter is an async
+callable ``(action: str, context: dict) -> Optional[bool]`` compatible with
+HITLLayer / HITLWorkflowLayer's ``approver`` hook, OR a fire-and-forget
+notifier used to *alert* humans while another channel collects the decision.
+
+Adapters here
+-------------
+WebhookApprover
+    POSTs the approval request to an arbitrary HTTPS endpoint and (optionally)
+    polls a decision endpoint. Useful for custom internal tools. Fail-closed:
+    a delivery error returns None (idle), never an implicit approve.
+
+EmailNotifier
+    Sends an approval-request email via SMTP. Notify-only by default (returns
+    None) — pair it with a SlackApprovalRegistry or WebhookApprover to collect
+    the actual decision. Stdlib smtplib, no third-party deps.
+
+PagerDutyNotifier
+    Triggers a PagerDuty Events API v2 alert for high-severity actions. Notify
+    -only (returns None). For on-call escalation, not decision collection.
+
+CompositeApprover
+    Fans an approval request to several notifiers (alerting) while delegating
+    the *decision* to one authoritative approver. This is the production
+    pattern: alert PagerDuty + email, decide via Slack.
+
+All network I/O uses the stdlib (urllib / smtplib) wrapped in asyncio.to_thread
+so the event loop is never blocked, and every adapter degrades gracefully.
+"""
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import smtplib
+import time
+import urllib.error
+import urllib.request
+from dataclasses import dataclass, field
+from email.message import EmailMessage
+from typing import Any, Awaitable, Callable, Optional
+
+log = logging.getLogger(__name__)
+
+ApproverCallable = Callable[[str, dict], Awaitable[Optional[bool]]]
+
+
+class AdapterError(RuntimeError):
+    pass
+
+
+# ───────────────────────────── webhook approver ────────────────────────────
+
+class WebhookApprover:
+    """POST the request to a webhook; optionally poll for the decision.
+
+    Parameters
+    ----------
+    notify_url : str
+        Endpoint that receives the JSON approval request on every gate().
+    decision_url : str, optional
+        If set, WebhookApprover polls this URL (GET ``{decision_url}?id=<id>``)
+        until it returns ``{"decision": "approve"|"deny"}`` or the timeout
+        elapses. If unset, the adapter is notify-only and returns None.
+    timeout_s, poll_interval_s : float
+        Polling controls.
+    headers : dict
+        Extra HTTP headers (auth tokens etc.).
+    """
+
+    def __init__(
+        self,
+        notify_url: str,
+        *,
+        decision_url: Optional[str] = None,
+        timeout_s: float = 300.0,
+        poll_interval_s: float = 2.0,
+        headers: Optional[dict] = None,
+    ) -> None:
+        self.notify_url = notify_url
+        self.decision_url = decision_url
+        self.timeout_s = timeout_s
+        self.poll_interval_s = poll_interval_s
+        self.headers = headers or {}
+        self.last_error: str = ""
+
+    def _post(self, url: str, payload: dict) -> dict:
+        data = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(
+            url, data=data, method="POST",
+            headers={"Content-Type": "application/json", **self.headers},
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            body = resp.read().decode("utf-8")
+        return json.loads(body) if body.strip() else {}
+
+    def _get(self, url: str) -> dict:
+        req = urllib.request.Request(url, method="GET", headers=self.headers)
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            body = resp.read().decode("utf-8")
+        return json.loads(body) if body.strip() else {}
+
+    async def __call__(self, action: str, context: dict) -> Optional[bool]:
+        request_id = str(context.get("request_id") or int(time.time() * 1000))
+        payload = {"request_id": request_id, "action": action, "context": context}
+        try:
+            await asyncio.to_thread(self._post, self.notify_url, payload)
+            self.last_error = ""
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            self.last_error = str(exc)
+            log.warning("WebhookApprover notify failed: %s", exc)
+            return None  # fail-closed
+
+        if not self.decision_url:
+            return None  # notify-only
+
+        deadline = time.monotonic() + self.timeout_s
+        while time.monotonic() < deadline:
+            try:
+                resp = await asyncio.to_thread(
+                    self._get, f"{self.decision_url}?id={request_id}")
+            except (urllib.error.URLError, TimeoutError, OSError) as exc:
+                self.last_error = str(exc)
+                resp = {}
+            decision = str(resp.get("decision", "")).lower()
+            if decision in ("approve", "approved", "true", "yes"):
+                return True
+            if decision in ("deny", "denied", "false", "no"):
+                return False
+            await asyncio.sleep(self.poll_interval_s)
+        return None  # timeout → idle
+
+
+# ───────────────────────────── email notifier ──────────────────────────────
+
+@dataclass
+class SMTPConfig:
+    host: str
+    port: int = 587
+    username: str = ""
+    password: str = ""
+    use_tls: bool = True
+    from_addr: str = "veritrace@localhost"
+
+
+class EmailNotifier:
+    """Send an approval-request email. Notify-only (returns None).
+
+    Pair with a decision-collecting approver via CompositeApprover.
+    """
+
+    def __init__(self, smtp: SMTPConfig, to_addrs: list[str]) -> None:
+        self.smtp = smtp
+        self.to_addrs = to_addrs
+        self.last_error: str = ""
+
+    def _send(self, subject: str, body: str) -> None:
+        msg = EmailMessage()
+        msg["Subject"] = subject
+        msg["From"] = self.smtp.from_addr
+        msg["To"] = ", ".join(self.to_addrs)
+        msg.set_content(body)
+        with smtplib.SMTP(self.smtp.host, self.smtp.port, timeout=10) as s:
+            if self.smtp.use_tls:
+                s.starttls()
+            if self.smtp.username:
+                s.login(self.smtp.username, self.smtp.password)
+            s.send_message(msg)
+
+    async def __call__(self, action: str, context: dict) -> Optional[bool]:
+        tenant = context.get("tenant", "unknown")
+        preview = str(context.get("output_preview", ""))[:300]
+        subject = f"[Veritrace] Approval needed: {action} (tenant={tenant})"
+        body = (
+            f"A Veritrace agent action requires human approval.\n\n"
+            f"Action:  {action}\n"
+            f"Tenant:  {tenant}\n"
+            f"Preview: {preview}\n\n"
+            f"Approve or deny via your configured Veritrace approval channel."
+        )
+        try:
+            await asyncio.to_thread(self._send, subject, body)
+            self.last_error = ""
+        except (smtplib.SMTPException, OSError) as exc:
+            self.last_error = str(exc)
+            log.warning("EmailNotifier send failed: %s", exc)
+        return None  # notify-only
+
+
+# ──────────────────────────── pagerduty notifier ───────────────────────────
+
+class PagerDutyNotifier:
+    """Trigger a PagerDuty Events API v2 alert. Notify-only (returns None)."""
+
+    _EVENTS_URL = "https://events.pagerduty.com/v2/enqueue"
+
+    def __init__(self, routing_key: str, *, severity: str = "warning",
+                 source: str = "veritrace") -> None:
+        self.routing_key = routing_key
+        self.severity = severity
+        self.source = source
+        self.last_error: str = ""
+
+    def _trigger(self, action: str, context: dict) -> None:
+        payload = {
+            "routing_key": self.routing_key,
+            "event_action": "trigger",
+            "payload": {
+                "summary": f"Veritrace approval needed: {action}",
+                "source": self.source,
+                "severity": self.severity,
+                "custom_details": context,
+            },
+        }
+        data = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(
+            self._EVENTS_URL, data=data, method="POST",
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            resp.read()
+
+    async def __call__(self, action: str, context: dict) -> Optional[bool]:
+        try:
+            await asyncio.to_thread(self._trigger, action, context)
+            self.last_error = ""
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            self.last_error = str(exc)
+            log.warning("PagerDutyNotifier trigger failed: %s", exc)
+        return None  # notify-only
+
+
+# ──────────────────────────── composite approver ───────────────────────────
+
+class CompositeApprover:
+    """Alert via N notifiers, collect the decision from one authoritative approver.
+
+    The production pattern: page PagerDuty + email the team (notify), while the
+    actual approve/deny comes back through Slack (decide).
+
+    Example::
+
+        approver = CompositeApprover(
+            notifiers=[PagerDutyNotifier(rk), EmailNotifier(smtp, ["sec@co"])],
+            decider=slack_approver,
+        )
+    """
+
+    def __init__(
+        self,
+        *,
+        notifiers: Optional[list[ApproverCallable]] = None,
+        decider: Optional[ApproverCallable] = None,
+    ) -> None:
+        self.notifiers = notifiers or []
+        self.decider = decider
+
+    async def __call__(self, action: str, context: dict) -> Optional[bool]:
+        # Fire all notifiers concurrently; ignore their (None) return values.
+        if self.notifiers:
+            await asyncio.gather(
+                *[n(action, context) for n in self.notifiers],
+                return_exceptions=True,
+            )
+        if self.decider is None:
+            return None
+        return await self.decider(action, context)

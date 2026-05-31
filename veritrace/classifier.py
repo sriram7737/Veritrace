@@ -355,3 +355,30 @@ if __name__ == "__main__":
     import sys
     threshold = float(sys.argv[1]) if len(sys.argv) > 1 else 0.65
     _evaluate(threshold)
+
+
+# ── SafetyLayer adapter ─────────────────────────────────────────────────────
+
+def build_safety_classifier(
+    *,
+    model_name: str = "all-MiniLM-L6-v2",
+    threshold: float = 0.65,
+    force_keyword_only: bool = False,
+):
+    """Build a classifier callable for SafetyLayer.
+
+    SafetyLayer expects ``(text) -> Verdict`` (not ``-> bool`` like IsolationLayer).
+    This wraps build_classifier() so a flagged input becomes Verdict.BLOCK and a
+    clean input becomes Verdict.ALLOW. The deterministic rule engine still runs
+    and retains final veto authority.
+    """
+    from .types import Verdict
+    base = build_classifier(
+        model_name=model_name, threshold=threshold,
+        force_keyword_only=force_keyword_only,
+    )
+
+    def _classify(text: str) -> "Verdict":
+        return Verdict.BLOCK if base(text) else Verdict.ALLOW
+
+    return _classify

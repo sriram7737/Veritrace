@@ -1,0 +1,31 @@
+replicaCount: 3
+image:
+  repository: veritrace
+  tag: "0.3.0"
+  pullPolicy: IfNotPresent
+service:
+  type: ClusterIP
+  port: 8080
+env:
+  VT_LOG_LEVEL: info
+  VT_RATE_LIMIT_CAPACITY: "100"
+  VT_RATE_LIMIT_REFILL: "10"
+# Secrets (VT_API_KEY, VT_JWT_SECRET, VT_REDIS_URL, VT_POSTGRES_DSN) come from
+# an existing Kubernetes Secret named below.
+existingSecret: veritrace-secrets
+postgres:
+  enabled: true
+  dsnSecretKey: VT_POSTGRES_DSN
+redis:
+  enabled: true
+  urlSecretKey: VT_REDIS_URL
+resources:
+  requests: { cpu: 100m, memory: 256Mi }
+  limits:   { cpu: "1",  memory: 512Mi }
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+otel:
+  endpoint: ""   # e.g. http://otel-collector:4317

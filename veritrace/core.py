@@ -208,7 +208,7 @@ class Veritrace:
                 t0 = time.perf_counter()
                 args = tool_arguments or {}
                 with trace_layer("ToolGuardLayer", attributes={"tool": tool_name}) as span:
-                    td = self.tool_guard.evaluate(
+                    td = await self.tool_guard.evaluate_async(
                         tool_name, args,
                         tenant_id=tenant_id, session_id=session_id,
                         action_label=action,
@@ -294,7 +294,7 @@ class Veritrace:
             tr.hitl_status = status.value
             mark("HITLLayer", status.value, f"action={action}", t0)
             if status in (HITLStatus.DENIED, HITLStatus.IDLE) and self.hitl.is_consequential(action):
-                output = "[action not executed — awaiting/declined human approval]"
+                output = "[action not executed - awaiting/declined human approval]"
 
             response = self._finalize(tr, output=output, blocked=False, reason="", t_start=t_start)
             root_span.set_attribute("total_latency_ms", response.trace.total_latency_ms)
@@ -312,4 +312,3 @@ class Veritrace:
         tr.this_hash, tr.anchor_tx_id = self.audit.append(payload, tr.prev_hash)
         self.store.save(tr)
         return AgentResponse(output=output, trace=tr, blocked=blocked, block_reason=reason)
-
