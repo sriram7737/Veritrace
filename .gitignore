@@ -30,6 +30,7 @@ HANDOFF.md
 *.sqlite
 *.sqlite3
 *.log
+.test*.txt
 
 # OS/editor
 .DS_Store
