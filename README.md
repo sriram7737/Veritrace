@@ -34,7 +34,7 @@ python -m pytest -q --tb=no
 veritrace redteam --json
 ```
 
-Current local result: `336 passed, 3 xfailed, 2 warnings`.
+Current local result: `344 passed, 3 xfailed, 2 warnings`.
 
 ## Minimal Example
 
@@ -93,7 +93,7 @@ asyncio.run(main())
 | Provider adapters | Implemented | Mock, OpenAI, Anthropic, Gemini, Ollama, OpenAI-compatible/local |
 | ToolGuard | Strong MVP | JSON Schema, allow-lists, side-effect taxonomy, output scanning |
 | HITL | Beta | Slack callbacks, approval queues, quorum/escalation primitives |
-| Audit trail | Strong MVP | SHA-256 hash chain; optional external anchoring stubs |
+| Audit trail | Strong MVP | SHA-256 hash chain; optional real Sepolia anchoring |
 | PII redaction | Strong MVP | Context-aware patterns for common regulated data |
 | Auth/rate limits/quotas | Beta | JWT/API keys, token buckets, per-tenant quotas |
 | Dashboard | Prototype | Auth, tenant scoping, traces, approvals, metrics, usage page |
@@ -101,6 +101,7 @@ asyncio.run(main())
 | OpenTelemetry | Partial | Per-layer spans exist; dashboards and alerting need hardening |
 | Red-team benchmark | MVP | `veritrace redteam --json`; honest bypass rate, small corpus |
 | Billing hooks | MVP | Fail-open usage webhook; no Stripe/Chargebee ledger yet |
+| S3 cold archive | MVP | Gzip + encrypted trace archive wrapper; metadata sink hook |
 
 ## Honest Limits
 
@@ -112,6 +113,17 @@ asyncio.run(main())
   load-tested for high-stakes deployments.
 - No external penetration test or formal compliance certification has been run.
 - QuantumLayer is research/roadmap only, not a production feature.
+
+## Optional Anchoring And Archive
+
+```bash
+pip install -e ".[ethereum,s3]"
+```
+
+Ethereum/Sepolia anchoring submits the audit head as transaction calldata and
+stores the tx hash plus block number on the trace when configured. S3 cold
+archive wraps a primary store and archives pruned/erased traces as encrypted
+gzip JSON while keeping metadata available for compliance reporting.
 
 ## Demo Flow
 
@@ -132,6 +144,7 @@ metrics, and per-tenant usage.
 - [Compliance mapping](docs/COMPLIANCE_MAPPING.md)
 - [Red-team results](docs/REDTEAM_RESULTS.md)
 - [Load-test runbook](docs/LOAD_TEST.md)
+- [Load-test results](docs/LOAD_TEST_RESULTS.md)
 - [Demo script](docs/DEMO_SCRIPT.md)
 - [Design document](docs/Veritrace-Design-Document.docx)
 

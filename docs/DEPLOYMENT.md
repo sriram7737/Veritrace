@@ -12,7 +12,7 @@ veritrace validate       # checks config + Redis/Postgres connectivity
 ## Local without Docker (dev)
 ```bash
 pip install -e ".[dev,api,redis,postgres,otel,encrypted]"
-python -m pytest -q  # 336 passing, 3 xfailed
+python -m pytest -q  # 344 passing, 3 xfailed
 uvicorn veritrace.api.app:app --port 8080
 ```
 
@@ -74,6 +74,56 @@ VT_DASHBOARD_RL_REFILL=60
 The dashboard exposes `/usage` for per-tenant calls, tool validations, tracked
 cost, quota remaining, and configured usage-event sinks. It is a visibility
 surface for quotas, not a billing ledger.
+
+## Optional Ethereum/Sepolia anchoring
+Install the optional dependency:
+
+```bash
+pip install -e ".[ethereum]"
+```
+
+Use `EthereumBackend` with a Sepolia RPC URL and private key. Veritrace records
+the transaction hash in `trace.anchor_tx_id` and the block in
+`trace.anchor_block_number`.
+
+```python
+from veritrace import Veritrace
+from veritrace.audit import EthereumBackend
+
+audit = EthereumBackend(
+    rpc_url="https://sepolia.infura.io/v3/...",
+    private_key="0x...",
+)
+armor = Veritrace(audit=audit)
+```
+
+This is still testnet anchoring. Use a dedicated wallet, minimal funds, and a
+real secret manager. Do not put private keys in `.env` for production.
+
+## Optional S3 cold archive
+Install the optional dependency:
+
+```bash
+pip install -e ".[s3]"
+```
+
+Wrap a hot store so retention/erasure flows archive old traces to S3 as
+encrypted gzip JSON before deleting them from the primary store:
+
+```python
+from veritrace.store import SQLiteStore
+from veritrace.store_s3 import S3ColdArchiveStore
+
+store = S3ColdArchiveStore(
+    SQLiteStore("veritrace.db"),
+    bucket="my-veritrace-audit-archive",
+    encryption_key="...",  # Fernet key; use KMS/envelope encryption in prod
+)
+```
+
+The wrapper exposes `archive_metadata()` and accepts a `metadata_sink` callback
+so deployments can persist S3 URI, hash, tenant, and timestamp metadata in
+Postgres for auditor lookup.
 
 ## Kubernetes (Helm)
 ```bash

@@ -9,7 +9,7 @@ below to know exactly what you are getting.
 
 ## Test status
 
-`python -m pytest -q --tb=no` -> **336 passing, 3 xfailed** (xfail = injection paraphrases
+`python -m pytest -q --tb=no` -> **344 passing, 3 xfailed** (xfail = injection paraphrases
 the zero-dependency keyword classifier intentionally defers to the embedding
 classifier, which is optional). No skips hiding failures.
 
@@ -25,12 +25,15 @@ classifier, which is optional). No skips hiding failures.
   allow-lists, decision recorded in the trace, **LLM-as-judge** tightening hook
 - Slack HITL (approve/deny, signed callbacks) **+ persistent queue, escalation
   chains, N-of-M quorum, full approval audit log, PagerDuty/email/webhook adapters**
-- Tamper-evident hash chain (SHA-256), optional Ethereum/Hyperledger anchoring
+- Tamper-evident hash chain (SHA-256), optional real Ethereum/Sepolia anchoring
+  with tx hash + block metadata, and Hyperledger fallback anchoring
 - RCA: replay, causality, counterfactual **+ tool-call graphs, multi-rule
   counterfactuals, critical-path** for complex agents
 - JWT / API-key auth, per-tenant rate limiting, usage quotas, cross-tenant trace guard
 - Usage-event hooks for billing/analytics (in-memory sink + fail-open webhook)
 - SQLite + encrypted SQLite; **Postgres** store; **Redis** distributed backend
+- S3 cold archive wrapper for pruned/erased traces (gzip + encrypted JSON,
+  metadata sink hook for Postgres/compliance tables)
 - **Migration runner** (stdlib, SQLite + Postgres)
 - **Compliance reporter** — consent registry, purpose limitation, retention
   policy with legal floor, JSON/text/PDF auditor reports
@@ -48,6 +51,10 @@ classifier, which is optional). No skips hiding failures.
 ### MVP / needs hardening
 - Usage quotas: enforced before expensive routes and integrated with rate
   limiting; webhook events exist, but there is no Stripe/Chargebee billing ledger
+- Ethereum anchoring: real Sepolia transaction path exists; no mainnet runbook,
+  no deployed verifier contract, and no production key-management story yet
+- S3 cold archive: wrapper and tests exist; needs real AWS lifecycle policies,
+  KMS/envelope encryption, and restore runbooks before compliance use
 - Dashboard auth: tenant-scoped config, secure-cookie support, Redis-backed
   throttling, and explicit all-tenant opt-in exist; still not SSO/OIDC/RBAC-grade
 - Prompt-injection defense — keyword pass is solid; embedding classifier is

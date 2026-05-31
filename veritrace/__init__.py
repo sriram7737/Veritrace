@@ -28,6 +28,7 @@ from .providers import (AnthropicProvider, BaseProvider, FallbackProvider,
 from .store import MemoryStore, SQLiteStore
 from .auth import APIKeyRegistry, JWTManager
 from .otel import OpenTelemetryExporter, OpenTelemetryNotInstalled
+from .anchoring import EthereumAnchor, EthereumAnchorReceipt
 from .redteam import RedTeamReport, run_injection_benchmark
 from .types import AgentResponse, HITLStatus, TraceEvent, Verdict
 from .usage import (
@@ -74,6 +75,8 @@ __all__ = [
     "RedTeamReport",
     "OpenTelemetryExporter",
     "OpenTelemetryNotInstalled",
+    "EthereumAnchor",
+    "EthereumAnchorReceipt",
     "BaseProvider",
     "MockProvider",
     "AnthropicProvider",

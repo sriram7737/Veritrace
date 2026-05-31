@@ -1,8 +1,8 @@
 # Load-test Runbook
 
-Veritrace has deterministic unit/concurrency smoke tests in CI. It does not yet
-have published scale numbers. Use this runbook to generate the first real
-numbers for a pilot environment.
+Veritrace has deterministic unit/concurrency smoke tests in CI and a first
+local smoke-load result in `LOAD_TEST_RESULTS.md`. Use this runbook to generate
+proper Docker/Postgres/Redis numbers for a pilot environment.
 
 ## Start Stack
 

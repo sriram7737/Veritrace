@@ -11,6 +11,8 @@ veritrace redteam --json
 
 ## Current Result
 
+Last refreshed: 2026-05-31
+
 ```json
 {
   "attacks_bypassed": 3,

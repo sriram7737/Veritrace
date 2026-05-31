@@ -306,9 +306,20 @@ class Veritrace:
         tr.output_text = output
         tr.total_latency_ms = (time.perf_counter() - t_start) * 1000
         payload = tr.to_dict()
-        for k in ("this_hash", "anchor_tx_id", "prev_hash"):
+        for k in (
+            "this_hash",
+            "anchor_tx_id",
+            "anchor_block_number",
+            "anchor_metadata",
+            "prev_hash",
+        ):
             payload.pop(k, None)
         tr.prev_hash = self.audit.head
         tr.this_hash, tr.anchor_tx_id = self.audit.append(payload, tr.prev_hash)
+        anchor_receipt = getattr(self.audit, "last_anchor", None)
+        if anchor_receipt is not None:
+            tr.anchor_block_number = int(getattr(anchor_receipt, "block_number", 0) or 0)
+            if hasattr(anchor_receipt, "to_dict"):
+                tr.anchor_metadata = anchor_receipt.to_dict()
         self.store.save(tr)
         return AgentResponse(output=output, trace=tr, blocked=blocked, block_reason=reason)

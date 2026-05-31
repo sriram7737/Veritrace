@@ -7,14 +7,21 @@ retroactive edit to an old record breaks every hash after it. This is the
 "blockchain-lite" guarantee that needs no external chain to be useful.
 
 EthereumBackend / HyperledgerBackend implement the same interface and anchor
-the chain head to an external ledger; they are stubbed here as the integration
-points for later phases.
+the chain head to an external ledger. Ethereum can submit real Sepolia
+transactions when configured with web3 credentials; otherwise it keeps the
+local chain semantics and returns a local pseudo-anchor.
 """
 from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from typing import Protocol
+
+from ..anchoring.ethereum import EthereumAnchor, EthereumAnchorReceipt
+
+
+log = logging.getLogger(__name__)
 
 
 def canonical_hash(payload: dict, prev_hash: str) -> str:
@@ -72,18 +79,67 @@ class HashChainBackend:
 
 
 class EthereumBackend:
-    """Stub: anchors the chain head to Ethereum. Same interface as HashChain."""
-    def __init__(self, rpc_url: str = "", contract: str = ""):
-        self.rpc_url, self.contract = rpc_url, contract
+    """Hash-chain backend with optional real Ethereum/Sepolia anchoring."""
+
+    def __init__(
+        self,
+        rpc_url: str = "",
+        contract: str = "",
+        *,
+        private_key: str = "",
+        chain_id: int = 11155111,
+        anchor: EthereumAnchor | None = None,
+        fail_open: bool = True,
+    ):
+        self.rpc_url = rpc_url
+        self.contract = contract
+        self.private_key = private_key
+        self.chain_id = chain_id
+        self.fail_open = fail_open
         self._chain = HashChainBackend()
+        self._anchor = anchor
+        self.last_anchor: EthereumAnchorReceipt | None = None
+        if self._anchor is None and rpc_url and private_key:
+            self._anchor = EthereumAnchor(
+                rpc_url=rpc_url,
+                private_key=private_key,
+                contract_address=contract,
+                chain_id=chain_id,
+            )
+
+    @property
+    def head(self) -> str:
+        return self._chain.head
 
     def append(self, payload: dict, prev_hash: str | None = None) -> tuple[str, str]:
         this_hash, _ = self._chain.append(payload, prev_hash)
-        # In production: submit this_hash to the smart contract, return real tx hash.
-        return this_hash, f"eth:0x{this_hash[:24]}"
+        self.last_anchor = None
+        if self._anchor is None:
+            return this_hash, f"eth:local:0x{this_hash[:24]}"
+        try:
+            self.last_anchor = self._anchor.anchor(this_hash)
+            return this_hash, f"eth:{self.last_anchor.tx_hash}"
+        except Exception as exc:
+            if not self.fail_open:
+                raise
+            log.warning("ethereum anchoring failed open: %s", exc)
+            return this_hash, f"eth:local:0x{this_hash[:24]}"
 
     def verify_chain(self) -> bool:
         return self._chain.verify_chain()
+
+    def verify_on_chain(
+        self,
+        tx_hash: str,
+        *,
+        expected_hash: str = "",
+    ) -> EthereumAnchorReceipt:
+        if self._anchor is None:
+            raise RuntimeError("Ethereum anchor is not configured")
+        return self._anchor.verify_on_chain(tx_hash, expected_hash=expected_hash)
+
+    def records(self) -> list[dict]:
+        return self._chain.records()
 
 
 class HyperledgerBackend:
