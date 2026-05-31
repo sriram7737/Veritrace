@@ -12,7 +12,7 @@ veritrace validate       # checks config + Redis/Postgres connectivity
 ## Local without Docker (dev)
 ```bash
 pip install -e ".[dev,api,redis,postgres,otel,encrypted]"
-python -m pytest -q  # 322 passing
+python -m pytest -q  # 327 passing
 uvicorn veritrace.api.app:app --port 8080
 ```
 
@@ -35,6 +35,15 @@ VT_QUOTA_WINDOW_S=86400
 
 The API returns HTTP 429 when a tenant exceeds a quota and exposes current
 window usage at `GET /v1/usage`.
+
+## Dashboard scope
+The dashboard is still a lightweight admin UI, not an enterprise IAM system.
+Use these env vars to keep it honest in pilots:
+
+```bash
+VT_DASHBOARD_TENANT=tenant_a        # "*" means super-admin
+VT_DASHBOARD_SECURE_COOKIE=true     # set true behind TLS
+```
 
 ## Kubernetes (Helm)
 ```bash

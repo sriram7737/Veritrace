@@ -34,6 +34,10 @@ VT_API_URL       = os.environ.get("VT_API_URL", "http://localhost:8080")
 VT_API_KEY       = os.environ.get("VT_API_KEY", "")
 VT_DASHBOARD_KEY = os.environ.get("VT_DASHBOARD_KEY", VT_API_KEY)  # shared key for browser
 VT_JWT_SECRET    = os.environ.get("VT_JWT_SECRET", "change-me-in-production")
+VT_DASHBOARD_TENANT = os.environ.get("VT_DASHBOARD_TENANT", "*")
+VT_DASHBOARD_SECURE_COOKIE = os.environ.get(
+    "VT_DASHBOARD_SECURE_COOKIE", "false"
+).lower() in {"1", "true", "yes", "on"}
 SESSION_TTL_S    = int(os.environ.get("VT_SESSION_TTL_S", "3600"))
 
 app = FastAPI(title="Veritrace Dashboard", docs_url=None, redoc_url=None)
@@ -90,7 +94,7 @@ def _get_auth(request: Request) -> Optional[AuthContext]:
     # 1. X-API-Key header (CLI / curl usage)
     key = request.headers.get("X-API-Key", "")
     if key and VT_DASHBOARD_KEY and hmac.compare_digest(key, VT_DASHBOARD_KEY):
-        return AuthContext("api_key_user", "*")
+        return AuthContext("api_key_user", VT_DASHBOARD_TENANT)
 
     # 2. Cookie session JWT
     token = request.cookies.get("vt_session", "")
@@ -195,11 +199,10 @@ async def login(request: Request, username: str = Form(...), password: str = For
     ):
         return RedirectResponse("/login?error=Invalid+credentials", status_code=302)
 
-    # Issue a session JWT scoped to * (all tenants) for the admin user.
-    # Scope to a specific tenant by storing tenant in DB per user.
+    # Scope the session from config. Use "*" only for a deliberate super-admin.
     payload = {
         "sub": username,
-        "tenant": "*",
+        "tenant": VT_DASHBOARD_TENANT,
         "iat": int(time.time()),
         "exp": int(time.time()) + SESSION_TTL_S,
     }
@@ -207,7 +210,7 @@ async def login(request: Request, username: str = Form(...), password: str = For
     resp = RedirectResponse("/", status_code=302)
     resp.set_cookie(
         "vt_session", token,
-        httponly=True, samesite="lax", secure=False,  # set secure=True behind TLS
+        httponly=True, samesite="lax", secure=VT_DASHBOARD_SECURE_COOKIE,
         max_age=SESSION_TTL_S,
     )
     return resp

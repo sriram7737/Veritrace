@@ -10,6 +10,7 @@ from veritrace import Veritrace, Verdict  # noqa: E402
 from veritrace.hitl.slack import SlackApprovalRegistry  # noqa: E402
 from veritrace.layers import HITLLayer, ToolGuardLayer, ToolPolicy  # noqa: E402
 from veritrace.layers.tool_guard import SideEffect  # noqa: E402
+from veritrace.ratelimit import TokenBucket  # noqa: E402
 from veritrace.usage import UsageLimits, UsageTracker  # noqa: E402
 
 
@@ -133,6 +134,26 @@ def test_tool_validation_quota_blocks_after_limit():
     assert first.status_code == 200
     assert second.status_code == 429
     assert "tool-validation quota" in second.json()["detail"]
+
+
+def test_rate_limit_blocks_before_usage_quota_is_consumed():
+    usage = UsageTracker(UsageLimits(max_calls=10, window_s=60))
+    local_client = TestClient(create_app(usage_tracker=usage))
+    local_client.app.state.bucket = TokenBucket(capacity=1, refill_per_sec=0.001)
+
+    first = local_client.post(
+        "/v1/run",
+        json={"prompt": "hello", "tenant_id": "acme", "session_id": "s"},
+    )
+    second = local_client.post(
+        "/v1/run",
+        json={"prompt": "again", "tenant_id": "acme", "session_id": "s"},
+    )
+
+    assert first.status_code == 200
+    assert second.status_code == 429
+    assert second.json()["detail"] == "rate limit exceeded"
+    assert usage.snapshot("acme").calls == 1
 
 
 def test_missing_trace_404(client):

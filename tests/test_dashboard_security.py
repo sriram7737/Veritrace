@@ -2,6 +2,8 @@ import pytest
 
 dashboard = pytest.importorskip("deploy.dashboard.app")
 from fastapi import HTTPException  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
+from starlette.requests import Request  # noqa: E402
 
 
 @pytest.mark.asyncio
@@ -42,3 +44,39 @@ async def test_dashboard_approval_scope_404_for_unknown_request(monkeypatch):
         await dashboard._require_pending_approval_scope("missing", ctx)
 
     assert exc.value.status_code == 404
+
+
+def test_dashboard_api_key_auth_can_be_tenant_scoped(monkeypatch):
+    monkeypatch.setattr(dashboard, "VT_DASHBOARD_KEY", "secret")
+    monkeypatch.setattr(dashboard, "VT_DASHBOARD_TENANT", "tenant_a")
+    request = Request({
+        "type": "http",
+        "headers": [(b"x-api-key", b"secret")],
+    })
+
+    ctx = dashboard._get_auth(request)
+
+    assert ctx is not None
+    assert ctx.username == "api_key_user"
+    assert ctx.tenant == "tenant_a"
+
+
+def test_dashboard_login_cookie_uses_configured_tenant_and_secure_flag(monkeypatch):
+    monkeypatch.setattr(dashboard, "VT_DASHBOARD_KEY", "secret")
+    monkeypatch.setattr(dashboard, "VT_DASHBOARD_TENANT", "tenant_a")
+    monkeypatch.setattr(dashboard, "VT_DASHBOARD_SECURE_COOKIE", True)
+    client = TestClient(dashboard.app)
+
+    response = client.post(
+        "/login",
+        data={"username": "alice", "password": "secret"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    cookie = response.headers["set-cookie"]
+    assert "Secure" in cookie
+    token = response.cookies["vt_session"]
+    payload = dashboard._verify(token)
+    assert payload["sub"] == "alice"
+    assert payload["tenant"] == "tenant_a"

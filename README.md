@@ -134,33 +134,37 @@ The stack includes Postgres (audit store), Redis (HITL + rate limiting), the Ver
 
 ## Capability Matrix
 
+This table is intentionally conservative. "Hardened MVP" means implemented,
+tested, and useful for pilots; it does not mean certified, pen-tested, or
+impossible to bypass under serious adversarial pressure.
+
 | Capability | Status | Notes |
 |---|---|---|
-| Prompt injection detection (regex/heuristics) | ✅ Production-ready | 14+ pattern classes, multilingual |
-| Prompt injection detection (embedding) | ✅ Production-ready | sentence-transformers, 48-exemplar corpus |
-| Tool argument schema validation | ✅ Production-ready | Full JSON Schema (oneOf/anyOf/allOf/$ref/format) |
-| Tool argument injection scanning | ✅ Production-ready | SQL, shell, path traversal, SSRF, template |
-| Tool output exfiltration scanning | ✅ Production-ready | AWS keys, private keys, JWTs, generic secrets |
-| Tool-chain attack detection | ✅ Production-ready | 7 chain patterns, configurable window |
-| Side-effect severity taxonomy | ✅ Production-ready | read→compute→write→config→external→payment→destructive |
-| LLM-as-judge for high-severity tools | ✅ Production-ready | Async, fail-closed, fully auditable |
-| Cryptographic audit trail (hash chain) | ✅ Production-ready | SHA-256 chain, tamper-evident |
-| PII redaction (compliance) | ✅ Production-ready | Email, SSN, credit card, IBAN, contextual patterns |
-| HITL approvals (basic) | ✅ Production-ready | Idle-on-silence invariant |
-| HITL escalation chains | ✅ Production-ready | Ordered slots, per-slot timeout, escalate on timeout |
-| HITL multi-approver quorum | ✅ Production-ready | N-of-M, deny threshold |
-| HITL approval audit log | ✅ Production-ready | Every decision logged with latency + approver ID |
-| Redis backend (HITL + rate limiting) | ✅ Production-ready | Connection pooling, retry, circuit breaker |
-| Postgres store (trace + audit chain) | ✅ Production-ready | Connection pooling, retry, circuit breaker, DDL |
-| Rate limiting (token bucket) | ✅ Production-ready | Per-key, configurable capacity/refill |
-| Circuit breaker | ✅ Production-ready | Redis + Postgres + provider layers |
-| OpenTelemetry distributed tracing | ✅ Production-ready | Per-layer spans, W3C trace context |
-| FastAPI sidecar | ✅ Production-ready | Auth, CORS, security headers, structured logging |
-| Admin dashboard | ✅ Beta | HTMX, auth, tenant isolation, CSV export |
+| Prompt injection detection (regex/heuristics) | Strong MVP | Useful baseline; not complete jailbreak resistance |
+| Prompt injection detection (embedding) | Beta | Optional sentence-transformers path; bypass rate is measured, not zero |
+| Tool argument schema validation | Hardened MVP | JSON Schema coverage is broad, but not a sandbox by itself |
+| Tool argument injection scanning | Hardened MVP | SQL, shell, path traversal, SSRF, template |
+| Tool output exfiltration scanning | Hardened MVP | AWS keys, private keys, JWTs, generic secrets |
+| Tool-chain attack detection | Beta | Catches known dangerous sequences; novel chains need red-team coverage |
+| Side-effect severity taxonomy | Hardened MVP | read -> compute -> write -> config -> external -> payment -> destructive |
+| LLM-as-judge for high-severity tools | Beta | Async and auditable; depends on provider quality and prompt design |
+| Cryptographic audit trail (hash chain) | Hardened MVP | SHA-256 chain, tamper-evident, not external notarization by default |
+| PII redaction (compliance) | Hardened MVP | Email, SSN, credit card, IBAN, contextual patterns |
+| HITL approvals (basic) | Hardened MVP | Idle-on-silence invariant |
+| HITL escalation chains | Beta | Ordered slots, per-slot timeout, escalation primitives |
+| HITL multi-approver quorum | Beta | N-of-M, deny threshold |
+| HITL approval audit log | Beta | Decision log exists; production persistence/runbooks still needed |
+| Redis backend (HITL + rate limiting) | Beta | Connection pooling, retry, circuit breaker; needs load testing |
+| Postgres store (trace + audit chain) | Beta | Connection pooling, retry, DDL; needs migration/runbook polish |
+| Rate limiting (token bucket) | Hardened MVP | Per-key, configurable capacity/refill |
+| Circuit breaker | Beta | Redis/Postgres/provider layers; needs chaos testing |
+| OpenTelemetry distributed tracing | Partial | Per-layer spans and W3C context; dashboards/alerts not battle-tested |
+| FastAPI sidecar | Hardened MVP | Auth, CORS, security headers, structured logging |
+| Admin dashboard | Prototype | HTMX, auth, tenant filters; not a mature admin console |
 | Embedding classifier fine-tuning | ⚠️ Manual | Expand exemplar corpus; auto-retrain planned |
 | Compliance report generator (PDF/JSON/text) | ✅ Beta | Consent, purpose, retention, audit summary |
 | Kubernetes Helm chart | ✅ Beta | API deployment, service, HPA, configurable values |
-| Usage quotas + budget hooks | ✅ Beta | Per-tenant call/tool/spend caps + `/v1/usage` |
+| Usage quotas + budget hooks | Beta | Per-tenant call/tool/spend caps + `/v1/usage`; no billing provider integration |
 | Semantic safety (beyond regex) | ⚠️ Partial | Embedding classifier covers injection; output grounding planned |
 
 ---

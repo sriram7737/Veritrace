@@ -9,7 +9,7 @@ below to know exactly what you are getting.
 
 ## Test status
 
-`python -m pytest -q` → **322 passing, 3 xfailed** (xfail = injection paraphrases
+`python -m pytest -q` → **327 passing, 3 xfailed** (xfail = injection paraphrases
 the zero-dependency keyword classifier intentionally defers to the embedding
 classifier, which is optional). No skips hiding failures.
 
@@ -37,8 +37,14 @@ classifier, which is optional). No skips hiding failures.
   Provider, HITL) + W3C trace-context propagation
 - FastAPI sidecar (auth, CORS, security headers, structured logging, RCA +
   retention + GDPR-erasure endpoints, `/v1/usage` quota snapshots)
+- Syntax-health test that compiles every Python source file before release
+- Small concurrency smoke test for trace uniqueness and hash-chain integrity
 
 ### MVP / needs hardening
+- Usage quotas: enforced before expensive routes and integrated with rate
+  limiting, but not connected to Stripe/Chargebee or billing ledgers
+- Dashboard auth: tenant-scoped config and secure-cookie support exist; still
+  not SSO/OIDC/RBAC-grade
 - Prompt-injection defense — keyword pass is solid; embedding classifier is
   optional (needs `sentence-transformers`); bypass rate is measured, not zero
 - Multi-process scaling — Redis backend exists; not yet load-tested at scale
