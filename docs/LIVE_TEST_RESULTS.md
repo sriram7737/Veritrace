@@ -70,8 +70,8 @@ Result:
 
 ```text
 attacks_bypassed: 0
-attacks_caught: 30
-attacks_total: 30
+attacks_caught: 100
+attacks_total: 100
 bypass_rate: 0.0
 false_positive_rate: 0.0
 ```

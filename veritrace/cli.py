@@ -272,7 +272,7 @@ def main():
         "--attacks",
         type=int,
         default=None,
-        help="Number of built-in attack prompts to run (max 30)",
+        help="Number of built-in attack prompts to run",
     )
     p_redteam.add_argument(
         "--max-bypass-rate",

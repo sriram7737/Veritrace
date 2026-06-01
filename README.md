@@ -31,7 +31,7 @@ Run the release sanity checks:
 
 ```bash
 python -m pytest -q --tb=no
-veritrace redteam --json --attacks 30
+veritrace redteam --json --attacks 100
 ```
 
 Current local result: `354 passed, 2 warnings`.
@@ -121,15 +121,15 @@ asyncio.run(main())
 | Dashboard | Prototype | Auth, tenant scoping, traces, approvals, metrics, usage page |
 | Redis/Postgres backends | Beta | Wired and tested locally; needs scale/load testing |
 | OpenTelemetry | Partial | Per-layer spans exist; dashboards and alerting need hardening |
-| Red-team benchmark | MVP | `veritrace redteam --json --attacks 30`; honest bypass rate, small corpus |
+| Red-team benchmark | MVP | `veritrace redteam --json --attacks 100`; honest bypass rate, small corpus |
 | Billing hooks | MVP | Fail-open usage webhook; no Stripe/Chargebee ledger yet |
 | S3 cold archive | MVP | Gzip + encrypted trace archive wrapper; metadata sink hook |
 
 ## Honest Limits
 
 - Prompt-injection defense is not complete. The keyword path is bypassable; the
-  bundled corpus now passes, but the embedding classifier is optional and the
-  project still needs larger third-party red-team sets.
+  bundled 100-prompt smoke corpus now passes, but the embedding classifier is
+  optional and the project still needs larger third-party red-team sets.
 - ToolGuard is a hard policy gate outside the model, but it is not a sandbox.
 - Dashboard auth is not SSO/OIDC/RBAC-grade.
 - Redis/Postgres support exists, but the stack has not been chaos-tested or
@@ -154,7 +154,7 @@ gzip JSON while keeping metadata available for compliance reporting.
 veritrace init
 docker compose up -d
 python -m pytest -q --tb=no
-veritrace redteam --json --attacks 30
+veritrace redteam --json --attacks 100
 ```
 
 Then use the dashboard to inspect traces, pending HITL approvals, audit status,

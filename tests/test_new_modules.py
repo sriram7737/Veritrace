@@ -257,12 +257,15 @@ class TestCLI:
         import json
         import subprocess
         import sys
+        from veritrace.redteam import EXTENDED_ATTACKS
+
+        assert len(EXTENDED_ATTACKS) >= 100
 
         r = subprocess.run(
-            [sys.executable, "-m", "veritrace.cli", "redteam", "--json", "--attacks", "30"],
+            [sys.executable, "-m", "veritrace.cli", "redteam", "--json", "--attacks", "100"],
             capture_output=True, text=True,
         )
         assert r.returncode == 0
         data = json.loads(r.stdout)
-        assert data["attacks_total"] == 30
+        assert data["attacks_total"] == 100
         assert data["bypass_rate"] <= 0.10

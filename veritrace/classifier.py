@@ -169,7 +169,7 @@ _FALLBACK_KEYWORDS = [
     r"\bwhat\s+are\s+your\s+(exact\s+)?(system\s+)?instructions\??",
     r"\bshow\s+me\s+everything\s+before\s+the\s+user\s+message\b",
     r"\b(include|append|send|return)\b.{0,80}\b(all\s+)?"
-    r"(customer\s+)?secrets?\b",
+    r"((customer|private)\s+)?(secrets?|credentials?|environment\s+variables?|env)\b",
     # Encoded or transformed payloads.
     r"\b(decode|execute|run|interpret)\b.{0,40}\b(base64|hex|rot13|payload)\b",
     r"\b(base64|hex|rot13)\b.{0,60}\b(execute|run|follow|instructions?)\b",

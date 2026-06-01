@@ -20,8 +20,8 @@ not certified bank-grade infrastructure.
 - First published local smoke-load result.
 - Authenticated Docker Compose load validation: 10 minutes, 12,000 requests,
   0 errors, 0 HTTP 5xx, with Redis/Postgres/dashboard healthy after the run.
-- Red-team CLI can now run the 30-prompt built-in corpus with
-  `veritrace redteam --json --attacks 30`.
+- Red-team CLI can now run a 100-prompt built-in smoke corpus with
+  `veritrace redteam --json --attacks 100`.
 
 ### Changed
 

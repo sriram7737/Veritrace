@@ -50,7 +50,7 @@ Invoke-RestMethod http://localhost:8080/v1/audit/verify | ConvertTo-Json
 Run:
 
 ```bash
-veritrace redteam --json --attacks 30
+veritrace redteam --json --attacks 100
 ```
 
 Say plainly: this is a guardrail/audit MVP. It adds deterministic policy gates

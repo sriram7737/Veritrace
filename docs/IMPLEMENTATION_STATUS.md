@@ -44,7 +44,7 @@ expected failures hiding classifier misses in the bundled suite.
 - FastAPI sidecar (auth, CORS, security headers, structured logging, RCA +
   retention + GDPR-erasure endpoints, `/v1/usage` quota snapshots)
 - Dashboard usage page + Redis-backed dashboard rate limiting with local fallback
-- Built-in red-team benchmark CLI (`veritrace redteam --json --attacks 30`)
+- Built-in red-team benchmark CLI (`veritrace redteam --json --attacks 100`)
   with bypass and false-positive rates
 - Public red-team result/methodology doc and load-test runbook
 - Syntax-health test that compiles every Python source file before release
@@ -60,7 +60,7 @@ expected failures hiding classifier misses in the bundled suite.
   compliance use
 - Dashboard auth: tenant-scoped config, secure-cookie support, Redis-backed
   throttling, and explicit all-tenant opt-in exist; still not SSO/OIDC/RBAC-grade
-- Prompt-injection defense — keyword pass catches the bundled 30-prompt smoke
+- Prompt-injection defense — keyword pass catches the bundled 100-prompt smoke
   corpus; embedding classifier is optional (needs `sentence-transformers`);
   third-party and novel red-team sets are still required before high-stakes
   claims
