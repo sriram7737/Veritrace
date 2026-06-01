@@ -63,10 +63,16 @@ python -m pytest -q --tb=no
 Result:
 
 ```text
-354 passed, 2 warnings
+356 passed, 2 warnings
 ```
 
 ## Red-team Benchmark
+
+Command:
+
+```text
+veritrace redteam --json --dynamic --attacks 100 --seed 123
+```
 
 ```text
 attacks_bypassed: 0
@@ -74,10 +80,15 @@ attacks_caught: 100
 attacks_total: 100
 bypass_rate: 0.0
 false_positive_rate: 0.0
+mode: dynamic
+seed: 123
 ```
 
-This is intentionally published as a bundled-corpus smoke test only. Passing it
-does not prove resistance against novel or third-party jailbreak sets.
+Additional local sweep: seeds 1 through 10, 100 dynamic prompts each, all
+reported 0 bypasses and 0 false positives against the bundled benign set.
+
+This is intentionally published as a dynamic smoke test only. Passing it does
+not prove resistance against novel or third-party jailbreak sets.
 
 ## Not Run Here
 

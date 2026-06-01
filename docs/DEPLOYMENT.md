@@ -12,7 +12,7 @@ veritrace validate       # checks config + Redis/Postgres connectivity
 ## Local without Docker (dev)
 ```bash
 pip install -e ".[dev,api,redis,postgres,otel,encrypted]"
-python -m pytest -q  # 354 passing
+python -m pytest -q  # 356 passing
 uvicorn veritrace.api.app:app --port 8080
 ```
 

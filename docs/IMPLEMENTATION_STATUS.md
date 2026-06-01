@@ -9,7 +9,7 @@ below to know exactly what you are getting.
 
 ## Test status
 
-`python -m pytest -q --tb=no` -> **354 passing, 2 warnings**. No skips or
+`python -m pytest -q --tb=no` -> **356 passing, 2 warnings**. No skips or
 expected failures hiding classifier misses in the bundled suite.
 
 ## Status table
@@ -44,8 +44,8 @@ expected failures hiding classifier misses in the bundled suite.
 - FastAPI sidecar (auth, CORS, security headers, structured logging, RCA +
   retention + GDPR-erasure endpoints, `/v1/usage` quota snapshots)
 - Dashboard usage page + Redis-backed dashboard rate limiting with local fallback
-- Built-in red-team benchmark CLI (`veritrace redteam --json --attacks 100`)
-  with bypass and false-positive rates
+- Built-in red-team benchmark CLI with static and dynamic mutation modes
+  (`veritrace redteam --json --dynamic --attacks 100 --seed 123`)
 - Public red-team result/methodology doc and load-test runbook
 - Syntax-health test that compiles every Python source file before release
 - Small concurrency smoke test for trace uniqueness and hash-chain integrity
@@ -60,10 +60,10 @@ expected failures hiding classifier misses in the bundled suite.
   compliance use
 - Dashboard auth: tenant-scoped config, secure-cookie support, Redis-backed
   throttling, and explicit all-tenant opt-in exist; still not SSO/OIDC/RBAC-grade
-- Prompt-injection defense — keyword pass catches the bundled 100-prompt smoke
-  corpus; embedding classifier is optional (needs `sentence-transformers`);
-  third-party and novel red-team sets are still required before high-stakes
-  claims
+- Prompt-injection defense — keyword pass catches the bundled static corpus and
+  seeded dynamic mutation smoke tests; embedding classifier is optional (needs
+  `sentence-transformers`); third-party and novel red-team sets are still
+  required before high-stakes claims
 - Multi-process scaling — Redis backend exists; not yet load-tested at scale
 - Load testing — authenticated local Docker Compose/Postgres/Redis 10-minute
   run passed with 12,000 requests, 0 errors, 0 HTTP 5xx; still not chaos/SLA

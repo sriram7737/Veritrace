@@ -22,6 +22,8 @@ not certified bank-grade infrastructure.
   0 errors, 0 HTTP 5xx, with Redis/Postgres/dashboard healthy after the run.
 - Red-team CLI can now run a 100-prompt built-in smoke corpus with
   `veritrace redteam --json --attacks 100`.
+- Red-team CLI now supports runtime prompt mutation with reproducible seeds:
+  `veritrace redteam --json --dynamic --attacks 100 --seed 123`.
 
 ### Changed
 
@@ -30,6 +32,9 @@ not certified bank-grade infrastructure.
   clear hardening gaps.
 - Keyword fallback catches classic developer-mode, DAN, indirect tool-output,
   delimiter, and exfiltration jailbreaks in the bundled corpus.
+- Keyword fallback was tightened against dynamic variants such as debug mode,
+  unrestricted persona, supersede/replace overrides, private data, and system
+  directive exfiltration.
 
 ### Still Not Proven
 

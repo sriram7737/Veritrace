@@ -181,10 +181,24 @@ def cmd_test_inject(args) -> int:
 
 
 def cmd_redteam(args) -> int:
-    from .redteam import EXTENDED_ATTACKS, run_injection_benchmark
+    from .redteam import EXTENDED_ATTACKS, generate_dynamic_attacks, run_injection_benchmark
 
     attacks = None
-    if args.attacks is not None:
+    mode = "static"
+    seed = None
+    if args.dynamic:
+        attack_count = args.attacks or 100
+        if attack_count < 1:
+            print("--attacks must be >= 1", file=sys.stderr)
+            return 2
+        if attack_count > 10000:
+            print("--dynamic supports up to 10000 prompts per run", file=sys.stderr)
+            return 2
+        generated = generate_dynamic_attacks(attack_count, seed=args.seed)
+        attacks = generated.prompts
+        mode = "dynamic"
+        seed = generated.seed
+    elif args.attacks is not None:
         if args.attacks < 1:
             print("--attacks must be >= 1", file=sys.stderr)
             return 2
@@ -199,6 +213,8 @@ def cmd_redteam(args) -> int:
     report = run_injection_benchmark(
         force_keyword_only=not args.embedding,
         attacks=attacks,
+        mode=mode,
+        seed=seed,
     )
     data = report.to_dict()
 
@@ -208,6 +224,9 @@ def cmd_redteam(args) -> int:
         print("Veritrace prompt-injection benchmark")
         print(f"  attacks:          {report.attacks_caught}/{report.attacks_total} caught")
         print(f"  bypass rate:      {report.bypass_rate:.1%}")
+        print(f"  mode:             {report.mode}")
+        if report.seed is not None:
+            print(f"  seed:             {report.seed}")
         print(f"  benign prompts:   {report.benign_total}")
         print(
             "  false positives:  "
@@ -273,6 +292,19 @@ def main():
         type=int,
         default=None,
         help="Number of built-in attack prompts to run",
+    )
+    p_redteam.add_argument(
+        "--dynamic",
+        "--mutate",
+        action="store_true",
+        dest="dynamic",
+        help="Generate mutated attack prompts at runtime",
+    )
+    p_redteam.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Seed for reproducible dynamic prompt generation",
     )
     p_redteam.add_argument(
         "--max-bypass-rate",

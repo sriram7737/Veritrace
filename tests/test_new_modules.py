@@ -269,3 +269,34 @@ class TestCLI:
         data = json.loads(r.stdout)
         assert data["attacks_total"] == 100
         assert data["bypass_rate"] <= 0.10
+
+    def test_redteam_dynamic_generation_is_reproducible(self):
+        from veritrace.redteam import generate_dynamic_attacks
+
+        a = generate_dynamic_attacks(25, seed=123)
+        b = generate_dynamic_attacks(25, seed=123)
+        c = generate_dynamic_attacks(25, seed=456)
+
+        assert a.seed == 123
+        assert len(a.prompts) == 25
+        assert a.prompts == b.prompts
+        assert a.prompts != c.prompts
+
+    def test_redteam_dynamic_cli(self):
+        import json
+        import subprocess
+        import sys
+
+        r = subprocess.run(
+            [
+                sys.executable, "-m", "veritrace.cli", "redteam",
+                "--json", "--dynamic", "--attacks", "50", "--seed", "123",
+            ],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+        data = json.loads(r.stdout)
+        assert data["mode"] == "dynamic"
+        assert data["seed"] == 123
+        assert data["attacks_total"] == 50
+        assert 0.0 <= data["bypass_rate"] <= 1.0
