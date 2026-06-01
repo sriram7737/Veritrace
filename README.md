@@ -146,6 +146,7 @@ metrics, and per-tenant usage.
 - [Load-test runbook](docs/LOAD_TEST.md)
 - [Load-test results](docs/LOAD_TEST_RESULTS.md)
 - [Demo script](docs/DEMO_SCRIPT.md)
+- [Changelog](CHANGELOG.md)
 - [Design document](docs/Veritrace-Design-Document.docx)
 
 ## License

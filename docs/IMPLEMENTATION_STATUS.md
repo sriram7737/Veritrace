@@ -1,6 +1,6 @@
 # Veritrace — Current Implementation Status
 
-_Last updated for the v0.3 "Production Guardrails MVP" milestone._
+_Last updated for the v0.4 "Anchoring + Archive MVP" milestone._
 
 This document is deliberately blunt. Veritrace is **strong trust middleware for
 AI agents** — deterministic guardrails, HITL, tool policy, and tamper-evident
@@ -61,11 +61,11 @@ classifier, which is optional). No skips hiding failures.
   optional (needs `sentence-transformers`); bypass rate is measured by the
   red-team CLI, not zero
 - Multi-process scaling — Redis backend exists; not yet load-tested at scale
-- Load testing — runbook exists; no published sustained-load results yet
+- Load testing — local smoke-load result exists; no published sustained Docker/Postgres/Redis results yet
 - RCA for complex branching agents — graph support added; heuristic, not a solver
 - OTel tracing — spans emitted; Grafana dashboards are provided as config, not battle-tested
 
-### Not implemented / out of scope for v0.3
+### Not implemented / out of scope for v0.4
 - ServiceNow adapter
 - QuantumLayer (research stub only — intentionally not built)
 - Real external penetration test (must be run by a third party)
