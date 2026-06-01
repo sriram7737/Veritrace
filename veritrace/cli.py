@@ -207,10 +207,14 @@ def cmd_redteam(args) -> int:
 
 def cmd_version(args) -> int:
     try:
-        from importlib.metadata import version
-        v = version("veritrace")
+        from . import __version__
+        v = __version__
     except Exception:
-        v = "dev"
+        try:
+            from importlib.metadata import version
+            v = version("veritrace")
+        except Exception:
+            v = "dev"
     print(f"veritrace {v}")
     return 0
 

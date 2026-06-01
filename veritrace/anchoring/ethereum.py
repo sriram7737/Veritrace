@@ -55,12 +55,16 @@ class EthereumAnchor:
         chain_id: int = SEPOLIA_CHAIN_ID,
         web3: Optional[Any] = None,
         gas_limit: int = 50_000,
+        wait_timeout: int = 300,
+        poll_latency: int = 5,
     ) -> None:
         self.rpc_url = rpc_url
         self.private_key = private_key
         self.contract_address = contract_address
         self.chain_id = chain_id
         self.gas_limit = gas_limit
+        self.wait_timeout = wait_timeout
+        self.poll_latency = poll_latency
         self._w3 = web3 or self._load_web3(rpc_url)
         if not private_key:
             raise EthereumAnchorError("private_key is required for Ethereum anchoring")
@@ -89,13 +93,17 @@ class EthereumAnchor:
             "nonce": nonce,
             "chainId": self.chain_id,
             "gas": self.gas_limit,
-            "gasPrice": self._w3.eth.gas_price,
         }
+        tx.update(_fee_fields(self._w3))
         signed = self._w3.eth.account.sign_transaction(tx, self.private_key)
         raw = getattr(signed, "raw_transaction", None) or getattr(signed, "rawTransaction")
         tx_hash_raw = self._w3.eth.send_raw_transaction(raw)
         tx_hash = _to_hex(self._w3, tx_hash_raw)
-        receipt = self._w3.eth.wait_for_transaction_receipt(tx_hash)
+        receipt = self._w3.eth.wait_for_transaction_receipt(
+            tx_hash,
+            timeout=self.wait_timeout,
+            poll_latency=self.poll_latency,
+        )
         block_number = _get_receipt_value(receipt, "blockNumber", "block_number", default=0)
         status = _get_receipt_value(receipt, "status", default=0)
         return EthereumAnchorReceipt(
@@ -119,7 +127,7 @@ class EthereumAnchor:
         block_number = int(
             _get_receipt_value(receipt, "blockNumber", "block_number", default=0) or 0
         )
-        input_data = str(_get_receipt_value(tx, "input", default=""))
+        input_data = _calldata_to_hex(_get_receipt_value(tx, "input", "data", default=""))
         anchored_hash = expected_hash.removeprefix("0x").lower()
         if status != 1:
             raise EthereumAnchorError(f"transaction {normalized_tx} did not succeed")
@@ -154,6 +162,37 @@ def _to_hex(w3: Any, value: Any) -> str:
         h = value.hex()
         return h if h.startswith("0x") else f"0x{h}"
     raise EthereumAnchorError("could not convert transaction hash to hex")
+
+
+def _fee_fields(w3: Any) -> dict[str, int]:
+    gas_price = int(w3.eth.gas_price)
+    try:
+        latest = w3.eth.get_block("latest")
+        base_fee = _get_receipt_value(latest, "baseFeePerGas", "base_fee_per_gas")
+    except Exception:
+        base_fee = None
+    if base_fee is None:
+        return {"gasPrice": max(gas_price, 1)}
+
+    priority_fee = max(int(gas_price * 0.15), 1_000_000_000)
+    max_fee = max(int(gas_price * 2), int(base_fee) * 2 + priority_fee)
+    return {
+        "maxFeePerGas": max_fee,
+        "maxPriorityFeePerGas": priority_fee,
+    }
+
+
+def _calldata_to_hex(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.lower()
+    if isinstance(value, bytes):
+        return "0x" + value.hex()
+    if hasattr(value, "hex"):
+        h = value.hex()
+        return h.lower() if str(h).startswith("0x") else f"0x{h}".lower()
+    return str(value).lower()
 
 
 def _get_receipt_value(obj: Any, *names: str, default: Any = None) -> Any:

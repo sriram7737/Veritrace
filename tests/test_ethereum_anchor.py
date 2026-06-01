@@ -40,14 +40,14 @@ class _Eth:
         self.sent_raw = raw
         return b"\x12" * 32
 
-    def wait_for_transaction_receipt(self, tx_hash):
+    def wait_for_transaction_receipt(self, tx_hash, **kwargs):
         return self.receipt
 
     def get_transaction_receipt(self, tx_hash):
         return self.receipt
 
     def get_transaction(self, tx_hash):
-        return {"input": self.account.last_tx["data"]}
+        return {"input": bytes.fromhex(self.account.last_tx["data"].removeprefix("0x"))}
 
 
 class _Web3:
@@ -68,7 +68,27 @@ def test_ethereum_anchor_submits_hash_as_calldata():
     assert receipt.block_number == 123
     assert receipt.status == 1
     assert w3.eth.account.last_tx["data"] == "0x" + "a" * 64
+    assert w3.eth.account.last_tx["gasPrice"] == 10
     assert w3.eth.sent_raw == b"signed-tx"
+
+
+def test_ethereum_anchor_uses_eip1559_fee_fields_when_available():
+    class _Eip1559Eth(_Eth):
+        def get_block(self, name):
+            return {"baseFeePerGas": 20}
+
+    class _Eip1559Web3(_Web3):
+        def __init__(self):
+            self.eth = _Eip1559Eth()
+
+    w3 = _Eip1559Web3()
+    anchor = EthereumAnchor(web3=w3, private_key="secret")
+
+    anchor.anchor("a" * 64)
+
+    assert "gasPrice" not in w3.eth.account.last_tx
+    assert w3.eth.account.last_tx["maxFeePerGas"] >= 1_000_000_040
+    assert w3.eth.account.last_tx["maxPriorityFeePerGas"] >= 1_000_000_000
 
 
 def test_ethereum_anchor_rejects_non_hash():

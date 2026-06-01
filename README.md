@@ -34,7 +34,29 @@ python -m pytest -q --tb=no
 veritrace redteam --json
 ```
 
-Current local result: `344 passed, 3 xfailed, 2 warnings`.
+Current local result: `345 passed, 3 xfailed, 2 warnings`.
+
+## When To Use Veritrace
+
+- You are wrapping LLM calls or agent workflows and need audit trails, policy
+  checks, HITL approvals, PII scrubbing, and provider fallback in one place.
+- You want deterministic tool policy outside the model, especially for actions
+  like payments, data export, account changes, or admin operations.
+- You are building an internal tool, pilot, or interview/demo project where
+  honest safety evidence matters more than marketing claims.
+- You need tamper-evident traces with optional Sepolia anchoring and encrypted
+  S3 cold archive support.
+
+## When Not To Use Veritrace Yet
+
+- You need certified bank-grade, healthcare-grade, or SOC2-audited production
+  infrastructure today.
+- You need jailbreak resistance against a serious red team; the current
+  benchmark still shows a 25% bypass rate.
+- You need mature enterprise dashboard auth such as SSO/OIDC/RBAC.
+- You need proven 10-minute-plus Docker/Postgres/Redis load numbers or chaos
+  engineering results.
+- You need billing-grade Stripe/Chargebee metering rather than usage hooks.
 
 ## Minimal Example
 
@@ -143,6 +165,7 @@ metrics, and per-tenant usage.
 - [Implementation status](docs/IMPLEMENTATION_STATUS.md)
 - [Compliance mapping](docs/COMPLIANCE_MAPPING.md)
 - [Red-team results](docs/REDTEAM_RESULTS.md)
+- [Live test results](docs/LIVE_TEST_RESULTS.md)
 - [Load-test runbook](docs/LOAD_TEST.md)
 - [Load-test results](docs/LOAD_TEST_RESULTS.md)
 - [Demo script](docs/DEMO_SCRIPT.md)
