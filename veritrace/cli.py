@@ -181,9 +181,25 @@ def cmd_test_inject(args) -> int:
 
 
 def cmd_redteam(args) -> int:
-    from .redteam import run_injection_benchmark
+    from .redteam import EXTENDED_ATTACKS, run_injection_benchmark
 
-    report = run_injection_benchmark(force_keyword_only=not args.embedding)
+    attacks = None
+    if args.attacks is not None:
+        if args.attacks < 1:
+            print("--attacks must be >= 1", file=sys.stderr)
+            return 2
+        if args.attacks > len(EXTENDED_ATTACKS):
+            print(
+                f"--attacks supports up to {len(EXTENDED_ATTACKS)} built-in prompts",
+                file=sys.stderr,
+            )
+            return 2
+        attacks = EXTENDED_ATTACKS[:args.attacks]
+
+    report = run_injection_benchmark(
+        force_keyword_only=not args.embedding,
+        attacks=attacks,
+    )
     data = report.to_dict()
 
     if args.json:
@@ -251,6 +267,12 @@ def main():
         "--json",
         action="store_true",
         help="Emit machine-readable JSON",
+    )
+    p_redteam.add_argument(
+        "--attacks",
+        type=int,
+        default=None,
+        help="Number of built-in attack prompts to run (max 30)",
     )
     p_redteam.add_argument(
         "--max-bypass-rate",

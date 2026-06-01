@@ -140,24 +140,48 @@ BENIGN_EXEMPLARS: list[str] = [
 # ── keyword fallback (zero deps) ─────────────────────────────────────────────
 
 _FALLBACK_KEYWORDS = [
-    # override
-    r"ignore\s+(all\s+)?(previous|prior|above|earlier)\s+(instructions?|prompts?|rules?)",
-    r"disregard\s+(all\s+)?(your\s+)?(previous|prior|guidelines|instructions?)",
-    r"forget\s+(all\s+)?(previous|prior|everything|your)\s*(instructions?|rules?)?",
-    r"override\s+(your\s+)?(instructions?|guidelines|rules?)",
-    # role hijack
-    r"you\s+are\s+now\s+(an?\s+)?(unrestricted|uncensored|jailbroken|dan\b)",
-    r"act\s+as\s+(an?\s+)?(unrestricted|uncensored|jailbroken)",
-    r"pretend\s+you\s+(have\s+no|are\s+(an?\s+)?unrestricted)",
-    r"(system|assistant|developer)\s*[:>]\s*you\s+(are|will)",
-    # exfil
-    r"(print|repeat|reveal|show|output|leak)\s+(all\s+|your\s+|the\s+)?"
-    r"|dump\s+(all\s+)?(memory|context|secrets?|internal|env)",
-    r"(context|instructions?|system\s+prompt|memory|secrets?|env(ironment)?)",
-    # encoded
-    r"(decode|execute|run)\s+(this\s+)?(base64|hex|rot13|payload)",
-    # delimiter
-    r"(```\s*end\s+of\s+prompt|<\|im_end\|>|---\s*end\s+system)",
+    # Instruction override and policy suppression.
+    r"\b(ignore|disregard|bypass|override)\s+((all|your|the)\s+)?"
+    r"((previous|prior|above|earlier|system|developer)\s+)?"
+    r"(instructions?|prompts?|rules?|polic(?:y|ies)|guidelines?|constraints?)\b",
+    r"\bignore\s+(the\s+)?(above|previous|prior)\b",
+    r"\bforget\s+(all\s+)?(previous|prior|everything|your)\s*"
+    r"(instructions?|rules?|guidelines?|constraints?)?\b",
+    r"\b(all\s+)?restrictions?\s+(are\s+)?(lifted|removed|disabled|off)\b",
+    r"\b(without|with\s+no)\s+(any\s+)?(filters?|rules?|restrictions?|policy|policies)\b",
+    r"\bfrom\s+now\s+on\b.{0,80}\b(obey|comply|answer|follow|ignore|bypass|disable)\b",
+    # Role hijack and persona jailbreaks.
+    r"\byou\s+are\s+now\b.{0,60}\b(unrestricted|uncensored|jailbroken|developer\s+mode|dan\b)\b",
+    r"\byou\s+are\s+no\s+longer\b.{0,60}\bassistant\b.{0,80}\b(hacker|attacker|unrestricted)\b",
+    r"\b(act|roleplay)\s+as\b.{0,70}\b(unrestricted|uncensored|jailbroken|dan\b|do\s+anything\s+now|no\s+content\s+policy)\b",
+    r"\bact\s+as\s+if\b.{0,80}\b(no\s+(content\s+)?policy|no\s+rules|unrestricted|uncensored)\b",
+    r"\bpretend\s+you\b.{0,100}\b(no\s+(content\s+)?policy|no\s+(ethical\s+)?guidelines?|no\s+rules|unrestricted|uncensored)\b",
+    r"\bsimulate\b.{0,80}\bai\b.{0,80}\b(freed|free|no\s+restrictions?|unrestricted|uncensored)\b",
+    r"\bai\s+trained\s+to\b.{0,80}\b(always\s+)?comply\b",
+    r"\b(developer\s+mode|dan|do\s+anything\s+now)\b.{0,80}\b(no\s+restrictions?|no\s+filters?|always\s+answer|comply)\b",
+    r"(system|assistant|developer)\s*[:>]\s*you\s+(are|will|must)",
+    r"\bnew\s+(system|developer)?\s*(directive|instructions?|rules?)\b.{0,100}"
+    r"\b(ignore|leak|reveal|comply|override)\b",
+    # Exfiltration.
+    r"\b(print|repeat|reveal|show|output|leak|dump|exfiltrate)\b.{0,80}"
+    r"\b(system\s+prompt|instructions?|context|memory|secrets?|secret\s+keys?|"
+    r"environment\s+variables?|env|configuration|customer\s+secrets?)\b",
+    r"\bwhat\s+are\s+your\s+(exact\s+)?(system\s+)?instructions\??",
+    r"\bshow\s+me\s+everything\s+before\s+the\s+user\s+message\b",
+    r"\b(include|append|send|return)\b.{0,80}\b(all\s+)?"
+    r"(customer\s+)?secrets?\b",
+    # Encoded or transformed payloads.
+    r"\b(decode|execute|run|interpret)\b.{0,40}\b(base64|hex|rot13|payload)\b",
+    r"\b(base64|hex|rot13)\b.{0,60}\b(execute|run|follow|instructions?)\b",
+    r"\b(encoded\s+message|payload)\b.{0,80}\b(follow|execute|run|instructions?)\b",
+    # Delimiter and chat-template breaks.
+    r"(```\s*end\s+of\s+prompt|<\|im_end\|>|---\s*end\s+system|</system>)",
+    # Indirect prompt injection through retrieved/tool content.
+    r"\b(tool|search|document|file|api|web(?:page)?|result|retrieved\s+content)\b"
+    r".{0,80}\b(says|returned|contains|claims|instructs)\b.{0,120}"
+    r"\b(ignore|disregard|forget|override|reveal|leak|comply)\b",
+    r"\btreat\b.{0,80}\b(tool|search|document|file|api|result|retrieved\s+content)\b"
+    r".{0,120}\b(higher\s+priority|system\s+message|developer\s+message|authoritative)\b",
 ]
 _FALLBACK_RX = [re.compile(p, re.IGNORECASE | re.DOTALL) for p in _FALLBACK_KEYWORDS]
 

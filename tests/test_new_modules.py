@@ -252,3 +252,17 @@ class TestCLI:
         data = json.loads(r.stdout)
         assert data["attacks_total"] >= 10
         assert 0.0 <= data["bypass_rate"] <= 1.0
+
+    def test_redteam_attack_count_option(self):
+        import json
+        import subprocess
+        import sys
+
+        r = subprocess.run(
+            [sys.executable, "-m", "veritrace.cli", "redteam", "--json", "--attacks", "30"],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+        data = json.loads(r.stdout)
+        assert data["attacks_total"] == 30
+        assert data["bypass_rate"] <= 0.10

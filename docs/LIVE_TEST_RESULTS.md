@@ -63,21 +63,21 @@ python -m pytest -q --tb=no
 Result:
 
 ```text
-346 passed, 3 xfailed, 2 warnings
+354 passed, 2 warnings
 ```
 
 ## Red-team Benchmark
 
 ```text
-attacks_bypassed: 3
-attacks_caught: 9
-attacks_total: 12
-bypass_rate: 0.25
+attacks_bypassed: 0
+attacks_caught: 30
+attacks_total: 30
+bypass_rate: 0.0
 false_positive_rate: 0.0
 ```
 
-This is intentionally published because the current injection classifier is not
-robust enough to claim high-stakes jailbreak resistance.
+This is intentionally published as a bundled-corpus smoke test only. Passing it
+does not prove resistance against novel or third-party jailbreak sets.
 
 ## Not Run Here
 

@@ -20,17 +20,21 @@ not certified bank-grade infrastructure.
 - First published local smoke-load result.
 - Authenticated Docker Compose load validation: 10 minutes, 12,000 requests,
   0 errors, 0 HTTP 5xx, with Redis/Postgres/dashboard healthy after the run.
+- Red-team CLI can now run the 30-prompt built-in corpus with
+  `veritrace redteam --json --attacks 30`.
 
 ### Changed
 
 - Package/API version bumped to `0.4.0`.
 - Design and status docs now call out Ethereum and S3 as MVP features with
   clear hardening gaps.
+- Keyword fallback catches classic developer-mode, DAN, indirect tool-output,
+  delimiter, and exfiltration jailbreaks in the bundled corpus.
 
 ### Still Not Proven
 
-- No Docker/Postgres/Redis sustained load test was run because Docker is not
-  installed in this environment.
+- No third-party red-team benchmark, chaos run, or external penetration test has
+  been completed.
 - No mainnet anchoring, deployed verifier contract, or production key-management
   runbook exists yet.
 - No external penetration test, SSO/RBAC dashboard hardening, or formal

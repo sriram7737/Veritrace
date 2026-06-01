@@ -31,10 +31,10 @@ Run the release sanity checks:
 
 ```bash
 python -m pytest -q --tb=no
-veritrace redteam --json
+veritrace redteam --json --attacks 30
 ```
 
-Current local result: `346 passed, 3 xfailed, 2 warnings`.
+Current local result: `354 passed, 2 warnings`.
 
 ## When To Use Veritrace
 
@@ -51,8 +51,8 @@ Current local result: `346 passed, 3 xfailed, 2 warnings`.
 
 - You need certified bank-grade, healthcare-grade, or SOC2-audited production
   infrastructure today.
-- You need jailbreak resistance against a serious red team; the current
-  benchmark still shows a 25% bypass rate.
+- You need proven jailbreak resistance against a serious red team; the bundled
+  benchmark is only a deterministic smoke test, not third-party assurance.
 - You need mature enterprise dashboard auth such as SSO/OIDC/RBAC.
 - You need production-grade scale evidence, chaos engineering, or SLA-backed
   capacity numbers beyond the published local Docker Compose load run.
@@ -121,14 +121,15 @@ asyncio.run(main())
 | Dashboard | Prototype | Auth, tenant scoping, traces, approvals, metrics, usage page |
 | Redis/Postgres backends | Beta | Wired and tested locally; needs scale/load testing |
 | OpenTelemetry | Partial | Per-layer spans exist; dashboards and alerting need hardening |
-| Red-team benchmark | MVP | `veritrace redteam --json`; honest bypass rate, small corpus |
+| Red-team benchmark | MVP | `veritrace redteam --json --attacks 30`; honest bypass rate, small corpus |
 | Billing hooks | MVP | Fail-open usage webhook; no Stripe/Chargebee ledger yet |
 | S3 cold archive | MVP | Gzip + encrypted trace archive wrapper; metadata sink hook |
 
 ## Honest Limits
 
 - Prompt-injection defense is not complete. The keyword path is bypassable; the
-  embedding classifier is optional and needs a larger trained corpus.
+  bundled corpus now passes, but the embedding classifier is optional and the
+  project still needs larger third-party red-team sets.
 - ToolGuard is a hard policy gate outside the model, but it is not a sandbox.
 - Dashboard auth is not SSO/OIDC/RBAC-grade.
 - Redis/Postgres support exists, but the stack has not been chaos-tested or
@@ -153,7 +154,7 @@ gzip JSON while keeping metadata available for compliance reporting.
 veritrace init
 docker compose up -d
 python -m pytest -q --tb=no
-veritrace redteam --json
+veritrace redteam --json --attacks 30
 ```
 
 Then use the dashboard to inspect traces, pending HITL approvals, audit status,
