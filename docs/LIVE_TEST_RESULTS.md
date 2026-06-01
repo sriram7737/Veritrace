@@ -71,17 +71,17 @@ Result:
 Command:
 
 ```text
-veritrace redteam --json --dynamic --attacks 100 --seed 123
+veritrace redteam --json --dynamic --attacks 200 --seed 999
 ```
 
 ```text
 attacks_bypassed: 0
-attacks_caught: 100
-attacks_total: 100
+attacks_caught: 200
+attacks_total: 200
 bypass_rate: 0.0
 false_positive_rate: 0.0
 mode: dynamic
-seed: 123
+seed: 999
 ```
 
 Additional local sweep: seeds 1 through 10, 100 dynamic prompts each, all

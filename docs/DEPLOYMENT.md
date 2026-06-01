@@ -131,7 +131,7 @@ kubectl create secret generic veritrace-secrets \
   --from-literal=VT_API_KEY=... --from-literal=VT_JWT_SECRET=... \
   --from-literal=VT_REDIS_URL=redis://... --from-literal=VT_POSTGRES_DSN=postgresql://...
 helm install veritrace deploy/helm/veritrace \
-  --set image.tag=0.4.0 --set otel.endpoint=http://otel-collector:4317
+  --set image.tag=0.4.1 --set otel.endpoint=http://otel-collector:4317
 ```
 Includes readiness/liveness probes, HorizontalPodAutoscaler (3–10 replicas), and
 secret-based config. Point `otel.endpoint` at any OTLP collector (Jaeger,

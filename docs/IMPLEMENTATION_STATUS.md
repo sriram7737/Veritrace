@@ -45,7 +45,7 @@ expected failures hiding classifier misses in the bundled suite.
   retention + GDPR-erasure endpoints, `/v1/usage` quota snapshots)
 - Dashboard usage page + Redis-backed dashboard rate limiting with local fallback
 - Built-in red-team benchmark CLI with static and dynamic mutation modes
-  (`veritrace redteam --json --dynamic --attacks 100 --seed 123`)
+  (`veritrace redteam --json --dynamic --attacks 200 --seed 999`)
 - Public red-team result/methodology doc and load-test runbook
 - Syntax-health test that compiles every Python source file before release
 - Small concurrency smoke test for trace uniqueness and hash-chain integrity

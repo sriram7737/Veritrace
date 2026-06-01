@@ -1,17 +1,35 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "veritrace"
-version = "0.4.0"
+version = "0.4.1"
 description = "Agent trust middleware: audit trails, safety guardrails, HITL, and tool validation"
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "Apache-2.0" }
+license = "Apache-2.0"
 authors = [{ name = "Sriram Rampelli" }]
 keywords = ["ai", "agents", "llm", "safety", "audit", "compliance", "trust", "guardrails"]
 dependencies = []
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Security",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+[project.urls]
+Homepage = "https://github.com/sriram7737/Veritrace"
+Repository = "https://github.com/sriram7737/Veritrace"
+Issues = "https://github.com/sriram7737/Veritrace/issues"
+Documentation = "https://github.com/sriram7737/Veritrace#readme"
 
 [project.optional-dependencies]
 anthropic = ["anthropic>=0.39"]
@@ -25,6 +43,22 @@ postgres = ["psycopg2-binary>=2.9"]
 ethereum = ["web3>=7.0"]
 s3 = ["boto3>=1.34", "cryptography>=42"]
 dev = ["pytest>=8", "pytest-asyncio>=0.23", "httpx>=0.27", "cryptography>=42", "jinja2>=3.1", "python-multipart>=0.0.9"]
+all = [
+    "anthropic>=0.39",
+    "aiohttp>=3.9",
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "jinja2>=3.1",
+    "python-multipart>=0.0.9",
+    "httpx>=0.27",
+    "cryptography>=42",
+    "opentelemetry-api>=1.25",
+    "opentelemetry-sdk>=1.25",
+    "redis>=5.0",
+    "psycopg2-binary>=2.9",
+    "web3>=7.0",
+    "boto3>=1.34",
+]
 
 [tool.setuptools.packages.find]
 include = ["veritrace*"]

@@ -274,7 +274,7 @@ def create_app(armor: Optional[Veritrace] = None,
 
     app = FastAPI(
         title="Veritrace",
-        version="0.4.0",
+        version="0.4.1",
         description="Trust middleware for AI agents: deterministic guardrails, HITL, tool policy, tamper-evident traces.",
     )
     if os.environ.get("VT_OTEL_ENDPOINT") or os.environ.get("VT_OTEL_CONSOLE") == "1":

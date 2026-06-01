@@ -1,5 +1,34 @@
 # Changelog
 
+## v0.4.1 - 2026-06-01
+
+This is a release-hardening patch for packaging, CLI validation, and red-team
+smoke testing.
+
+### Added
+
+- PyPI-facing project metadata: classifiers, project URLs, and an `all` extra.
+- README install instructions for PyPI and source installs.
+- Release checklist covering build, twine check, GitHub tag/release, and PyPI
+  publish commands.
+- Dynamic red-team validation result:
+  `veritrace redteam --json --dynamic --attacks 200 --seed 999`.
+
+### Verified
+
+- `veritrace --help` works from the installed console script.
+- `[project.scripts]` exposes `veritrace = "veritrace.cli:main"`.
+- `pip install -e .` succeeds.
+- Dynamic red-team run caught 200/200 prompts with 0 false positives for seed
+  `999`.
+
+### Still Not Proven
+
+- Package is prepared for PyPI, but publishing still requires a PyPI API token.
+- Dashboard auth remains MVP-level; no SSO/OIDC/RBAC yet.
+- Dynamic red-team mode is useful smoke testing, not third-party jailbreak
+  assurance.
+
 ## v0.4.0 - 2026-06-01
 
 This release adds two high-leverage production-adjacent capabilities while

@@ -7,10 +7,25 @@ Ollama, local, and OpenAI-compatible providers.
 Veritrace is a strong guardrail/audit MVP for pilots and internal tools. It is
 not certified bank-grade or healthcare-grade infrastructure yet.
 
+## Install
+
+From PyPI, after the release is published:
+
+```bash
+pip install "veritrace[api,dashboard,redis,postgres]"
+```
+
+From source:
+
+```bash
+git clone git@github.com:sriram7737/Veritrace.git
+cd Veritrace
+pip install -e ".[dev,api,redis,postgres,dashboard]"
+```
+
 ## Quickstart
 
 ```bash
-pip install -e ".[dev,api,redis,postgres,dashboard]"
 veritrace init
 veritrace validate
 ```
@@ -32,7 +47,7 @@ Run the release sanity checks:
 ```bash
 python -m pytest -q --tb=no
 veritrace redteam --json --attacks 100
-veritrace redteam --json --dynamic --attacks 100 --seed 123
+veritrace redteam --json --dynamic --attacks 200 --seed 999
 ```
 
 Current local result: `356 passed, 2 warnings`.
@@ -155,7 +170,7 @@ gzip JSON while keeping metadata available for compliance reporting.
 veritrace init
 docker compose up -d
 python -m pytest -q --tb=no
-veritrace redteam --json --dynamic --attacks 100 --seed 123
+veritrace redteam --json --dynamic --attacks 200 --seed 999
 ```
 
 Then use the dashboard to inspect traces, pending HITL approvals, audit status,

@@ -6,7 +6,7 @@ team and not proof of jailbreak resistance.
 ## Command
 
 ```bash
-veritrace redteam --json --dynamic --attacks 100 --seed 123
+veritrace redteam --json --dynamic --attacks 200 --seed 999
 ```
 
 ## Current Result
@@ -16,23 +16,23 @@ Last refreshed: 2026-06-01
 ```json
 {
   "attacks_bypassed": 0,
-  "attacks_caught": 100,
-  "attacks_total": 100,
+  "attacks_caught": 200,
+  "attacks_total": 200,
   "benign_total": 6,
   "bypass_rate": 0.0,
   "false_positive_rate": 0.0,
   "false_positives": 0,
   "mode": "dynamic",
-  "seed": 123
+  "seed": 999
 }
 ```
 
 ## Methodology
 
 - Classifier path: zero-dependency keyword fallback.
-- Attack corpus: 100 runtime-mutated prompts generated from
+- Attack corpus: 200 runtime-mutated prompts generated from
   `veritrace.redteam.EXTENDED_ATTACKS`.
-- Dynamic seed: 123. Re-run with another seed to explore different mutations.
+- Dynamic seed: 999. Re-run with another seed to explore different mutations.
 - Benign corpus: 6 normal prompts shipped in `veritrace.redteam.DEFAULT_BENIGN`.
 - Passing threshold used in release smoke tests: bypass rate must be `<= 0.10`.
 
