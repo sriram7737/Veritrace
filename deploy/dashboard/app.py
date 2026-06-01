@@ -210,7 +210,12 @@ def _rate_limit(request: Request) -> None:
 # ── API proxy helpers ─────────────────────────────────────────────────────────
 
 def _upstream_headers() -> dict:
-    return {"X-API-Key": VT_API_KEY} if VT_API_KEY else {}
+    if not VT_API_KEY:
+        return {}
+    return {
+        "Authorization": f"Bearer {VT_API_KEY}",
+        "X-API-Key": VT_API_KEY,
+    }
 
 
 async def _get(path: str, params: Optional[dict] = None) -> dict | list:

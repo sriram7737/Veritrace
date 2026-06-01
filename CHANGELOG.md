@@ -18,6 +18,8 @@ not certified bank-grade infrastructure.
   `0x8d0d7bd15c377224acee00f397272bab1007c757080f19523cfc66c8461b5d99`.
 - Live AWS S3 archive/restore validation with encrypted fake trace data.
 - First published local smoke-load result.
+- Authenticated Docker Compose load validation: 10 minutes, 12,000 requests,
+  0 errors, 0 HTTP 5xx, with Redis/Postgres/dashboard healthy after the run.
 
 ### Changed
 

@@ -14,7 +14,7 @@ COPY README.md ./
 
 # Install with all optional extras
 RUN pip install --no-cache-dir --prefix=/install \
-    ".[redis,postgres]"
+    ".[api,redis,postgres]"
 
 # ── Stage 2: runtime ─────────────────────────────────────────────────────────
 FROM python:3.11-slim AS runtime

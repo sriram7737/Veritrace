@@ -61,6 +61,15 @@ def test_dashboard_api_key_auth_can_be_tenant_scoped(monkeypatch):
     assert ctx.tenant == "tenant_a"
 
 
+def test_dashboard_upstream_auth_uses_bearer_and_legacy_header(monkeypatch):
+    monkeypatch.setattr(dashboard, "VT_API_KEY", "secret")
+
+    headers = dashboard._upstream_headers()
+
+    assert headers["Authorization"] == "Bearer secret"
+    assert headers["X-API-Key"] == "secret"
+
+
 def test_dashboard_super_admin_requires_explicit_opt_in():
     assert dashboard._normalize_dashboard_tenant("*", False) == "default"
     assert dashboard._normalize_dashboard_tenant("*", True) == "*"

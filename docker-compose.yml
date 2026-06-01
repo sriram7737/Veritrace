@@ -13,8 +13,6 @@
 #   open http://localhost:8501/          # Dashboard
 # ─────────────────────────────────────────────────────────────────────────────
 
-version: "3.9"
-
 x-logging: &default-logging
   driver: "json-file"
   options:
@@ -84,11 +82,15 @@ services:
       VT_REDIS_URL: "redis://:${REDIS_PASSWORD}@redis:6379/0"
       VT_POSTGRES_DSN: "postgresql://${POSTGRES_USER:-veritrace}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-veritrace}"
       VT_API_KEY: ${VT_API_KEY:?VT_API_KEY is required}
+      VERITRACE_API_KEYS: "default:${VT_API_KEY}"
       VT_SIGNING_KEY: ${VT_SIGNING_KEY:?VT_SIGNING_KEY is required}
       VT_JWT_SECRET: ${VT_JWT_SECRET:?VT_JWT_SECRET is required}
+      VERITRACE_JWT_SECRET: ${VT_JWT_SECRET:?VT_JWT_SECRET is required}
       VT_MAX_INPUT_BYTES: ${VT_MAX_INPUT_BYTES:-65536}
       VT_RATE_LIMIT_CAPACITY: ${VT_RATE_LIMIT_CAPACITY:-100}
       VT_RATE_LIMIT_REFILL: ${VT_RATE_LIMIT_REFILL:-10}
+      VERITRACE_RATE_BURST: ${VT_RATE_LIMIT_CAPACITY:-100}
+      VERITRACE_RATE_PER_SEC: ${VT_RATE_LIMIT_REFILL:-10}
       VT_QUOTA_CALLS: ${VT_QUOTA_CALLS:-}
       VT_QUOTA_TOOL_VALIDATIONS: ${VT_QUOTA_TOOL_VALIDATIONS:-}
       VT_QUOTA_COST_USD: ${VT_QUOTA_COST_USD:-}

@@ -34,7 +34,7 @@ python -m pytest -q --tb=no
 veritrace redteam --json
 ```
 
-Current local result: `345 passed, 3 xfailed, 2 warnings`.
+Current local result: `346 passed, 3 xfailed, 2 warnings`.
 
 ## When To Use Veritrace
 
@@ -54,8 +54,8 @@ Current local result: `345 passed, 3 xfailed, 2 warnings`.
 - You need jailbreak resistance against a serious red team; the current
   benchmark still shows a 25% bypass rate.
 - You need mature enterprise dashboard auth such as SSO/OIDC/RBAC.
-- You need proven 10-minute-plus Docker/Postgres/Redis load numbers or chaos
-  engineering results.
+- You need production-grade scale evidence, chaos engineering, or SLA-backed
+  capacity numbers beyond the published local Docker Compose load run.
 - You need billing-grade Stripe/Chargebee metering rather than usage hooks.
 
 ## Minimal Example

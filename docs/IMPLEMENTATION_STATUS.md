@@ -9,7 +9,7 @@ below to know exactly what you are getting.
 
 ## Test status
 
-`python -m pytest -q --tb=no` -> **345 passing, 3 xfailed** (xfail = injection paraphrases
+`python -m pytest -q --tb=no` -> **346 passing, 3 xfailed** (xfail = injection paraphrases
 the zero-dependency keyword classifier intentionally defers to the embedding
 classifier, which is optional). No skips hiding failures.
 
@@ -65,7 +65,9 @@ classifier, which is optional). No skips hiding failures.
   optional (needs `sentence-transformers`); bypass rate is measured by the
   red-team CLI, not zero
 - Multi-process scaling — Redis backend exists; not yet load-tested at scale
-- Load testing — local smoke-load result exists; no published sustained Docker/Postgres/Redis results yet
+- Load testing — authenticated local Docker Compose/Postgres/Redis 10-minute
+  run passed with 12,000 requests, 0 errors, 0 HTTP 5xx; still not chaos/SLA
+  testing
 - RCA for complex branching agents — graph support added; heuristic, not a solver
 - OTel tracing — spans emitted; Grafana dashboards are provided as config, not battle-tested
 

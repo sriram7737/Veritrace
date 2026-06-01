@@ -63,7 +63,7 @@ python -m pytest -q --tb=no
 Result:
 
 ```text
-345 passed, 3 xfailed, 2 warnings
+346 passed, 3 xfailed, 2 warnings
 ```
 
 ## Red-team Benchmark
@@ -81,7 +81,5 @@ robust enough to claim high-stakes jailbreak resistance.
 
 ## Not Run Here
 
-- Docker Compose 10-minute load test: Docker is not installed on this machine.
 - External penetration test.
 - Mainnet Ethereum anchoring.
-
