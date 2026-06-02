@@ -163,7 +163,13 @@ asyncio.run(main())
   seeded dynamic mutation smoke tests now pass, but the embedding classifier is
   optional and the project still needs larger third-party red-team sets.
 - ToolGuard is a hard policy gate outside the model, but it is not a sandbox.
+- Slack is the main decision-collecting HITL adapter today. ServiceNow,
+  PagerDuty, email, and generic webhooks are useful notification/escalation
+  adapters, but broader enterprise approval workflows are still in development.
 - Dashboard auth is not SSO/OIDC/RBAC-grade.
+- Ethereum anchoring is Sepolia/testnet-oriented; no mainnet runbook, verifier
+  contract, HSM/KMS key-management story, or enterprise anchoring operating
+  model is included yet.
 - The usage ledger is local audit evidence for pilots, not an invoice-grade
   billing system.
 - Redis/Postgres support exists, but the stack has not been chaos-tested or

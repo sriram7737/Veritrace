@@ -1,6 +1,6 @@
 # Veritrace — Current Implementation Status
 
-_Last updated after the v0.4.1 hardening pass._
+_Last updated after the v0.4.2 PyPI alpha release pass._
 
 This document is deliberately blunt. Veritrace is **strong trust middleware for
 AI agents** — deterministic guardrails, HITL, tool policy, and tamper-evident
@@ -13,8 +13,12 @@ exist.
 
 ## Test status
 
-`python -m pytest -q --tb=no` -> **363 passing, 2 warnings**. No skips or
+`python -m pytest -q --tb=no` -> **364 passing, 2 warnings**. No skips or
 expected failures hiding classifier misses in the bundled suite.
+
+The local pre-PyPI clean-environment check was run on Python 3.13.13. GitHub
+Actions is configured to run the same suite on Python 3.10, 3.11, 3.12, and
+3.13 with upgraded pip, setuptools, and wheel.
 
 ## Status table
 
@@ -67,6 +71,9 @@ expected failures hiding classifier misses in the bundled suite.
   compliance use
 - Dashboard auth: tenant-scoped config, secure-cookie support, Redis-backed
   throttling, and explicit all-tenant opt-in exist; still not SSO/OIDC/RBAC-grade
+- HITL adapters: Slack collects approve/deny decisions. ServiceNow,
+  PagerDuty, email, and generic webhooks are notification/escalation adapters;
+  broader enterprise approval workflows are not complete.
 - Prompt-injection defense — keyword pass catches the bundled static corpus and
   seeded dynamic mutation smoke tests; embedding classifier is optional (needs
   `sentence-transformers`); third-party and novel red-team sets are still

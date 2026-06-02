@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.4.2 - 2026-06-02
 
 ### Added
 
@@ -12,6 +12,8 @@
   hardening, live-test, red-team, load-test, deployment, and release docs ship
   with distributions.
 - Live OpenAI and local Ollama smoke-test results in `docs/LIVE_TEST_RESULTS.md`.
+- GitHub Actions test matrix now covers Python 3.10, 3.11, 3.12, and 3.13 with
+  upgraded pip/setuptools/wheel.
 
 ### Changed
 
@@ -22,6 +24,8 @@
   test results, implementation status, and the hardening guide.
 - OpenAI-compatible providers now retry with `max_completion_tokens` when a
   newer OpenAI model rejects legacy `max_tokens`.
+- The `dashboard` extra now includes FastAPI/uvicorn so it can be installed
+  independently from the `api` extra.
 
 ## v0.4.1 - 2026-06-01
 

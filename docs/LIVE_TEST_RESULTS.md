@@ -66,6 +66,38 @@ Result:
 364 passed, 2 warnings
 ```
 
+## Clean Environment Checks
+
+Result: **passed**
+
+Python 3.13.13 clean venv with upgraded build tooling:
+
+```text
+python -m pip install -U pip setuptools wheel
+python -m pip install -e ".[dev,api,otel]"
+python -m pytest -q --tb=no
+```
+
+```text
+364 passed, 3 warnings
+```
+
+Notes:
+
+- Clean venv used pip 26.1.2, setuptools 82.0.1, and wheel 0.47.0.
+- GitHub Actions is configured to run Python 3.10, 3.11, 3.12, and 3.13 with
+  upgraded pip/setuptools/wheel before installing test dependencies.
+
+Optional extras install check:
+
+```text
+python -m pip install "dist/veritrace-0.4.2-py3-none-any.whl[all]"
+```
+
+Result: **passed**. Import smoke covered Anthropic, Ollama/aiohttp, FastAPI,
+uvicorn, Jinja2, httpx, cryptography, OpenTelemetry, Redis, psycopg2, Web3,
+boto3, and Veritrace itself.
+
 ## Real LLM Provider Smoke Tests
 
 Result: **passed**

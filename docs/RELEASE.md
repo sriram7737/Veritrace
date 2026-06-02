@@ -13,6 +13,26 @@ python -m pytest -q --tb=no
 veritrace redteam --json --dynamic --attacks 200 --seed 999
 ```
 
+Clean-environment check:
+
+```bash
+python -m venv %TEMP%/veritrace-release-venv
+%TEMP%/veritrace-release-venv/Scripts/python -m pip install -U pip setuptools wheel
+%TEMP%/veritrace-release-venv/Scripts/python -m pip install -e ".[dev,api,otel]"
+%TEMP%/veritrace-release-venv/Scripts/python -m pytest -q --tb=no
+```
+
+Optional extras install check:
+
+```bash
+python -m pip install dist/veritrace-0.4.2-py3-none-any.whl[all]
+python - <<'PY'
+import anthropic, aiohttp, fastapi, uvicorn, jinja2, httpx, cryptography
+import opentelemetry, redis, psycopg2, web3, boto3
+print("all extras import smoke passed")
+PY
+```
+
 Confirm the version matches in:
 
 - `pyproject.toml`
@@ -23,6 +43,9 @@ Confirm the release positioning:
 
 - PyPI classifier is `Development Status :: 3 - Alpha`.
 - README/PyPI long description contains the Alpha maturity notice.
+- README and implementation status call out known limits: Slack-first HITL
+  decisions, no SSO/OIDC/RBAC, Sepolia/testnet anchoring maturity, scale/load
+  gaps, and incomplete prompt-injection defense.
 - Release notes reference `docs/LIVE_TEST_RESULTS.md`.
 - `docs/IMPLEMENTATION_STATUS.md` and `docs/HARDENING_GUIDE.md` are included
   in the built artifacts.
@@ -39,12 +62,12 @@ python -m twine check dist/*
 
 ```bash
 git status --short
-git tag -a v0.4.1 -m "v0.4.1"
+git tag -a v0.4.2 -m "v0.4.2"
 git push origin main
-git push origin v0.4.1
+git push origin v0.4.2
 ```
 
-Create a GitHub Release from tag `v0.4.1` and include:
+Create a GitHub Release from tag `v0.4.2` and include:
 
 - Test result: `364 passed, 2 warnings`
 - Dynamic red-team result: `200/200 caught`, seed `999`

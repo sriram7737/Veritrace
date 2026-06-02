@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "veritrace"
-version = "0.4.1"
+version = "0.4.2"
 description = "Alpha agent trust middleware: audit trails, safety guardrails, HITL, and tool validation"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -35,7 +35,7 @@ Documentation = "https://github.com/sriram7737/Veritrace#readme"
 anthropic = ["anthropic>=0.39"]
 ollama = ["aiohttp>=3.9"]
 api = ["fastapi>=0.110", "uvicorn>=0.29"]
-dashboard = ["jinja2>=3.1", "python-multipart>=0.0.9", "httpx>=0.27"]
+dashboard = ["fastapi>=0.110", "uvicorn>=0.29", "jinja2>=3.1", "python-multipart>=0.0.9", "httpx>=0.27"]
 encrypted = ["cryptography>=42"]
 otel = ["opentelemetry-api>=1.25", "opentelemetry-sdk>=1.25"]
 redis = ["redis>=5.0"]
