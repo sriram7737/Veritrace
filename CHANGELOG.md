@@ -8,12 +8,17 @@
 - `/v1/usage/ledger` and `/usage/ledger` endpoints for ledger inspection.
 - `ServiceNowNotifier` as a notify-only HITL escalation adapter.
 - Hardening guide that turns the release-gap critique into concrete next steps.
+- `MANIFEST.in` and wheel data-file config so implementation status,
+  hardening, live-test, red-team, load-test, deployment, and release docs ship
+  with distributions.
 
 ### Changed
 
 - Usage event sink failures now re-raise when `fail_open=False`.
 - README, deployment docs, and implementation status now distinguish local
   ledger evidence from Stripe/Chargebee-grade billing.
+- PyPI/package positioning now explicitly says Alpha and points users to live
+  test results, implementation status, and the hardening guide.
 
 ## v0.4.1 - 2026-06-01
 

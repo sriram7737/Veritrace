@@ -7,6 +7,10 @@ AI agents** — deterministic guardrails, HITL, tool policy, and tamper-evident
 traces. It is **not** "bank-grade production infrastructure" yet. Use the table
 below to know exactly what you are getting.
 
+Package status: **Alpha**. PyPI metadata, README, and release notes should keep
+this maturity label until external security review and real pilot evidence
+exist.
+
 ## Test status
 
 `python -m pytest -q --tb=no` -> **363 passing, 2 warnings**. No skips or
@@ -76,7 +80,7 @@ expected failures hiding classifier misses in the bundled suite.
 
 ### Not implemented / out of scope for v0.4
 - SSO/OIDC/RBAC dashboard auth
-- QuantumLayer (research stub only — intentionally not built)
+- QuantumLayer (future research only; intentionally not built or exposed)
 - Real external penetration test (must be run by a third party)
 - Pilot-user production deployments
 

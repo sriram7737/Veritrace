@@ -7,6 +7,21 @@ Ollama, local, and OpenAI-compatible providers.
 Veritrace is a strong guardrail/audit MVP for pilots and internal tools. It is
 not certified bank-grade or healthcare-grade infrastructure yet.
 
+## Alpha Maturity Notice
+
+Veritrace is published as **Alpha software**. It has live smoke-test evidence
+for Sepolia anchoring, S3 cold archive, local load testing, and bundled
+red-team runs, but it has **not** passed an external penetration test, SOC 2
+audit, HIPAA assessment, or regulated-production certification.
+
+Do not treat Veritrace as bank-grade or healthcare-grade security
+infrastructure. Do not claim prompt-injection immunity, production compliance,
+or third-party-validated safety from the bundled benchmarks alone. Read
+[Implementation status](https://github.com/sriram7737/Veritrace/blob/main/docs/IMPLEMENTATION_STATUS.md),
+[Live test results](https://github.com/sriram7737/Veritrace/blob/main/docs/LIVE_TEST_RESULTS.md), and
+[Hardening guide](https://github.com/sriram7737/Veritrace/blob/main/docs/HARDENING_GUIDE.md)
+before using it in a customer-facing pilot.
+
 ## Install
 
 From PyPI, after the release is published:
@@ -154,7 +169,8 @@ asyncio.run(main())
 - Redis/Postgres support exists, but the stack has not been chaos-tested or
   load-tested for high-stakes deployments.
 - No external penetration test or formal compliance certification has been run.
-- QuantumLayer is research/roadmap only, not a production feature.
+- QuantumLayer is future research only. It is not implemented, advertised as a
+  feature, or exposed as a production API.
 
 ## Optional Anchoring And Archive
 

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "veritrace"
 version = "0.4.1"
-description = "Agent trust middleware: audit trails, safety guardrails, HITL, and tool validation"
+description = "Alpha agent trust middleware: audit trails, safety guardrails, HITL, and tool validation"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "Apache-2.0"
@@ -62,6 +62,24 @@ all = [
 
 [tool.setuptools.packages.find]
 include = ["veritrace*"]
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.data-files]
+"share/veritrace" = ["README.md", "CHANGELOG.md"]
+"share/veritrace/docs" = [
+    "docs/IMPLEMENTATION_STATUS.md",
+    "docs/HARDENING_GUIDE.md",
+    "docs/LIVE_TEST_RESULTS.md",
+    "docs/REDTEAM_RESULTS.md",
+    "docs/LOAD_TEST_RESULTS.md",
+    "docs/LOAD_TEST.md",
+    "docs/DEPLOYMENT.md",
+    "docs/COMPLIANCE_MAPPING.md",
+    "docs/RELEASE.md",
+    "docs/DEMO_SCRIPT.md",
+]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
