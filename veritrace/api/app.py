@@ -25,6 +25,8 @@ Endpoints
     POST /v1/rca/{call_id}/replay        deterministic decision replay
     POST /v1/rca/{call_id}/counterfactual  "what if rule X had not fired?"
     GET  /v1/rca/{call_id}/incident      human-readable incident report
+    GET  /v1/usage                       tenant quota snapshot
+    GET  /v1/usage/ledger                tenant usage ledger evidence
 """
 from __future__ import annotations
 
@@ -394,6 +396,9 @@ def create_app(armor: Optional[Veritrace] = None,
             headers={"Retry-After": str(retry_after)},
         )
 
+    def _usage_ledger_limit(limit: int) -> int:
+        return max(1, min(int(limit), 500))
+
     @app.get("/health")
     async def health():
         return {"status": "ok"}
@@ -475,6 +480,16 @@ def create_app(armor: Optional[Veritrace] = None,
                     tenant: str = Depends(require_tenant)):
         effective_tenant = tenant if tenant else (tenant_id or "default")
         return app.state.usage.snapshot(effective_tenant).to_dict()
+
+    @app.get("/v1/usage/ledger")
+    async def usage_ledger(tenant_id: str = "",
+                           limit: int = 100,
+                           tenant: str = Depends(require_tenant)):
+        effective_tenant = tenant if tenant else (tenant_id or "default")
+        return app.state.usage.ledger_report(
+            tenant_id=effective_tenant,
+            limit=_usage_ledger_limit(limit),
+        )
 
     @app.post("/v1/tools/validate", response_model=ToolValidateResponse)
     async def validate_tool(req: ToolValidateRequest,
@@ -612,6 +627,13 @@ def create_app(armor: Optional[Veritrace] = None,
     @app.get("/usage")
     async def usage_unversioned(tenant_id: str = "default"):
         return app.state.usage.snapshot(tenant_id).to_dict()
+
+    @app.get("/usage/ledger")
+    async def usage_ledger_unversioned(tenant_id: str = "", limit: int = 100):
+        return app.state.usage.ledger_report(
+            tenant_id=tenant_id,
+            limit=_usage_ledger_limit(limit),
+        )
 
     @app.get("/traces")
     async def traces_list(

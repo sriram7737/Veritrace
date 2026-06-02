@@ -15,7 +15,8 @@ from .slack import (SlackApprovalError, SlackApprovalRegistry,
 from .workflow import (ApprovalAuditLog, ApprovalRecord, ApproverChain,
                        HITLWorkflowLayer, QuorumApprover, get_audit_log)
 from .adapters import (AdapterError, CompositeApprover, EmailNotifier,
-                       PagerDutyNotifier, SMTPConfig, WebhookApprover)
+                       PagerDutyNotifier, ServiceNowNotifier, SMTPConfig,
+                       WebhookApprover)
 
 __all__ = [
     "SlackApprovalError", "SlackApprovalRegistry", "SlackHITLApprover",
@@ -23,5 +24,5 @@ __all__ = [
     "ApprovalAuditLog", "ApprovalRecord", "ApproverChain",
     "HITLWorkflowLayer", "QuorumApprover", "get_audit_log",
     "AdapterError", "CompositeApprover", "EmailNotifier",
-    "PagerDutyNotifier", "SMTPConfig", "WebhookApprover",
+    "PagerDutyNotifier", "ServiceNowNotifier", "SMTPConfig", "WebhookApprover",
 ]

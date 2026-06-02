@@ -1,4 +1,11 @@
-from veritrace.usage import InMemoryUsageSink, UsageLimits, UsageTracker
+import pytest
+
+from veritrace.usage import (
+    InMemoryUsageLedger,
+    InMemoryUsageSink,
+    UsageLimits,
+    UsageTracker,
+)
 
 
 def test_call_quota_blocks_after_limit():
@@ -116,6 +123,48 @@ def test_usage_sink_failure_does_not_break_quota_path():
     assert tracker.reserve_call("acme").allowed
 
 
+def test_usage_sink_failure_can_fail_closed():
+    class BrokenSink:
+        def emit(self, event):
+            raise RuntimeError("billing down")
+
+    tracker = UsageTracker(
+        UsageLimits(max_calls=1),
+        event_sinks=[BrokenSink()],
+        fail_open=False,
+    )
+
+    with pytest.raises(RuntimeError, match="billing down"):
+        tracker.reserve_call("acme")
+
+
+def test_usage_ledger_chains_and_filters_events():
+    ledger = InMemoryUsageLedger()
+    tracker = UsageTracker(
+        event_sinks=[],
+        ledger=ledger,
+        now_fn=lambda: 123.0,
+    )
+
+    assert tracker.reserve_call("acme").allowed
+    assert tracker.reserve_tool_validation("beta").allowed
+    tracker.record_cost("acme", 0.25)
+
+    assert ledger.verify_chain() is True
+    report = tracker.ledger_report(tenant_id="acme")
+    entries = report["entries"]
+
+    assert report["ledger_type"] == "in_memory_hash_chain"
+    assert report["chain_valid"] is True
+    assert [row["sequence"] for row in entries] == [1, 3]
+    assert [row["event"]["event_type"] for row in entries] == [
+        "call_reserved",
+        "cost_recorded",
+    ]
+    assert entries[0]["prev_hash"] == "0" * 64
+    assert entries[0]["this_hash"] != entries[-1]["this_hash"]
+
+
 def test_usage_from_env_adds_webhook_sink(monkeypatch):
     monkeypatch.setenv("VT_BILLING_WEBHOOK_URL", "https://billing.example/events")
     monkeypatch.setenv("VT_BILLING_WEBHOOK_SECRET", "secret")
@@ -128,3 +177,16 @@ def test_usage_from_env_adds_webhook_sink(monkeypatch):
     assert sink.url == "https://billing.example/events"
     assert sink.secret == "secret"
     assert sink.timeout_s == 0.25
+
+
+def test_usage_from_env_can_enable_hash_chain_ledger(monkeypatch):
+    monkeypatch.setenv("VT_USAGE_LEDGER", "memory")
+
+    tracker = UsageTracker.from_env()
+    assert isinstance(tracker.ledger, InMemoryUsageLedger)
+
+    tracker.reserve_call("acme")
+    report = tracker.ledger_report(tenant_id="acme")
+
+    assert report["chain_valid"] is True
+    assert report["entries"][0]["event"]["tenant_id"] == "acme"

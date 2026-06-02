@@ -33,6 +33,7 @@ so the event loop is never blocked, and every adapter degrades gracefully.
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
 import smtplib
@@ -234,6 +235,107 @@ class PagerDutyNotifier:
 
 
 # ──────────────────────────── composite approver ───────────────────────────
+
+class ServiceNowNotifier:
+    """Create a ServiceNow record for an approval escalation.
+
+    This adapter is notify-only: it creates an incident/task record and returns
+    None so the HITL layer waits for the configured decision channel.
+    """
+
+    def __init__(
+        self,
+        instance_url: str,
+        *,
+        username: str = "",
+        password: str = "",
+        bearer_token: str = "",
+        table: str = "incident",
+        category: str = "software",
+        urgency: str = "2",
+        impact: str = "2",
+        assignment_group: str = "",
+        timeout_s: float = 10.0,
+        extra_fields: Optional[dict[str, Any]] = None,
+    ) -> None:
+        self.instance_url = instance_url.rstrip("/")
+        self.username = username
+        self.password = password
+        self.bearer_token = bearer_token
+        self.table = table.strip("/") or "incident"
+        self.category = category
+        self.urgency = urgency
+        self.impact = impact
+        self.assignment_group = assignment_group
+        self.timeout_s = timeout_s
+        self.extra_fields = dict(extra_fields or {})
+        self.last_error: str = ""
+
+    @property
+    def endpoint(self) -> str:
+        return f"{self.instance_url}/api/now/table/{self.table}"
+
+    def _headers(self) -> dict[str, str]:
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        }
+        if self.bearer_token:
+            headers["Authorization"] = f"Bearer {self.bearer_token}"
+        elif self.username or self.password:
+            raw = f"{self.username}:{self.password}".encode("utf-8")
+            headers["Authorization"] = (
+                "Basic " + base64.b64encode(raw).decode("ascii")
+            )
+        return headers
+
+    def _payload(self, action: str, context: dict) -> dict[str, Any]:
+        tenant = context.get("tenant") or context.get("tenant_id") or "unknown"
+        request_id = context.get("request_id") or context.get("call_id") or ""
+        preview = str(context.get("output_preview") or context.get("preview") or "")[:500]
+        details = json.dumps(context, sort_keys=True, default=str)[:4000]
+        payload: dict[str, Any] = {
+            "short_description": f"Veritrace approval needed: {action}",
+            "description": (
+                "A Veritrace-protected agent action requires human approval.\n\n"
+                f"Action: {action}\n"
+                f"Tenant: {tenant}\n"
+                f"Request ID: {request_id}\n"
+                f"Preview: {preview}\n\n"
+                f"Context JSON:\n{details}"
+            ),
+            "category": self.category,
+            "urgency": self.urgency,
+            "impact": self.impact,
+        }
+        if self.assignment_group:
+            payload["assignment_group"] = self.assignment_group
+        payload.update(self.extra_fields)
+        return payload
+
+    def _create_record(self, action: str, context: dict) -> dict:
+        data = json.dumps(self._payload(action, context)).encode("utf-8")
+        req = urllib.request.Request(
+            self.endpoint,
+            data=data,
+            method="POST",
+            headers=self._headers(),
+        )
+        with urllib.request.urlopen(req, timeout=self.timeout_s) as resp:
+            body = resp.read().decode("utf-8")
+            if getattr(resp, "status", 200) >= 400:
+                raise AdapterError(f"ServiceNow returned HTTP {resp.status}")
+        return json.loads(body) if body.strip() else {}
+
+    async def __call__(self, action: str, context: dict) -> Optional[bool]:
+        try:
+            await asyncio.to_thread(self._create_record, action, context)
+            self.last_error = ""
+        except (AdapterError, urllib.error.URLError, TimeoutError, OSError) as exc:
+            self.last_error = str(exc)
+            log.warning("ServiceNowNotifier create failed: %s", exc)
+        return None  # notify-only
+
 
 class CompositeApprover:
     """Alert via N notifiers, collect the decision from one authoritative approver.

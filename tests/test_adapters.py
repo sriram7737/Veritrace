@@ -3,8 +3,8 @@ import asyncio
 import pytest
 
 from veritrace.hitl.adapters import (CompositeApprover, EmailNotifier,
-                                      PagerDutyNotifier, SMTPConfig,
-                                      WebhookApprover)
+                                      PagerDutyNotifier, ServiceNowNotifier,
+                                      SMTPConfig, WebhookApprover)
 
 
 def run(coro):
@@ -65,6 +65,51 @@ def test_pagerduty_notifier_triggers_and_returns_none(monkeypatch):
 
 
 # ── CompositeApprover ──────────────────────────────────────────────────────
+def test_servicenow_notifier_builds_auth_headers():
+    bearer = ServiceNowNotifier("https://acme.service-now.com", bearer_token="tok")
+    basic = ServiceNowNotifier(
+        "https://acme.service-now.com",
+        username="api-user",
+        password="secret",
+    )
+
+    assert bearer.endpoint == "https://acme.service-now.com/api/now/table/incident"
+    assert bearer._headers()["Authorization"] == "Bearer tok"
+    assert basic._headers()["Authorization"].startswith("Basic ")
+
+
+def test_servicenow_notifier_payload_contains_context():
+    sn = ServiceNowNotifier(
+        "https://acme.service-now.com",
+        assignment_group="security",
+        extra_fields={"caller_id": "veritrace"},
+    )
+
+    payload = sn._payload(
+        "wire_transfer",
+        {"tenant": "bank", "request_id": "r1", "output_preview": "transfer"},
+    )
+
+    assert payload["short_description"] == "Veritrace approval needed: wire_transfer"
+    assert payload["assignment_group"] == "security"
+    assert payload["caller_id"] == "veritrace"
+    assert "bank" in payload["description"]
+    assert "r1" in payload["description"]
+
+
+def test_servicenow_notifier_is_notify_only(monkeypatch):
+    calls = []
+    sn = ServiceNowNotifier("https://acme.service-now.com", bearer_token="tok")
+    monkeypatch.setattr(
+        sn,
+        "_create_record",
+        lambda action, ctx: calls.append((action, ctx)) or {"result": {"sys_id": "1"}},
+    )
+
+    assert run(sn(action="delete_data", context={"tenant": "acme"})) is None
+    assert calls == [("delete_data", {"tenant": "acme"})]
+
+
 def test_composite_alerts_and_delegates_decision():
     notified = []
 

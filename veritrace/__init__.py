@@ -32,7 +32,9 @@ from .anchoring import EthereumAnchor, EthereumAnchorReceipt
 from .redteam import RedTeamReport, run_injection_benchmark
 from .types import AgentResponse, HITLStatus, TraceEvent, Verdict
 from .usage import (
+    InMemoryUsageLedger,
     InMemoryUsageSink,
+    UsageLedgerEntry,
     UsageDecision,
     UsageEvent,
     UsageEventSink,
@@ -69,6 +71,8 @@ __all__ = [
     "UsageDecision",
     "UsageEvent",
     "UsageEventSink",
+    "UsageLedgerEntry",
+    "InMemoryUsageLedger",
     "InMemoryUsageSink",
     "WebhookUsageSink",
     "run_injection_benchmark",

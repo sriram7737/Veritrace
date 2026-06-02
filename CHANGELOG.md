@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- In-memory hash-chain usage ledger for pilot billing/analytics evidence.
+- `/v1/usage/ledger` and `/usage/ledger` endpoints for ledger inspection.
+- `ServiceNowNotifier` as a notify-only HITL escalation adapter.
+- Hardening guide that turns the release-gap critique into concrete next steps.
+
+### Changed
+
+- Usage event sink failures now re-raise when `fail_open=False`.
+- README, deployment docs, and implementation status now distinguish local
+  ledger evidence from Stripe/Chargebee-grade billing.
+
 ## v0.4.1 - 2026-06-01
 
 This is a release-hardening patch for packaging, CLI validation, and red-team

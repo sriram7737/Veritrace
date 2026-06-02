@@ -50,7 +50,7 @@ veritrace redteam --json --attacks 100
 veritrace redteam --json --dynamic --attacks 200 --seed 999
 ```
 
-Current local result: `356 passed, 2 warnings`.
+Current local result: `363 passed, 2 warnings`.
 
 ## When To Use Veritrace
 
@@ -72,7 +72,8 @@ Current local result: `356 passed, 2 warnings`.
 - You need mature enterprise dashboard auth such as SSO/OIDC/RBAC.
 - You need production-grade scale evidence, chaos engineering, or SLA-backed
   capacity numbers beyond the published local Docker Compose load run.
-- You need billing-grade Stripe/Chargebee metering rather than usage hooks.
+- You need billing-grade Stripe/Chargebee metering rather than the local usage
+  ledger and event hooks.
 
 ## Minimal Example
 
@@ -130,7 +131,7 @@ asyncio.run(main())
 |---|---|---|
 | Provider adapters | Implemented | Mock, OpenAI, Anthropic, Gemini, Ollama, OpenAI-compatible/local |
 | ToolGuard | Strong MVP | JSON Schema, allow-lists, side-effect taxonomy, output scanning |
-| HITL | Beta | Slack callbacks, approval queues, quorum/escalation primitives |
+| HITL | Beta | Slack callbacks, approval queues, quorum/escalation primitives, ServiceNow/PagerDuty/email/webhook notifiers |
 | Audit trail | Strong MVP | SHA-256 hash chain; optional real Sepolia anchoring |
 | PII redaction | Strong MVP | Context-aware patterns for common regulated data |
 | Auth/rate limits/quotas | Beta | JWT/API keys, token buckets, per-tenant quotas |
@@ -138,7 +139,7 @@ asyncio.run(main())
 | Redis/Postgres backends | Beta | Wired and tested locally; needs scale/load testing |
 | OpenTelemetry | Partial | Per-layer spans exist; dashboards and alerting need hardening |
 | Red-team benchmark | MVP | Static and dynamic mutation modes with bypass/false-positive rates |
-| Billing hooks | MVP | Fail-open usage webhook; no Stripe/Chargebee ledger yet |
+| Billing hooks | MVP | In-memory hash-chain usage ledger plus fail-open webhook; no Stripe/Chargebee provider yet |
 | S3 cold archive | MVP | Gzip + encrypted trace archive wrapper; metadata sink hook |
 
 ## Honest Limits
@@ -148,6 +149,8 @@ asyncio.run(main())
   optional and the project still needs larger third-party red-team sets.
 - ToolGuard is a hard policy gate outside the model, but it is not a sandbox.
 - Dashboard auth is not SSO/OIDC/RBAC-grade.
+- The usage ledger is local audit evidence for pilots, not an invoice-grade
+  billing system.
 - Redis/Postgres support exists, but the stack has not been chaos-tested or
   load-tested for high-stakes deployments.
 - No external penetration test or formal compliance certification has been run.
@@ -185,6 +188,7 @@ metrics, and per-tenant usage.
 - [Live test results](docs/LIVE_TEST_RESULTS.md)
 - [Load-test runbook](docs/LOAD_TEST.md)
 - [Load-test results](docs/LOAD_TEST_RESULTS.md)
+- [Hardening guide](docs/HARDENING_GUIDE.md)
 - [Demo script](docs/DEMO_SCRIPT.md)
 - [Changelog](CHANGELOG.md)
 - [Design document](docs/Veritrace-Design-Document.docx)

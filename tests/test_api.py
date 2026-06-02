@@ -11,7 +11,7 @@ from veritrace.hitl.slack import SlackApprovalRegistry  # noqa: E402
 from veritrace.layers import HITLLayer, ToolGuardLayer, ToolPolicy  # noqa: E402
 from veritrace.layers.tool_guard import SideEffect  # noqa: E402
 from veritrace.ratelimit import TokenBucket  # noqa: E402
-from veritrace.usage import UsageLimits, UsageTracker  # noqa: E402
+from veritrace.usage import InMemoryUsageLedger, UsageLimits, UsageTracker  # noqa: E402
 
 
 @pytest.fixture
@@ -116,6 +116,29 @@ def test_run_quota_blocks_after_limit():
     assert "call quota" in second.json()["detail"]
     assert usage_resp.json()["calls"] == 1
     assert usage_resp.json()["remaining"]["calls"] == 0
+
+
+def test_usage_ledger_endpoint_is_tenant_scoped():
+    usage = UsageTracker(ledger=InMemoryUsageLedger())
+    local_client = TestClient(create_app(usage_tracker=usage))
+
+    local_client.post(
+        "/v1/run",
+        json={"prompt": "hello", "tenant_id": "acme", "session_id": "s"},
+    )
+    local_client.post(
+        "/v1/run",
+        json={"prompt": "hello", "tenant_id": "beta", "session_id": "s"},
+    )
+
+    resp = local_client.get("/v1/usage/ledger", params={"tenant_id": "acme"})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["ledger_type"] == "in_memory_hash_chain"
+    assert body["chain_valid"] is True
+    assert body["entries"]
+    assert {row["event"]["tenant_id"] for row in body["entries"]} == {"acme"}
 
 
 def test_tool_validation_quota_blocks_after_limit():

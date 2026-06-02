@@ -63,7 +63,7 @@ python -m pytest -q --tb=no
 Result:
 
 ```text
-356 passed, 2 warnings
+363 passed, 2 warnings
 ```
 
 ## Red-team Benchmark

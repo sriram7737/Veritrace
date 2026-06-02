@@ -11,6 +11,7 @@ state in multi-worker deployments.
 from __future__ import annotations
 
 import logging
+import hashlib
 import json
 import os
 import time
@@ -159,6 +160,102 @@ class UsageEventSink:
         raise NotImplementedError
 
 
+@dataclass(frozen=True)
+class UsageLedgerEntry:
+    """Append-only usage ledger entry with a local hash chain."""
+
+    sequence: int
+    event: UsageEvent
+    prev_hash: str
+    this_hash: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "sequence": self.sequence,
+            "event": self.event.to_dict(),
+            "prev_hash": self.prev_hash,
+            "this_hash": self.this_hash,
+        }
+
+
+class InMemoryUsageLedger(UsageEventSink):
+    """Append-only usage ledger for billing/metering pilots.
+
+    This is not a billing provider. It gives deployments a deterministic,
+    tamper-evident local ledger that can be mirrored to Stripe/Chargebee or a
+    warehouse by another sink.
+    """
+
+    GENESIS_HASH = "0" * 64
+
+    def __init__(self) -> None:
+        self._entries: list[UsageLedgerEntry] = []
+        self._lock = Lock()
+
+    def emit(self, event: UsageEvent) -> None:
+        with self._lock:
+            prev_hash = self._entries[-1].this_hash if self._entries else self.GENESIS_HASH
+            sequence = len(self._entries) + 1
+            this_hash = self._hash(sequence, prev_hash, event)
+            self._entries.append(
+                UsageLedgerEntry(
+                    sequence=sequence,
+                    event=event,
+                    prev_hash=prev_hash,
+                    this_hash=this_hash,
+                )
+            )
+
+    def entries(
+        self,
+        *,
+        tenant_id: str = "",
+        limit: int = 100,
+    ) -> list[UsageLedgerEntry]:
+        with self._lock:
+            rows = list(self._entries)
+        if tenant_id:
+            rows = [row for row in rows if row.event.tenant_id == tenant_id]
+        return rows[-max(1, limit):]
+
+    def verify_chain(self) -> bool:
+        with self._lock:
+            entries = list(self._entries)
+        prev_hash = self.GENESIS_HASH
+        for expected_sequence, entry in enumerate(entries, start=1):
+            if entry.sequence != expected_sequence:
+                return False
+            if entry.prev_hash != prev_hash:
+                return False
+            if entry.this_hash != self._hash(entry.sequence, entry.prev_hash, entry.event):
+                return False
+            prev_hash = entry.this_hash
+        return True
+
+    def to_dict(
+        self,
+        *,
+        tenant_id: str = "",
+        limit: int = 100,
+    ) -> dict[str, Any]:
+        rows = self.entries(tenant_id=tenant_id, limit=limit)
+        return {
+            "ledger_type": "in_memory_hash_chain",
+            "chain_valid": self.verify_chain(),
+            "entries": [row.to_dict() for row in rows],
+        }
+
+    @staticmethod
+    def _hash(sequence: int, prev_hash: str, event: UsageEvent) -> str:
+        payload = {
+            "sequence": sequence,
+            "prev_hash": prev_hash,
+            "event": event.to_dict(),
+        }
+        encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
+
 class InMemoryUsageSink(UsageEventSink):
     """Test/dev sink that keeps emitted usage events in memory."""
 
@@ -224,13 +321,17 @@ class UsageTracker:
         now_fn: Optional[Callable[[], float]] = None,
         fail_open: bool = True,
         event_sinks: Optional[list[UsageEventSink]] = None,
+        ledger: Optional[InMemoryUsageLedger] = None,
     ) -> None:
         self.limits = limits or UsageLimits()
         self.backend = backend
         self.namespace = namespace
         self.now_fn = now_fn or time.time
         self.fail_open = fail_open
+        self.ledger = ledger
         self.event_sinks = list(event_sinks or [])
+        if self.ledger is not None:
+            self.event_sinks.insert(0, self.ledger)
         self._local: dict[str, dict[str, Any]] = {}
         self._lock = Lock()
 
@@ -269,11 +370,21 @@ class UsageTracker:
                     ) or 2.0,
                 )
             )
+        ledger = None
+        ledger_mode = _env_str_optional(
+            "VT_USAGE_LEDGER",
+            "VERITRACE_USAGE_LEDGER",
+            "VT_BILLING_LEDGER",
+            "VERITRACE_BILLING_LEDGER",
+        ).lower()
+        if ledger_mode in {"1", "true", "yes", "on", "memory", "in-memory", "hash-chain"}:
+            ledger = InMemoryUsageLedger()
         return cls(
             limits=limits,
             backend=backend,
             fail_open=fail_open,
             event_sinks=sinks,
+            ledger=ledger,
         )
 
     @property
@@ -304,6 +415,15 @@ class UsageTracker:
     def snapshot(self, tenant_id: str) -> UsageSnapshot:
         state = self._load_state(tenant_id)
         return self._snapshot(tenant_id, state)
+
+    def ledger_report(self, *, tenant_id: str = "", limit: int = 100) -> dict[str, Any]:
+        if self.ledger is None:
+            return {
+                "ledger_type": "none",
+                "chain_valid": True,
+                "entries": [],
+            }
+        return self.ledger.to_dict(tenant_id=tenant_id, limit=limit)
 
     def _reserve(
         self,
@@ -463,6 +583,8 @@ class UsageTracker:
                 sink.emit(event)
             except Exception as exc:
                 log.warning("usage event sink failed open: %s", exc)
+                if not self.fail_open:
+                    raise
 
     def _emit_event_tuple(
         self,

@@ -12,7 +12,7 @@ veritrace validate       # checks config + Redis/Postgres connectivity
 ## Local without Docker (dev)
 ```bash
 pip install -e ".[dev,api,redis,postgres,otel,encrypted]"
-python -m pytest -q  # 356 passing
+python -m pytest -q  # 363 passing
 uvicorn veritrace.api.app:app --port 8080
 ```
 
@@ -39,13 +39,24 @@ window usage at `GET /v1/usage`.
 ## Usage analytics / billing webhook
 Set `VT_BILLING_WEBHOOK_URL` to emit fail-open JSON usage events for calls,
 tool validations, cost records, and quota blocks. This is a pilot integration
-hook, not a durable billing ledger.
+hook, not invoice reconciliation or a full billing provider.
 
 ```bash
 VT_BILLING_WEBHOOK_URL=https://billing.example.com/veritrace/events
 VT_BILLING_WEBHOOK_SECRET=shared-secret
 VT_BILLING_WEBHOOK_TIMEOUT_S=2.0
 ```
+
+Enable a local tamper-evident usage ledger for pilots with:
+
+```bash
+VT_USAGE_LEDGER=memory
+# aliases: VERITRACE_USAGE_LEDGER, VT_BILLING_LEDGER, VERITRACE_BILLING_LEDGER
+```
+
+The ledger is exposed at `GET /v1/usage/ledger?tenant_id=<tenant>` and uses a
+local SHA-256 hash chain. Keep `VERITRACE_QUOTA_FAIL_OPEN=true` for availability
+or set it to `false` when billing/ledger sink failure must block the request.
 
 ## Dashboard scope
 The dashboard is still a lightweight admin UI, not an enterprise IAM system.
@@ -73,7 +84,30 @@ VT_DASHBOARD_RL_REFILL=60
 
 The dashboard exposes `/usage` for per-tenant calls, tool validations, tracked
 cost, quota remaining, and configured usage-event sinks. It is a visibility
-surface for quotas, not a billing ledger.
+surface for quotas and ledger evidence, not a billing system.
+
+## HITL escalation adapters
+Slack remains the decision-collecting adapter for the default demo. ServiceNow,
+PagerDuty, email, and generic webhooks are notify-only adapters that alert teams
+while Slack, a quorum approver, or a custom webhook collects the approve/deny
+decision.
+
+```python
+from veritrace.hitl import CompositeApprover, ServiceNowNotifier
+
+approver = CompositeApprover(
+    notifiers=[
+        ServiceNowNotifier(
+            "https://example.service-now.com",
+            bearer_token="...",
+            assignment_group="security",
+        )
+    ],
+    decider=slack_approver,
+)
+```
+
+Use a scoped ServiceNow API user/token and store it in your secret manager.
 
 ## Optional Ethereum/Sepolia anchoring
 Install the optional dependency:
