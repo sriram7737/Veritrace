@@ -1,6 +1,6 @@
 # Veritrace — Current Implementation Status
 
-_Last updated after the v0.4.3 PyPI listing-quality release pass._
+_Last updated after the v0.4.4 PyPI listing cleanup release pass._
 
 This document is deliberately blunt. Veritrace is **strong trust middleware for
 AI agents** — deterministic guardrails, HITL, tool policy, and tamper-evident

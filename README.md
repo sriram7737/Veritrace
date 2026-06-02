@@ -4,7 +4,6 @@
 [![Python versions](https://img.shields.io/pypi/pyversions/veritrace.svg)](https://pypi.org/project/veritrace/)
 [![License](https://img.shields.io/pypi/l/veritrace.svg)](https://github.com/sriram7737/Veritrace/blob/main/LICENSE)
 [![CI](https://github.com/sriram7737/Veritrace/actions/workflows/tests.yml/badge.svg)](https://github.com/sriram7737/Veritrace/actions/workflows/tests.yml)
-[![Downloads](https://static.pepy.tech/badge/veritrace/month)](https://pepy.tech/project/veritrace)
 
 Trust middleware for LLM agents: deterministic tool policy, HITL approvals,
 and tamper-evident audit traces. **Alpha** - read the

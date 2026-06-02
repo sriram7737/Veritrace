@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.4.4 - 2026-06-02
+
+This is a PyPI listing cleanup patch. It does not change runtime behavior.
+
+### Changed
+
+- Removed the external Pepy downloads badge from README because it rendered as
+  a broken image on PyPI for the newly published project.
+- Package/API version bumped to `0.4.4`.
+
 ## v0.4.3 - 2026-06-02
 
 This is a PyPI/GitHub listing-quality patch. It does not add new runtime

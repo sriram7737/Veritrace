@@ -91,7 +91,7 @@ Notes:
 Optional extras install check:
 
 ```text
-python -m pip install "dist/veritrace-0.4.3-py3-none-any.whl[all]"
+python -m pip install "dist/veritrace-0.4.4-py3-none-any.whl[all]"
 ```
 
 Result: **passed**. Import smoke covered Anthropic, Ollama/aiohttp, FastAPI,
