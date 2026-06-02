@@ -11,6 +11,7 @@
 - `MANIFEST.in` and wheel data-file config so implementation status,
   hardening, live-test, red-team, load-test, deployment, and release docs ship
   with distributions.
+- Live OpenAI and local Ollama smoke-test results in `docs/LIVE_TEST_RESULTS.md`.
 
 ### Changed
 
@@ -19,6 +20,8 @@
   ledger evidence from Stripe/Chargebee-grade billing.
 - PyPI/package positioning now explicitly says Alpha and points users to live
   test results, implementation status, and the hardening guide.
+- OpenAI-compatible providers now retry with `max_completion_tokens` when a
+  newer OpenAI model rejects legacy `max_tokens`.
 
 ## v0.4.1 - 2026-06-01
 

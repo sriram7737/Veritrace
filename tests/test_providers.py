@@ -1,4 +1,6 @@
 import json
+import io
+import urllib.error
 
 import pytest
 
@@ -46,6 +48,46 @@ async def test_openai_compatible_provider_parses_chat_completion(monkeypatch):
     assert seen["body"]["messages"][0]["content"] == "hi"
     assert result.text == "hello from local"
     assert result.model == "local-llama"
+
+
+@pytest.mark.asyncio
+async def test_openai_provider_retries_with_max_completion_tokens(monkeypatch):
+    calls = []
+
+    def fake_urlopen(req, timeout):
+        body = json.loads(req.data.decode("utf-8"))
+        calls.append(body)
+        if len(calls) == 1:
+            payload = json.dumps({
+                "error": {
+                    "message": (
+                        "Unsupported parameter: 'max_tokens' is not supported "
+                        "with this model. Use 'max_completion_tokens' instead."
+                    )
+                }
+            }).encode("utf-8")
+            raise urllib.error.HTTPError(
+                req.full_url,
+                400,
+                "Bad Request",
+                {},
+                io.BytesIO(payload),
+            )
+        return FakeHTTPResponse({
+            "model": "gpt-new",
+            "choices": [{"message": {"content": "hello from new model"}}],
+        })
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    provider = OpenAIProvider(model="gpt-new", api_key="sk-test", max_tokens=12)
+
+    result = await provider.complete("hi")
+
+    assert result.text == "hello from new model"
+    assert calls[0]["max_tokens"] == 12
+    assert "max_completion_tokens" not in calls[0]
+    assert calls[1]["max_completion_tokens"] == 12
+    assert "max_tokens" not in calls[1]
 
 
 def test_openai_provider_uses_openai_defaults(monkeypatch):

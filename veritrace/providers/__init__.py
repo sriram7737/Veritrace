@@ -130,6 +130,47 @@ class OpenAICompatibleProvider(BaseProvider):
             "max_tokens": int(kwargs.get("max_tokens", self.max_tokens)),
             "temperature": float(kwargs.get("temperature", self.temperature)),
         }
+        payload = self._request_with_openai_compat_fallback(body)
+        text = _extract_openai_text(payload)
+        usage = payload.get("usage") or {}
+        return ProviderResult(
+            text=text,
+            model=str(payload.get("model") or body["model"]),
+            cost_usd=0.0,
+            latency_ms=(time.perf_counter() - t0) * 1000,
+        )
+
+    def _request_with_openai_compat_fallback(self, body: dict[str, Any]) -> dict[str, Any]:
+        # Some newer OpenAI models reject the legacy chat-completions
+        # `max_tokens` parameter and require `max_completion_tokens` instead.
+        # Local OpenAI-compatible servers often still expect `max_tokens`, so
+        # try the broad-compatible shape first and only mutate on explicit 400s.
+        request_body = dict(body)
+        last_error: Optional[RuntimeError] = None
+        for _ in range(3):
+            try:
+                return self._post_chat_completion(request_body)
+            except RuntimeError as exc:
+                message = str(exc)
+                last_error = exc
+                if (
+                    "max_tokens" in message
+                    and "max_completion_tokens" in message
+                    and "max_tokens" in request_body
+                ):
+                    request_body["max_completion_tokens"] = request_body.pop("max_tokens")
+                    continue
+                if (
+                    "temperature" in message.lower()
+                    and "unsupported" in message.lower()
+                    and "temperature" in request_body
+                ):
+                    request_body.pop("temperature", None)
+                    continue
+                raise
+        raise last_error or RuntimeError("provider request failed")
+
+    def _post_chat_completion(self, body: dict[str, Any]) -> dict[str, Any]:
         data = json.dumps(body).encode("utf-8")
         headers = {
             "Content-Type": "application/json",
@@ -143,15 +184,7 @@ class OpenAICompatibleProvider(BaseProvider):
             headers=headers,
             method="POST",
         )
-        payload = _json_request(req, timeout=self.timeout_s)
-        text = _extract_openai_text(payload)
-        usage = payload.get("usage") or {}
-        return ProviderResult(
-            text=text,
-            model=str(payload.get("model") or body["model"]),
-            cost_usd=0.0,
-            latency_ms=(time.perf_counter() - t0) * 1000,
-        )
+        return _json_request(req, timeout=self.timeout_s)
 
 
 class OpenAIProvider(OpenAICompatibleProvider):

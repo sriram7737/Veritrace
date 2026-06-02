@@ -65,7 +65,7 @@ veritrace redteam --json --attacks 100
 veritrace redteam --json --dynamic --attacks 200 --seed 999
 ```
 
-Current local result: `363 passed, 2 warnings`.
+Current local result: `364 passed, 2 warnings`.
 
 ## When To Use Veritrace
 

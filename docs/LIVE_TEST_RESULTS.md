@@ -1,6 +1,6 @@
 # Live Test Results
 
-Last refreshed: 2026-06-01
+Last refreshed: 2026-06-02
 
 These are release-validation smoke tests using real external services. They are
 not a penetration test, a scale test, or a compliance certification.
@@ -63,8 +63,55 @@ python -m pytest -q --tb=no
 Result:
 
 ```text
-363 passed, 2 warnings
+364 passed, 2 warnings
 ```
+
+## Real LLM Provider Smoke Tests
+
+Result: **passed**
+
+OpenAI live API:
+
+```json
+{
+  "provider": "openai",
+  "model": "gpt-5.5-2026-04-23",
+  "direct_latency_ms": 6461.61,
+  "pipeline_blocked": false,
+  "pipeline_hitl": "auto",
+  "pipeline_latency_ms": 4644.49,
+  "pipeline_hash_len": 64
+}
+```
+
+Notes:
+
+- The smoke test used the key from local `.env.live`; no secret is published.
+- Live testing exposed a compatibility issue: newer OpenAI models reject
+  `max_tokens` and require `max_completion_tokens`. The provider now retries
+  with the newer parameter when OpenAI returns that explicit error.
+
+Local Ollama:
+
+```json
+{
+  "provider": "ollama",
+  "model": "qwen2.5:1.5b",
+  "direct_latency_ms": 3205.62,
+  "pipeline_blocked": false,
+  "pipeline_hitl": "auto",
+  "pipeline_latency_ms": 907.19,
+  "pipeline_hash_len": 64
+}
+```
+
+Notes:
+
+- Installed local models at test time: `qwen2.5:1.5b` and
+  `nomic-embed-text:latest`.
+- First cold Ollama load can exceed the default 15s reliability timeout; warm
+  the model before release smoke tests or configure a longer timeout in the
+  host application.
 
 ## Red-team Benchmark
 

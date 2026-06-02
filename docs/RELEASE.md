@@ -46,8 +46,9 @@ git push origin v0.4.1
 
 Create a GitHub Release from tag `v0.4.1` and include:
 
-- Test result: `363 passed, 2 warnings`
+- Test result: `364 passed, 2 warnings`
 - Dynamic red-team result: `200/200 caught`, seed `999`
+- Real OpenAI + local Ollama smoke-test results from `docs/LIVE_TEST_RESULTS.md`
 - Live Sepolia transaction hash from `docs/LIVE_TEST_RESULTS.md`
 - S3 archive/restore smoke result from `docs/LIVE_TEST_RESULTS.md`
 - Links to `docs/IMPLEMENTATION_STATUS.md` and `docs/HARDENING_GUIDE.md`
