@@ -1,5 +1,27 @@
 # Changelog
 
+## v0.4.3 - 2026-06-02
+
+This is a PyPI/GitHub listing-quality patch. It does not add new runtime
+security claims.
+
+### Changed
+
+- README doc links now use absolute GitHub URLs so PyPI does not rewrite them
+  into broken `pypi.org/project/veritrace/docs/...` links.
+- README now leads with badges, a sharper ToolGuard-first pitch, an inline
+  trust-stack diagram, and a bare-install example that works with
+  `pip install veritrace`.
+- README no longer contains pre-launch wording about PyPI publication.
+- Project metadata now includes an Author URL.
+- Release checklist and deployment example were updated for `v0.4.3`.
+
+### Still Not Proven
+
+- This remains an Alpha release: no external penetration test, no SSO/OIDC/RBAC,
+  no production compliance certification, and no third-party jailbreak
+  assurance.
+
 ## v0.4.2 - 2026-06-02
 
 ### Added

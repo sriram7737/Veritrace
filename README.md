@@ -1,18 +1,31 @@
 # Veritrace
 
-Trust middleware for AI agents: deterministic tool policy, HITL approvals,
-usage quotas, and tamper-evident audit traces around OpenAI, Anthropic, Gemini,
-Ollama, local, and OpenAI-compatible providers.
+[![PyPI version](https://img.shields.io/pypi/v/veritrace.svg)](https://pypi.org/project/veritrace/)
+[![Python versions](https://img.shields.io/pypi/pyversions/veritrace.svg)](https://pypi.org/project/veritrace/)
+[![License](https://img.shields.io/pypi/l/veritrace.svg)](https://github.com/sriram7737/Veritrace/blob/main/LICENSE)
+[![CI](https://github.com/sriram7737/Veritrace/actions/workflows/tests.yml/badge.svg)](https://github.com/sriram7737/Veritrace/actions/workflows/tests.yml)
+[![Downloads](https://static.pepy.tech/badge/veritrace/month)](https://pepy.tech/project/veritrace)
 
-Veritrace is a strong guardrail/audit MVP for pilots and internal tools. It is
-not certified bank-grade or healthcare-grade infrastructure yet.
+Trust middleware for LLM agents: deterministic tool policy, HITL approvals,
+and tamper-evident audit traces. **Alpha** - read the
+[implementation status](https://github.com/sriram7737/Veritrace/blob/main/docs/IMPLEMENTATION_STATUS.md)
+before customer-facing pilots.
+
+![Veritrace trust stack](https://raw.githubusercontent.com/sriram7737/Veritrace/main/docs/stack.png)
+
+Veritrace wraps OpenAI, Anthropic, Gemini, Ollama, local, and
+OpenAI-compatible providers with guardrails that run outside the model. The
+most differentiated layer is ToolGuard: deterministic tool validation with JSON
+Schema, tenant/action allow-lists, side-effect taxonomy, dangerous-chain
+detection, output scanning, and HITL escalation.
 
 ## Alpha Maturity Notice
 
 Veritrace is published as **Alpha software**. It has live smoke-test evidence
-for Sepolia anchoring, S3 cold archive, local load testing, and bundled
-red-team runs, but it has **not** passed an external penetration test, SOC 2
-audit, HIPAA assessment, or regulated-production certification.
+for Sepolia anchoring, S3 cold archive, local load testing, real OpenAI/Ollama
+provider calls, and bundled red-team runs, but it has **not** passed an
+external penetration test, SOC 2 audit, HIPAA assessment, or
+regulated-production certification.
 
 Do not treat Veritrace as bank-grade or healthcare-grade security
 infrastructure. Do not claim prompt-injection immunity, production compliance,
@@ -22,9 +35,30 @@ or third-party-validated safety from the bundled benchmarks alone. Read
 [Hardening guide](https://github.com/sriram7737/Veritrace/blob/main/docs/HARDENING_GUIDE.md)
 before using it in a customer-facing pilot.
 
-## Install
+## Bare Install Quickstart
 
-From PyPI, after the release is published:
+This works with the base package only. No Docker, API server, or provider key is
+required.
+
+```bash
+pip install veritrace
+```
+
+```python
+import asyncio
+from veritrace import Veritrace
+
+async def main():
+    resp = await Veritrace().run("Summarize this request", tenant_id="demo", session_id="s1")
+    print(resp.output)
+    print(resp.trace.this_hash)
+
+asyncio.run(main())
+```
+
+That creates a tamper-evident trace using the deterministic mock provider.
+
+## API And Dashboard Install
 
 ```bash
 pip install "veritrace[api,dashboard,redis,postgres]"
@@ -38,7 +72,7 @@ cd Veritrace
 pip install -e ".[dev,api,redis,postgres,dashboard]"
 ```
 
-## Quickstart
+## CLI And Docker Quickstart
 
 ```bash
 veritrace init
@@ -67,30 +101,7 @@ veritrace redteam --json --dynamic --attacks 200 --seed 999
 
 Current local result: `364 passed, 2 warnings`.
 
-## When To Use Veritrace
-
-- You are wrapping LLM calls or agent workflows and need audit trails, policy
-  checks, HITL approvals, PII scrubbing, and provider fallback in one place.
-- You want deterministic tool policy outside the model, especially for actions
-  like payments, data export, account changes, or admin operations.
-- You are building an internal tool, pilot, or interview/demo project where
-  honest safety evidence matters more than marketing claims.
-- You need tamper-evident traces with optional Sepolia anchoring and encrypted
-  S3 cold archive support.
-
-## When Not To Use Veritrace Yet
-
-- You need certified bank-grade, healthcare-grade, or SOC2-audited production
-  infrastructure today.
-- You need proven jailbreak resistance against a serious red team; the bundled
-  benchmark is only a deterministic smoke test, not third-party assurance.
-- You need mature enterprise dashboard auth such as SSO/OIDC/RBAC.
-- You need production-grade scale evidence, chaos engineering, or SLA-backed
-  capacity numbers beyond the published local Docker Compose load run.
-- You need billing-grade Stripe/Chargebee metering rather than the local usage
-  ledger and event hooks.
-
-## Minimal Example
+## ToolGuard Example
 
 ```python
 import asyncio
@@ -140,6 +151,29 @@ async def main():
 asyncio.run(main())
 ```
 
+## When To Use Veritrace
+
+- You are wrapping LLM calls or agent workflows and need audit trails, policy
+  checks, HITL approvals, PII scrubbing, and provider fallback in one place.
+- You want deterministic tool policy outside the model, especially for actions
+  like payments, data export, account changes, or admin operations.
+- You are building an internal tool or pilot where honest safety evidence
+  matters more than marketing claims.
+- You need tamper-evident traces with optional Sepolia anchoring and encrypted
+  S3 cold archive support.
+
+## When Not To Use Veritrace Yet
+
+- You need certified bank-grade, healthcare-grade, or SOC2-audited production
+  infrastructure today.
+- You need proven jailbreak resistance against a serious red team; the bundled
+  benchmark is only a deterministic smoke test, not third-party assurance.
+- You need mature enterprise dashboard auth such as SSO/OIDC/RBAC.
+- You need production-grade scale evidence, chaos engineering, or SLA-backed
+  capacity numbers beyond the published local Docker Compose load run.
+- You need billing-grade Stripe/Chargebee metering rather than the local usage
+  ledger and event hooks.
+
 ## What Works Today
 
 | Capability | Status | Notes |
@@ -181,7 +215,7 @@ asyncio.run(main())
 ## Optional Anchoring And Archive
 
 ```bash
-pip install -e ".[ethereum,s3]"
+pip install "veritrace[ethereum,s3]"
 ```
 
 Ethereum/Sepolia anchoring submits the audit head as transaction calldata and
@@ -203,17 +237,21 @@ metrics, and per-tenant usage.
 
 ## Docs
 
-- [Deployment guide](docs/DEPLOYMENT.md)
-- [Implementation status](docs/IMPLEMENTATION_STATUS.md)
-- [Compliance mapping](docs/COMPLIANCE_MAPPING.md)
-- [Red-team results](docs/REDTEAM_RESULTS.md)
-- [Live test results](docs/LIVE_TEST_RESULTS.md)
-- [Load-test runbook](docs/LOAD_TEST.md)
-- [Load-test results](docs/LOAD_TEST_RESULTS.md)
-- [Hardening guide](docs/HARDENING_GUIDE.md)
-- [Demo script](docs/DEMO_SCRIPT.md)
-- [Changelog](CHANGELOG.md)
-- [Design document](docs/Veritrace-Design-Document.docx)
+- [Deployment guide](https://github.com/sriram7737/Veritrace/blob/main/docs/DEPLOYMENT.md)
+- [Implementation status](https://github.com/sriram7737/Veritrace/blob/main/docs/IMPLEMENTATION_STATUS.md)
+- [Compliance mapping](https://github.com/sriram7737/Veritrace/blob/main/docs/COMPLIANCE_MAPPING.md)
+- [Red-team results](https://github.com/sriram7737/Veritrace/blob/main/docs/REDTEAM_RESULTS.md)
+- [Live test results](https://github.com/sriram7737/Veritrace/blob/main/docs/LIVE_TEST_RESULTS.md)
+- [Load-test runbook](https://github.com/sriram7737/Veritrace/blob/main/docs/LOAD_TEST.md)
+- [Load-test results](https://github.com/sriram7737/Veritrace/blob/main/docs/LOAD_TEST_RESULTS.md)
+- [Hardening guide](https://github.com/sriram7737/Veritrace/blob/main/docs/HARDENING_GUIDE.md)
+- [Demo script](https://github.com/sriram7737/Veritrace/blob/main/docs/DEMO_SCRIPT.md)
+- [Changelog](https://github.com/sriram7737/Veritrace/blob/main/CHANGELOG.md)
+- [Design document](https://github.com/sriram7737/Veritrace/blob/main/docs/Veritrace-Design-Document.docx)
+
+## Author
+
+- [Sriram Rampelli](https://sriram7737.github.io)
 
 ## License
 

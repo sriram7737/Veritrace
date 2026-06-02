@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "veritrace"
-version = "0.4.2"
+version = "0.4.3"
 description = "Alpha agent trust middleware: audit trails, safety guardrails, HITL, and tool validation"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -30,6 +30,7 @@ Homepage = "https://github.com/sriram7737/Veritrace"
 Repository = "https://github.com/sriram7737/Veritrace"
 Issues = "https://github.com/sriram7737/Veritrace/issues"
 Documentation = "https://github.com/sriram7737/Veritrace#readme"
+Author = "https://sriram7737.github.io"
 
 [project.optional-dependencies]
 anthropic = ["anthropic>=0.39"]
