@@ -2,15 +2,15 @@
 
 [![PyPI version](https://img.shields.io/pypi/v/pramagent.svg)](https://pypi.org/project/pramagent/)
 [![Python versions](https://img.shields.io/pypi/pyversions/pramagent.svg)](https://pypi.org/project/pramagent/)
-[![License](https://img.shields.io/pypi/l/pramagent.svg)](https://github.com/sriram7737/Pramagent/blob/main/LICENSE)
-[![CI](https://github.com/sriram7737/Pramagent/actions/workflows/tests.yml/badge.svg)](https://github.com/sriram7737/Pramagent/actions/workflows/tests.yml)
+[![License](https://img.shields.io/pypi/l/pramagent.svg)](https://github.com/sriram7737/Veritrace/blob/main/LICENSE)
+[![CI](https://github.com/sriram7737/Veritrace/actions/workflows/tests.yml/badge.svg)](https://github.com/sriram7737/Veritrace/actions/workflows/tests.yml)
 
 Trust middleware for LLM agents: deterministic tool policy, HITL approvals,
 and tamper-evident audit traces. **Alpha** - read the
-[implementation status](https://github.com/sriram7737/Pramagent/blob/main/docs/IMPLEMENTATION_STATUS.md)
+[implementation status](https://github.com/sriram7737/Veritrace/blob/main/docs/IMPLEMENTATION_STATUS.md)
 before customer-facing pilots.
 
-![Pramagent trust stack](https://raw.githubusercontent.com/sriram7737/Pramagent/main/docs/stack.png)
+![Pramagent trust stack](https://raw.githubusercontent.com/sriram7737/Veritrace/main/docs/stack.png)
 
 Pramagent wraps OpenAI, Anthropic, Gemini, Ollama, local, and
 OpenAI-compatible providers with guardrails that run outside the model. The
@@ -29,9 +29,9 @@ regulated-production certification.
 Do not treat Pramagent as bank-grade or healthcare-grade security
 infrastructure. Do not claim prompt-injection immunity, production compliance,
 or third-party-validated safety from the bundled benchmarks alone. Read
-[Implementation status](https://github.com/sriram7737/Pramagent/blob/main/docs/IMPLEMENTATION_STATUS.md),
-[Live test results](https://github.com/sriram7737/Pramagent/blob/main/docs/LIVE_TEST_RESULTS.md), and
-[Hardening guide](https://github.com/sriram7737/Pramagent/blob/main/docs/HARDENING_GUIDE.md)
+[Implementation status](https://github.com/sriram7737/Veritrace/blob/main/docs/IMPLEMENTATION_STATUS.md),
+[Live test results](https://github.com/sriram7737/Veritrace/blob/main/docs/LIVE_TEST_RESULTS.md), and
+[Hardening guide](https://github.com/sriram7737/Veritrace/blob/main/docs/HARDENING_GUIDE.md)
 before using it in a customer-facing pilot.
 
 ## Bare Install Quickstart
@@ -66,7 +66,7 @@ pip install "pramagent[api,dashboard,redis,postgres]"
 From source:
 
 ```bash
-git clone git@github.com:sriram7737/Pramagent.git
+git clone git@github.com:sriram7737/Veritrace.git
 cd Pramagent
 pip install -e ".[dev,api,redis,postgres,dashboard]"
 ```
@@ -236,17 +236,17 @@ metrics, and per-tenant usage.
 
 ## Docs
 
-- [Deployment guide](https://github.com/sriram7737/Pramagent/blob/main/docs/DEPLOYMENT.md)
-- [Implementation status](https://github.com/sriram7737/Pramagent/blob/main/docs/IMPLEMENTATION_STATUS.md)
-- [Compliance mapping](https://github.com/sriram7737/Pramagent/blob/main/docs/COMPLIANCE_MAPPING.md)
-- [Red-team results](https://github.com/sriram7737/Pramagent/blob/main/docs/REDTEAM_RESULTS.md)
-- [Live test results](https://github.com/sriram7737/Pramagent/blob/main/docs/LIVE_TEST_RESULTS.md)
-- [Load-test runbook](https://github.com/sriram7737/Pramagent/blob/main/docs/LOAD_TEST.md)
-- [Load-test results](https://github.com/sriram7737/Pramagent/blob/main/docs/LOAD_TEST_RESULTS.md)
-- [Hardening guide](https://github.com/sriram7737/Pramagent/blob/main/docs/HARDENING_GUIDE.md)
-- [Demo script](https://github.com/sriram7737/Pramagent/blob/main/docs/DEMO_SCRIPT.md)
-- [Changelog](https://github.com/sriram7737/Pramagent/blob/main/CHANGELOG.md)
-- [Design document](https://github.com/sriram7737/Pramagent/blob/main/docs/Pramagent-Design-Document.docx)
+- [Deployment guide](https://github.com/sriram7737/Veritrace/blob/main/docs/DEPLOYMENT.md)
+- [Implementation status](https://github.com/sriram7737/Veritrace/blob/main/docs/IMPLEMENTATION_STATUS.md)
+- [Compliance mapping](https://github.com/sriram7737/Veritrace/blob/main/docs/COMPLIANCE_MAPPING.md)
+- [Red-team results](https://github.com/sriram7737/Veritrace/blob/main/docs/REDTEAM_RESULTS.md)
+- [Live test results](https://github.com/sriram7737/Veritrace/blob/main/docs/LIVE_TEST_RESULTS.md)
+- [Load-test runbook](https://github.com/sriram7737/Veritrace/blob/main/docs/LOAD_TEST.md)
+- [Load-test results](https://github.com/sriram7737/Veritrace/blob/main/docs/LOAD_TEST_RESULTS.md)
+- [Hardening guide](https://github.com/sriram7737/Veritrace/blob/main/docs/HARDENING_GUIDE.md)
+- [Demo script](https://github.com/sriram7737/Veritrace/blob/main/docs/DEMO_SCRIPT.md)
+- [Changelog](https://github.com/sriram7737/Veritrace/blob/main/CHANGELOG.md)
+- [Design document](https://github.com/sriram7737/Veritrace/blob/main/docs/Pramagent-Design-Document.docx)
 
 ## Author
 

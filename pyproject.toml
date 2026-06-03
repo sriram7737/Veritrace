@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pramagent"
-version = "0.5.0"
+version = "0.5.1"
 description = "Alpha agent trust middleware: audit trails, safety guardrails, HITL, and tool validation"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -26,10 +26,10 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/sriram7737/Pramagent"
-Repository = "https://github.com/sriram7737/Pramagent"
-Issues = "https://github.com/sriram7737/Pramagent/issues"
-Documentation = "https://github.com/sriram7737/Pramagent#readme"
+Homepage = "https://github.com/sriram7737/Veritrace"
+Repository = "https://github.com/sriram7737/Veritrace"
+Issues = "https://github.com/sriram7737/Veritrace/issues"
+Documentation = "https://github.com/sriram7737/Veritrace#readme"
 Author = "https://sriram7737.github.io"
 
 [project.optional-dependencies]

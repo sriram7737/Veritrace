@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.5.1 - 2026-06-02
+
+This is a PyPI listing hotfix. It does not change runtime behavior.
+
+### Fixed
+
+- README badge, CI, diagram, and documentation links now point at the currently
+  live GitHub repository URL so PyPI no longer renders broken images while the
+  GitHub repository rename is pending.
+- Project metadata URLs now point at the currently live GitHub repository.
+
 ## v0.5.0 - 2026-06-02
 
 This release completes the public rebrand to Pramagent. It is a

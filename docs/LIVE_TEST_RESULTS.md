@@ -91,7 +91,7 @@ Notes:
 Optional extras install check:
 
 ```text
-python -m pip install "dist/pramagent-0.5.0-py3-none-any.whl[all]"
+python -m pip install "dist/pramagent-0.5.1-py3-none-any.whl[all]"
 ```
 
 Result: **passed**. Import smoke covered Anthropic, Ollama/aiohttp, FastAPI,

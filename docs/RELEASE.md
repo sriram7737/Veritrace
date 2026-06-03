@@ -25,7 +25,7 @@ python -m venv %TEMP%/pramagent-release-venv
 Optional extras install check:
 
 ```bash
-python -m pip install dist/pramagent-0.5.0-py3-none-any.whl[all]
+python -m pip install dist/pramagent-0.5.1-py3-none-any.whl[all]
 python - <<'PY'
 import anthropic, aiohttp, fastapi, uvicorn, jinja2, httpx, cryptography
 import opentelemetry, redis, psycopg2, web3, boto3
@@ -62,12 +62,12 @@ python -m twine check dist/*
 
 ```bash
 git status --short
-git tag -a v0.5.0 -m "v0.5.0"
+git tag -a v0.5.1 -m "v0.5.1"
 git push origin main
-git push origin v0.5.0
+git push origin v0.5.1
 ```
 
-Create a GitHub Release from tag `v0.5.0` and include:
+Create a GitHub Release from tag `v0.5.1` and include:
 
 - Test result: `364 passed, 2 warnings`
 - Dynamic red-team result: `200/200 caught`, seed `999`

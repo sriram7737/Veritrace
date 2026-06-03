@@ -25,6 +25,7 @@ env/
 *.key
 *.pem
 HANDOFF.md
+pramagent_config.py
 
 # Local databases and logs
 *.db
