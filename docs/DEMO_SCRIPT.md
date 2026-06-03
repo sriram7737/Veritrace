@@ -5,7 +5,7 @@ Use this for a Loom or interview walkthrough.
 ## 0:00 - Bootstrap
 
 ```bash
-veritrace init
+pramagent init
 cp .env.example .env
 docker compose up -d --build
 ```
@@ -50,7 +50,7 @@ Invoke-RestMethod http://localhost:8080/v1/audit/verify | ConvertTo-Json
 Run:
 
 ```bash
-veritrace redteam --json --dynamic --attacks 200 --seed 999
+pramagent redteam --json --dynamic --attacks 200 --seed 999
 ```
 
 Say plainly: this is a guardrail/audit MVP. It adds deterministic policy gates

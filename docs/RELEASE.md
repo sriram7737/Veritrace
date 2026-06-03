@@ -7,25 +7,25 @@ Use this checklist for public releases.
 ```bash
 python -m pip install -U build twine
 python -m pip install -e ".[dev,api,redis,postgres,dashboard]"
-veritrace --help
-python -m compileall -q veritrace tests
+pramagent --help
+python -m compileall -q pramagent tests
 python -m pytest -q --tb=no
-veritrace redteam --json --dynamic --attacks 200 --seed 999
+pramagent redteam --json --dynamic --attacks 200 --seed 999
 ```
 
 Clean-environment check:
 
 ```bash
-python -m venv %TEMP%/veritrace-release-venv
-%TEMP%/veritrace-release-venv/Scripts/python -m pip install -U pip setuptools wheel
-%TEMP%/veritrace-release-venv/Scripts/python -m pip install -e ".[dev,api,otel]"
-%TEMP%/veritrace-release-venv/Scripts/python -m pytest -q --tb=no
+python -m venv %TEMP%/pramagent-release-venv
+%TEMP%/pramagent-release-venv/Scripts/python -m pip install -U pip setuptools wheel
+%TEMP%/pramagent-release-venv/Scripts/python -m pip install -e ".[dev,api,otel]"
+%TEMP%/pramagent-release-venv/Scripts/python -m pytest -q --tb=no
 ```
 
 Optional extras install check:
 
 ```bash
-python -m pip install dist/veritrace-0.4.4-py3-none-any.whl[all]
+python -m pip install dist/pramagent-0.5.0-py3-none-any.whl[all]
 python - <<'PY'
 import anthropic, aiohttp, fastapi, uvicorn, jinja2, httpx, cryptography
 import opentelemetry, redis, psycopg2, web3, boto3
@@ -36,8 +36,8 @@ PY
 Confirm the version matches in:
 
 - `pyproject.toml`
-- `veritrace/__init__.py`
-- `veritrace/api/app.py`
+- `pramagent/__init__.py`
+- `pramagent/api/app.py`
 
 Confirm the release positioning:
 
@@ -62,12 +62,12 @@ python -m twine check dist/*
 
 ```bash
 git status --short
-git tag -a v0.4.4 -m "v0.4.4"
+git tag -a v0.5.0 -m "v0.5.0"
 git push origin main
-git push origin v0.4.4
+git push origin v0.5.0
 ```
 
-Create a GitHub Release from tag `v0.4.4` and include:
+Create a GitHub Release from tag `v0.5.0` and include:
 
 - Test result: `364 passed, 2 warnings`
 - Dynamic red-team result: `200/200 caught`, seed `999`
@@ -80,7 +80,7 @@ Create a GitHub Release from tag `v0.4.4` and include:
 
 ## PyPI
 
-Publishing requires a PyPI API token with permission for the `veritrace`
+Publishing requires a PyPI API token with permission for the `pramagent`
 project.
 
 Go ahead with PyPI publication when the preflight, build, twine check, and
@@ -102,7 +102,7 @@ python -m twine upload --repository testpypi dist/*
 ## Post-release Smoke
 
 ```bash
-pip install "veritrace[api,dashboard,redis,postgres]"
-veritrace --help
-veritrace redteam --json --dynamic --attacks 200 --seed 999
+pip install "pramagent[api,dashboard,redis,postgres]"
+pramagent --help
+pramagent redteam --json --dynamic --attacks 200 --seed 999
 ```

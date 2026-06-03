@@ -1,22 +1,22 @@
 """
-Veritrace Admin Dashboard
+Pramagent Admin Dashboard
 =========================
 FastAPI + HTMX. No build step, no npm.
 
 Authentication
 --------------
 Every request must carry one of:
-  - Header  X-API-Key: <VT_DASHBOARD_KEY>
-  - Cookie  vt_session=<signed JWT>  (set after /login)
+  - Header  X-API-Key: <PRAMAGENT_DASHBOARD_KEY>
+  - Cookie  pramagent_session=<signed JWT>  (set after /login)
 
 JWT payload: {"sub": "<username>", "tenant": "<tenant_id_or_*>", "exp": ...}
 
 If tenant == "*" the user sees all tenants (super-admin).
 Otherwise traces, metrics, and approvals are scoped to that tenant only.
 
-Set VT_DASHBOARD_KEY and VT_JWT_SECRET in the environment (or docker-compose).
-To enable all-tenant access, set both VT_DASHBOARD_TENANT=* and
-VT_DASHBOARD_ALLOW_SUPER_ADMIN=true.
+Set PRAMAGENT_DASHBOARD_KEY and PRAMAGENT_JWT_SECRET in the environment (or docker-compose).
+To enable all-tenant access, set both PRAMAGENT_DASHBOARD_TENANT=* and
+PRAMAGENT_DASHBOARD_ALLOW_SUPER_ADMIN=true.
 """
 from __future__ import annotations
 
@@ -42,30 +42,30 @@ def _normalize_dashboard_tenant(raw_tenant: str, allow_super_admin: bool) -> str
     return raw_tenant or "default"
 
 
-VT_API_URL       = os.environ.get("VT_API_URL", "http://localhost:8080")
-VT_API_KEY       = os.environ.get("VT_API_KEY", "")
-VT_DASHBOARD_KEY = os.environ.get("VT_DASHBOARD_KEY", VT_API_KEY)  # shared key for browser
-VT_JWT_SECRET    = os.environ.get("VT_JWT_SECRET", "change-me-in-production")
-VT_DASHBOARD_ALLOW_SUPER_ADMIN = os.environ.get(
-    "VT_DASHBOARD_ALLOW_SUPER_ADMIN", "false"
+PRAMAGENT_API_URL       = os.environ.get("PRAMAGENT_API_URL", "http://localhost:8080")
+PRAMAGENT_API_KEY       = os.environ.get("PRAMAGENT_API_KEY", "")
+PRAMAGENT_DASHBOARD_KEY = os.environ.get("PRAMAGENT_DASHBOARD_KEY", PRAMAGENT_API_KEY)  # shared key for browser
+PRAMAGENT_JWT_SECRET    = os.environ.get("PRAMAGENT_JWT_SECRET", "change-me-in-production")
+PRAMAGENT_DASHBOARD_ALLOW_SUPER_ADMIN = os.environ.get(
+    "PRAMAGENT_DASHBOARD_ALLOW_SUPER_ADMIN", "false"
 ).lower() in {"1", "true", "yes", "on"}
-_VT_DASHBOARD_TENANT_RAW = os.environ.get("VT_DASHBOARD_TENANT", "default")
-VT_DASHBOARD_TENANT = _normalize_dashboard_tenant(
-    _VT_DASHBOARD_TENANT_RAW,
-    VT_DASHBOARD_ALLOW_SUPER_ADMIN,
+_PRAMAGENT_DASHBOARD_TENANT_RAW = os.environ.get("PRAMAGENT_DASHBOARD_TENANT", "default")
+PRAMAGENT_DASHBOARD_TENANT = _normalize_dashboard_tenant(
+    _PRAMAGENT_DASHBOARD_TENANT_RAW,
+    PRAMAGENT_DASHBOARD_ALLOW_SUPER_ADMIN,
 )
-VT_DASHBOARD_SECURE_COOKIE = os.environ.get(
-    "VT_DASHBOARD_SECURE_COOKIE", "false"
+PRAMAGENT_DASHBOARD_SECURE_COOKIE = os.environ.get(
+    "PRAMAGENT_DASHBOARD_SECURE_COOKIE", "false"
 ).lower() in {"1", "true", "yes", "on"}
-SESSION_TTL_S    = int(os.environ.get("VT_SESSION_TTL_S", "3600"))
-VT_DASHBOARD_REDIS_URL = os.environ.get(
-    "VT_DASHBOARD_REDIS_URL",
-    os.environ.get("VT_REDIS_URL", ""),
+SESSION_TTL_S    = int(os.environ.get("PRAMAGENT_SESSION_TTL_S", "3600"))
+PRAMAGENT_DASHBOARD_REDIS_URL = os.environ.get(
+    "PRAMAGENT_DASHBOARD_REDIS_URL",
+    os.environ.get("PRAMAGENT_REDIS_URL", ""),
 )
 
-app = FastAPI(title="Veritrace Dashboard", docs_url=None, redoc_url=None)
+app = FastAPI(title="Pramagent Dashboard", docs_url=None, redoc_url=None)
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
-log = logging.getLogger("veritrace.dashboard")
+log = logging.getLogger("pramagent.dashboard")
 
 
 # ── minimal JWT (HS256, no external deps) ────────────────────────────────────
@@ -79,7 +79,7 @@ def _sign(payload: dict) -> str:
     header  = _b64url(b'{"alg":"HS256","typ":"JWT"}')
     body    = _b64url(json.dumps(payload).encode())
     signing_input = f"{header}.{body}".encode()
-    sig = hmac.new(VT_JWT_SECRET.encode(), signing_input, hashlib.sha256).digest()
+    sig = hmac.new(PRAMAGENT_JWT_SECRET.encode(), signing_input, hashlib.sha256).digest()
     return f"{header}.{body}.{_b64url(sig)}"
 
 def _verify(token: str) -> Optional[dict]:
@@ -90,7 +90,7 @@ def _verify(token: str) -> Optional[dict]:
         header, body, sig = parts
         signing_input = f"{header}.{body}".encode()
         expected = _b64url(
-            hmac.new(VT_JWT_SECRET.encode(), signing_input, hashlib.sha256).digest()
+            hmac.new(PRAMAGENT_JWT_SECRET.encode(), signing_input, hashlib.sha256).digest()
         )
         if not hmac.compare_digest(expected, sig):
             return None
@@ -117,11 +117,11 @@ class AuthContext:
 def _get_auth(request: Request) -> Optional[AuthContext]:
     # 1. X-API-Key header (CLI / curl usage)
     key = request.headers.get("X-API-Key", "")
-    if key and VT_DASHBOARD_KEY and hmac.compare_digest(key, VT_DASHBOARD_KEY):
-        return AuthContext("api_key_user", VT_DASHBOARD_TENANT)
+    if key and PRAMAGENT_DASHBOARD_KEY and hmac.compare_digest(key, PRAMAGENT_DASHBOARD_KEY):
+        return AuthContext("api_key_user", PRAMAGENT_DASHBOARD_TENANT)
 
     # 2. Cookie session JWT
-    token = request.cookies.get("vt_session", "")
+    token = request.cookies.get("pramagent_session", "")
     if token:
         payload = _verify(token)
         if payload:
@@ -140,21 +140,21 @@ def require_auth(request: Request) -> AuthContext:
 # ── rate limit (Redis-backed when configured, in-process fallback) ────────────
 
 _rl_state: dict[str, tuple[float, float]] = {}  # ip -> (tokens, last_refill)
-_RL_CAPACITY    = float(os.environ.get("VT_DASHBOARD_RL_CAPACITY", "60"))
-_RL_REFILL_S    = float(os.environ.get("VT_DASHBOARD_RL_REFILL", "60"))  # tokens/minute
+_RL_CAPACITY    = float(os.environ.get("PRAMAGENT_DASHBOARD_RL_CAPACITY", "60"))
+_RL_REFILL_S    = float(os.environ.get("PRAMAGENT_DASHBOARD_RL_REFILL", "60"))  # tokens/minute
 _redis_client = None
 
 
 def _dashboard_redis():
     global _redis_client
-    if not VT_DASHBOARD_REDIS_URL:
+    if not PRAMAGENT_DASHBOARD_REDIS_URL:
         return None
     if _redis_client is not None:
         return _redis_client
     try:
         import redis  # type: ignore
         _redis_client = redis.Redis.from_url(
-            VT_DASHBOARD_REDIS_URL,
+            PRAMAGENT_DASHBOARD_REDIS_URL,
             decode_responses=True,
             socket_timeout=1.0,
             socket_connect_timeout=1.0,
@@ -172,7 +172,7 @@ def _redis_rate_limit(key: str) -> bool:
     if client is None:
         return False
     now = time.monotonic()
-    redis_key = f"veritrace:dashboard:rl:{key}"
+    redis_key = f"pramagent:dashboard:rl:{key}"
     raw = client.get(redis_key)
     if raw:
         try:
@@ -210,23 +210,23 @@ def _rate_limit(request: Request) -> None:
 # ── API proxy helpers ─────────────────────────────────────────────────────────
 
 def _upstream_headers() -> dict:
-    if not VT_API_KEY:
+    if not PRAMAGENT_API_KEY:
         return {}
     return {
-        "Authorization": f"Bearer {VT_API_KEY}",
-        "X-API-Key": VT_API_KEY,
+        "Authorization": f"Bearer {PRAMAGENT_API_KEY}",
+        "X-API-Key": PRAMAGENT_API_KEY,
     }
 
 
 async def _get(path: str, params: Optional[dict] = None) -> dict | list:
-    async with httpx.AsyncClient(base_url=VT_API_URL, timeout=10.0) as client:
+    async with httpx.AsyncClient(base_url=PRAMAGENT_API_URL, timeout=10.0) as client:
         r = await client.get(path, headers=_upstream_headers(), params=params or {})
         r.raise_for_status()
         return r.json()
 
 
 async def _post(path: str, json_body: dict) -> dict:
-    async with httpx.AsyncClient(base_url=VT_API_URL, timeout=10.0) as client:
+    async with httpx.AsyncClient(base_url=PRAMAGENT_API_URL, timeout=10.0) as client:
         r = await client.post(path, headers=_upstream_headers(), json=json_body)
         r.raise_for_status()
         return r.json()
@@ -274,26 +274,26 @@ async def login_page(request: Request, error: str = ""):
 
 @app.post("/login")
 async def login(request: Request, username: str = Form(...), password: str = Form(...)):
-    # Password == VT_DASHBOARD_KEY (hashed compare).
+    # Password == PRAMAGENT_DASHBOARD_KEY (hashed compare).
     # In production replace with LDAP / OAuth / SSO lookup.
-    if not VT_DASHBOARD_KEY or not hmac.compare_digest(
+    if not PRAMAGENT_DASHBOARD_KEY or not hmac.compare_digest(
         hashlib.sha256(password.encode()).hexdigest(),
-        hashlib.sha256(VT_DASHBOARD_KEY.encode()).hexdigest(),
+        hashlib.sha256(PRAMAGENT_DASHBOARD_KEY.encode()).hexdigest(),
     ):
         return RedirectResponse("/login?error=Invalid+credentials", status_code=302)
 
     # Scope the session from config. Use "*" only for a deliberate super-admin.
     payload = {
         "sub": username,
-        "tenant": VT_DASHBOARD_TENANT,
+        "tenant": PRAMAGENT_DASHBOARD_TENANT,
         "iat": int(time.time()),
         "exp": int(time.time()) + SESSION_TTL_S,
     }
     token = _sign(payload)
     resp = RedirectResponse("/", status_code=302)
     resp.set_cookie(
-        "vt_session", token,
-        httponly=True, samesite="lax", secure=VT_DASHBOARD_SECURE_COOKIE,
+        "pramagent_session", token,
+        httponly=True, samesite="lax", secure=PRAMAGENT_DASHBOARD_SECURE_COOKIE,
         max_age=SESSION_TTL_S,
     )
     return resp
@@ -302,7 +302,7 @@ async def login(request: Request, username: str = Form(...), password: str = For
 @app.get("/logout")
 async def logout():
     resp = RedirectResponse("/login", status_code=302)
-    resp.delete_cookie("vt_session")
+    resp.delete_cookie("pramagent_session")
     return resp
 
 
@@ -326,7 +326,7 @@ async def overview(
     return templates.TemplateResponse(request, "overview.html", {
         "metrics": metrics,
         "recent_traces": _filter_by_tenant(items, ctx),
-        "api_url": VT_API_URL,
+        "api_url": PRAMAGENT_API_URL,
         "user": ctx.username,
         "tenant": ctx.tenant,
     })
@@ -525,5 +525,5 @@ async def export_csv(
     return Response(
         content=buf.getvalue(),
         media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=veritrace_traces.csv"},
+        headers={"Content-Disposition": "attachment; filename=pramagent_traces.csv"},
     )

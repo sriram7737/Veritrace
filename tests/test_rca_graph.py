@@ -2,11 +2,11 @@
 import asyncio
 import pytest
 
-from veritrace import Veritrace, Verdict
-from veritrace.layers import SafetyLayer, Rule, ToolGuardLayer, ToolPolicy
-from veritrace.layers.tool_guard import SideEffect
-from veritrace.providers import MockProvider
-from veritrace.rca import RCAEngine
+from pramagent import Pramagent, Verdict
+from pramagent.layers import SafetyLayer, Rule, ToolGuardLayer, ToolPolicy
+from pramagent.layers.tool_guard import SideEffect
+from pramagent.providers import MockProvider
+from pramagent.rca import RCAEngine
 
 
 def run(coro):
@@ -20,7 +20,7 @@ def _armor_with_tool():
         ToolPolicy(name="wire", side_effect=SideEffect.PAYMENT, action=Verdict.ESCALATE,
                    schema={"type": "object", "properties": {}}),
     ])
-    return Veritrace(provider=MockProvider(), tool_guard=guard,
+    return Pramagent(provider=MockProvider(), tool_guard=guard,
                      safety=SafetyLayer(rules=[
                          Rule("block_dump", Verdict.BLOCK, pattern=r"dump .*accounts?"),
                      ]))

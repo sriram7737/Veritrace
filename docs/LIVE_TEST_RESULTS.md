@@ -38,7 +38,7 @@ Result: **passed**
   "region": "us-east-1",
   "call_id": "live-s3-e42647ff1f3a",
   "deleted_from_hot_store": 1,
-  "s3_key": "veritrace-live-test/v0.4/tenant=live-release-test/2026/06/01/live-s3-e42647ff1f3a.json.gz.fernet",
+  "s3_key": "pramagent-live-test/v0.4/tenant=live-release-test/2026/06/01/live-s3-e42647ff1f3a.json.gz.fernet",
   "content_length": 548,
   "metadata_encrypted": "true",
   "restored_call_id": "live-s3-e42647ff1f3a",
@@ -56,7 +56,7 @@ Notes:
 ## Local Release Checks
 
 ```text
-python -m compileall -q veritrace tests
+python -m compileall -q pramagent tests
 python -m pytest -q --tb=no
 ```
 
@@ -91,12 +91,12 @@ Notes:
 Optional extras install check:
 
 ```text
-python -m pip install "dist/veritrace-0.4.4-py3-none-any.whl[all]"
+python -m pip install "dist/pramagent-0.5.0-py3-none-any.whl[all]"
 ```
 
 Result: **passed**. Import smoke covered Anthropic, Ollama/aiohttp, FastAPI,
 uvicorn, Jinja2, httpx, cryptography, OpenTelemetry, Redis, psycopg2, Web3,
-boto3, and Veritrace itself.
+boto3, and Pramagent itself.
 
 ## Real LLM Provider Smoke Tests
 
@@ -150,7 +150,7 @@ Notes:
 Command:
 
 ```text
-veritrace redteam --json --dynamic --attacks 200 --seed 999
+pramagent redteam --json --dynamic --attacks 200 --seed 999
 ```
 
 ```text

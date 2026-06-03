@@ -3,10 +3,10 @@ import asyncio
 import os
 import tempfile
 
-from veritrace import Veritrace, Verdict
-from veritrace.layers import ComplianceLayer, SafetyLayer, Rule
-from veritrace.providers import MockProvider
-from veritrace.store import SQLiteStore
+from pramagent import Pramagent, Verdict
+from pramagent.layers import ComplianceLayer, SafetyLayer, Rule
+from pramagent.providers import MockProvider
+from pramagent.store import SQLiteStore
 
 
 def run(coro):
@@ -14,9 +14,9 @@ def run(coro):
 
 
 def _make_armor(db_path):
-    """Build a Veritrace instance backed by SQLite at the given path."""
+    """Build a Pramagent instance backed by SQLite at the given path."""
     db = SQLiteStore(db_path)
-    return Veritrace(
+    return Pramagent(
         provider=MockProvider(),
         safety=SafetyLayer(rules=[Rule("blk", Verdict.BLOCK, pattern=r"forbidden")]),
         compliance=ComplianceLayer(),

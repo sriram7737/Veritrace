@@ -1,0 +1,885 @@
+"""
+pramagent.layers.tool_guard
+============================
+Deterministic tool-call safety. Five layers of defense:
+
+1. Policy allow-list
+   Tool must be explicitly registered. Unregistered calls blocked by default.
+   Per-tool tenant allow-list and action allow-list enforced.
+
+2. Argument validation — full JSON Schema engine
+   Type, required, properties, additionalProperties, enum, minimum/maximum,
+   exclusiveMinimum/exclusiveMaximum, minLength/maxLength, pattern,
+   minItems/maxItems, items, oneOf, anyOf, allOf, if/then/else, $defs/$ref,
+   format (date-time, email, uri, uuid, ipv4, ipv6).
+
+3. Argument injection scanning
+   Deep recursive scan of every string argument value. Blocks SQL injection,
+   shell injection, path traversal, template injection, SSRF targets.
+
+4. Output validation
+   Call validate_output() after the tool executes. Checks output_schema,
+   enforces max_output_bytes, scans for exfiltration markers (AWS keys,
+   private keys, JWTs, generic secrets), records a provenance entry.
+
+5. Tool-chain detection
+   Tracks the side-effect sequence within each (tenant, session). Detects
+   known dangerous chains (read→exfil, read→payment, bulk-write, privilege
+   escalation, write→destructive). Escalates rather than blindly blocks —
+   humans confirm, machines flag.
+
+Side-effect taxonomy (severity order, lowest to highest)
+---------------------------------------------------------
+  read            — read-only; no state change
+  compute         — CPU/memory use; no external state
+  write           — mutates internal state
+  config_change   — modifies system configuration
+  external_message— sends data outside the system
+  payment         — financial transaction
+  destructive     — deletes or overwrites data irreversibly
+
+Higher-severity side effects get stricter treatment in chain detection.
+
+All decisions recorded in an append-only audit log (per-instance).
+"""
+from __future__ import annotations
+
+import re
+import time
+import uuid
+from collections import defaultdict
+from dataclasses import dataclass, field
+from typing import Any, Optional
+
+from ..types import Verdict
+
+
+class ToolGuardError(ValueError):
+    pass
+
+
+# ── side-effect taxonomy ──────────────────────────────────────────────────────
+
+class SideEffect:
+    """Ordered severity levels. Higher = more dangerous."""
+    READ             = "read"
+    COMPUTE          = "compute"
+    WRITE            = "write"
+    CONFIG_CHANGE    = "config_change"
+    EXTERNAL_MESSAGE = "external_message"
+    PAYMENT          = "payment"
+    DESTRUCTIVE      = "destructive"
+
+    _ORDER = [READ, COMPUTE, WRITE, CONFIG_CHANGE, EXTERNAL_MESSAGE, PAYMENT, DESTRUCTIVE]
+
+    @classmethod
+    def severity(cls, effect: str) -> int:
+        try:
+            return cls._ORDER.index(effect)
+        except ValueError:
+            return 1   # unknown → treat as compute
+
+    @classmethod
+    def is_at_least(cls, effect: str, threshold: str) -> bool:
+        return cls.severity(effect) >= cls.severity(threshold)
+
+
+# ── argument injection patterns ───────────────────────────────────────────────
+
+_ARG_INJECTION: list[tuple[str, re.Pattern, str]] = [
+    ("sql_injection",
+     re.compile(
+         r"(--|;|/\*|\*/|xp_|exec\s*\(|drop\s+table|union\s+select|insert\s+into"
+         r"|delete\s+from|update\s+\w+\s+set|truncate\s+table|alter\s+table"
+         r"|create\s+(table|database|index)|sleep\s*\(\d+\)|benchmark\s*\()",
+         re.IGNORECASE),
+     "SQL injection pattern in argument"),
+    ("shell_injection",
+     re.compile(
+         r"(\$\(|`[^`]*`|\|\s*\w|\bsh\s+-c\b|\bbash\s+-c\b|&&|\|\||"
+         r">\s*/|>>\s*/|;\s*\w+\b|\beval\s*\(|\bexec\s*\()",
+         re.IGNORECASE),
+     "shell injection pattern in argument"),
+    ("path_traversal",
+     re.compile(
+         r"(\.\./|\.\.\\|%2e%2e%2f|%252e%252e%252f"
+         r"|/etc/passwd|/etc/shadow|/proc/self|/sys/)",
+         re.IGNORECASE),
+     "path traversal pattern in argument"),
+    ("template_injection",
+     re.compile(r"(\{\{.*?\}\}|\{%.*?%\}|\$\{.*?\}|#\{.*?\}|\{#.*?#\})", re.DOTALL),
+     "template injection pattern in argument"),
+    ("ssrf_attempt",
+     re.compile(
+         r"(169\.254\.169\.254|metadata\.google\.internal"
+         r"|localhost|127\.0\.0\.|0\.0\.0\.0|::1"
+         r"|file://|gopher://|dict://|sftp://|ldap://|tftp://)",
+         re.IGNORECASE),
+     "SSRF target in argument"),
+    ("xxe_attempt",
+     re.compile(r"<!ENTITY\s|<!DOCTYPE\s.*\[", re.IGNORECASE),
+     "XML External Entity attempt in argument"),
+]
+
+# ── output exfiltration patterns ──────────────────────────────────────────────
+
+_OUTPUT_EXFIL: list[tuple[str, re.Pattern, str]] = [
+    ("aws_key",
+     re.compile(r"AKIA[0-9A-Z]{16}"),
+     "AWS access key in output"),
+    ("aws_secret",
+     re.compile(r"(?i)aws[_\-]?secret[_\-]?access[_\-]?key\s*[:=]\s*[A-Za-z0-9/+=]{40}"),
+     "AWS secret key in output"),
+    ("private_key_header",
+     re.compile(r"-----BEGIN (RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----"),
+     "private key material in output"),
+    ("jwt_token",
+     re.compile(r"eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"),
+     "JWT token in output"),
+    ("github_pat",
+     re.compile(r"(gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{82})"),
+     "GitHub personal access token in output"),
+    ("generic_secret",
+     re.compile(
+         r"(?i)(password|passwd|secret|api[_-]?key|auth[_-]?token|access[_-]?token"
+         r"|client[_-]?secret)\s*[:=]\s*['\"]?\S{8,}",
+     ),
+     "probable secret value in output"),
+    ("pem_block",
+     re.compile(r"-----BEGIN CERTIFICATE-----"),
+     "certificate material in output (may contain private info)"),
+]
+
+# ── dangerous tool chain patterns ─────────────────────────────────────────────
+
+_DANGEROUS_CHAINS: list[tuple[str, list[str], str]] = [
+    ("data_exfil",
+     [SideEffect.READ, SideEffect.EXTERNAL_MESSAGE],
+     "read then external_message — possible data exfiltration"),
+    ("read_then_payment",
+     [SideEffect.READ, SideEffect.PAYMENT],
+     "read then payment — confirm deliberate intent"),
+    ("multi_write",
+     [SideEffect.WRITE, SideEffect.WRITE, SideEffect.WRITE],
+     "three consecutive writes — bulk mutation, confirm intent"),
+    ("escalating_privileges",
+     [SideEffect.READ, SideEffect.WRITE, SideEffect.PAYMENT],
+     "read → write → payment — high-risk privilege escalation chain"),
+    ("config_then_destructive",
+     [SideEffect.CONFIG_CHANGE, SideEffect.DESTRUCTIVE],
+     "config change then destructive operation — elevated risk"),
+    ("write_then_external",
+     [SideEffect.WRITE, SideEffect.EXTERNAL_MESSAGE],
+     "write then external_message — data leaving after mutation"),
+    ("triple_external",
+     [SideEffect.EXTERNAL_MESSAGE, SideEffect.EXTERNAL_MESSAGE, SideEffect.EXTERNAL_MESSAGE],
+     "three consecutive external messages — possible bulk data leak"),
+]
+
+# ── provenance record ─────────────────────────────────────────────────────────
+
+@dataclass
+class OutputProvenance:
+    """Tracks where a tool output came from and what was found in it."""
+    tool_name: str
+    tenant_id: str
+    session_id: str
+    ok: bool
+    findings: list[dict]
+    output_size_bytes: int
+    validated_at: float = field(default_factory=time.time)
+    schema_validated: bool = False
+
+    def to_dict(self) -> dict:
+        return {
+            "tool_name": self.tool_name,
+            "tenant_id": self.tenant_id,
+            "session_id": self.session_id,
+            "ok": self.ok,
+            "findings": self.findings,
+            "output_size_bytes": self.output_size_bytes,
+            "validated_at": self.validated_at,
+            "schema_validated": self.schema_validated,
+        }
+
+
+# ── policy ────────────────────────────────────────────────────────────────────
+
+@dataclass
+class ToolPolicy:
+    """Configuration for one registered tool.
+
+    Full JSON Schema is supported in both ``schema`` (argument validation)
+    and ``output_schema`` (output validation). See validate_schema() for the
+    complete list of supported keywords.
+    """
+    name: str
+    schema: dict[str, Any]
+
+    # Side-effect classification. Use SideEffect constants.
+    side_effect: str = SideEffect.READ
+
+    # Default verdict when all checks pass
+    action: Verdict = Verdict.ALLOW
+
+    # Tenant allow-list. None = all tenants allowed.
+    allowed_tenants: Optional[set[str]] = None
+
+    # Action-label allow-list. None = all actions allowed.
+    allowed_actions: Optional[set[str]] = None
+
+    # Per-(tenant, session) call limit. None = unlimited.
+    max_calls_per_session: Optional[int] = None
+
+    # Human-readable description
+    detail: str = ""
+
+    # Optional output schema (full JSON Schema supported)
+    output_schema: Optional[dict[str, Any]] = None
+
+    # Max output size in bytes (0 = no limit)
+    max_output_bytes: int = 0
+
+    # Skip argument injection scanning for this tool.
+    # Only use for tools with their own strict input sanitization.
+    skip_arg_injection_scan: bool = False
+
+    # Require human approval if side_effect severity is at least this level.
+    # None = use action field only.
+    escalate_if_severity_gte: Optional[str] = None
+
+
+# ── decision ──────────────────────────────────────────────────────────────────
+
+@dataclass
+class ToolDecision:
+    decision_id: str
+    tool_name: str
+    tenant_id: str
+    session_id: str
+    action_label: str
+    verdict: Verdict
+    reason: str
+    side_effect: str
+    injection_findings: list[dict] = field(default_factory=list)
+    chain_context: list[str] = field(default_factory=list)
+    created_at: float = field(default_factory=time.time)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "decision_id": self.decision_id,
+            "tool_name": self.tool_name,
+            "tenant_id": self.tenant_id,
+            "session_id": self.session_id,
+            "action_label": self.action_label,
+            "verdict": self.verdict.value,
+            "reason": self.reason,
+            "side_effect": self.side_effect,
+            "injection_findings": self.injection_findings,
+            "chain_context": self.chain_context,
+            "created_at": self.created_at,
+        }
+
+
+@dataclass
+class OutputValidationResult:
+    ok: bool
+    reason: str
+    findings: list[dict] = field(default_factory=list)
+    provenance: Optional[OutputProvenance] = None
+
+
+# ── full JSON Schema validator ────────────────────────────────────────────────
+
+# format validators
+_FORMAT_VALIDATORS: dict[str, re.Pattern] = {
+    "date-time": re.compile(
+        r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})?$"),
+    "date": re.compile(r"^\d{4}-\d{2}-\d{2}$"),
+    "time": re.compile(r"^\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})?$"),
+    "email": re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$"),
+    "uri": re.compile(r"^[a-zA-Z][a-zA-Z0-9+\-.]*://"),
+    "uuid": re.compile(
+        r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+        re.IGNORECASE),
+    "ipv4": re.compile(
+        r"^(\d{1,3}\.){3}\d{1,3}$"),
+    "ipv6": re.compile(r"^[0-9a-fA-F:]+$"),
+    "hostname": re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z]{2,})+$"),
+}
+
+_TYPE_MAP: dict[str, type | tuple] = {
+    "string":  str,
+    "integer": int,
+    "number":  (int, float),
+    "boolean": bool,
+    "array":   list,
+    "object":  dict,
+    "null":    type(None),
+}
+
+
+def validate_schema(
+    value: Any,
+    schema: dict[str, Any],
+    *,
+    path: str = "$",
+    defs: Optional[dict[str, Any]] = None,
+) -> tuple[bool, str]:
+    """Full JSON Schema validator.
+
+    Supported keywords
+    ------------------
+    Core:        type, enum, const
+    Objects:     properties, required, additionalProperties, minProperties, maxProperties
+    Arrays:      items, prefixItems, minItems, maxItems, uniqueItems, contains
+    Strings:     minLength, maxLength, pattern, format
+    Numbers:     minimum, maximum, exclusiveMinimum, exclusiveMaximum, multipleOf
+    Composition: oneOf, anyOf, allOf, not, if/then/else
+    References:  $ref, $defs / definitions
+    """
+    # resolve $defs from root schema if not passed in
+    if defs is None:
+        defs = schema.get("$defs") or schema.get("definitions") or {}
+
+    # $ref resolution (basic — local #/$defs/Name only)
+    ref = schema.get("$ref")
+    if ref:
+        if ref.startswith("#/$defs/") or ref.startswith("#/definitions/"):
+            def_name = ref.rsplit("/", 1)[-1]
+            if def_name not in defs:
+                return False, f"{path}: $ref '{ref}' not found in $defs"
+            return validate_schema(value, defs[def_name], path=path, defs=defs)
+        return False, f"{path}: unsupported $ref '{ref}' (only local $defs supported)"
+
+    # type
+    expected_types = schema.get("type")
+    if expected_types is not None:
+        if isinstance(expected_types, str):
+            expected_types = [expected_types]
+        type_ok = False
+        for t in expected_types:
+            py_type = _TYPE_MAP.get(t)
+            if py_type is None:
+                continue
+            if isinstance(value, py_type):
+                # JSON schema: integer must not be float
+                if t == "integer" and isinstance(value, bool):
+                    continue
+                if t == "number" and isinstance(value, bool):
+                    continue
+                type_ok = True
+                break
+            # null special case
+            if t == "null" and value is None:
+                type_ok = True
+                break
+        if not type_ok:
+            got = "null" if value is None else type(value).__name__
+            return False, f"{path}: expected type {expected_types}, got {got}"
+
+    # const
+    if "const" in schema and value != schema["const"]:
+        return False, f"{path}: must equal {schema['const']!r}"
+
+    # enum
+    if "enum" in schema and value not in schema["enum"]:
+        return False, f"{path}: must be one of {schema['enum']}"
+
+    # string keywords
+    if isinstance(value, str):
+        mn = schema.get("minLength")
+        mx = schema.get("maxLength")
+        if mn is not None and len(value) < mn:
+            return False, f"{path}: string length {len(value)} < minLength {mn}"
+        if mx is not None and len(value) > mx:
+            return False, f"{path}: string length {len(value)} > maxLength {mx}"
+        pat = schema.get("pattern")
+        if pat is not None and not re.search(pat, value):
+            return False, f"{path}: string does not match pattern {pat!r}"
+        fmt = schema.get("format")
+        if fmt and fmt in _FORMAT_VALIDATORS:
+            if not _FORMAT_VALIDATORS[fmt].search(value):
+                return False, f"{path}: string is not a valid {fmt}"
+
+    # number keywords
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        def _n(k):
+            return schema[k] if k in schema else None
+        mn, mx = _n("minimum"), _n("maximum")
+        exmn, exmx = _n("exclusiveMinimum"), _n("exclusiveMaximum")
+        mo = _n("multipleOf")
+        if mn is not None and value < mn:
+            return False, f"{path}: {value} < minimum {mn}"
+        if mx is not None and value > mx:
+            return False, f"{path}: {value} > maximum {mx}"
+        if exmn is not None and value <= exmn:
+            return False, f"{path}: {value} <= exclusiveMinimum {exmn}"
+        if exmx is not None and value >= exmx:
+            return False, f"{path}: {value} >= exclusiveMaximum {exmx}"
+        if mo is not None and (value % mo) != 0:
+            return False, f"{path}: {value} is not a multiple of {mo}"
+
+    # array keywords
+    if isinstance(value, list):
+        mn, mx = schema.get("minItems"), schema.get("maxItems")
+        if mn is not None and len(value) < mn:
+            return False, f"{path}: array length {len(value)} < minItems {mn}"
+        if mx is not None and len(value) > mx:
+            return False, f"{path}: array length {len(value)} > maxItems {mx}"
+        if schema.get("uniqueItems") and len(value) != len(set(map(str, value))):
+            return False, f"{path}: array items must be unique"
+        # prefixItems (tuple validation)
+        prefix = schema.get("prefixItems")
+        if prefix:
+            for i, (item, item_schema) in enumerate(zip(value, prefix)):
+                ok, msg = validate_schema(item, item_schema, path=f"{path}[{i}]", defs=defs)
+                if not ok:
+                    return False, msg
+            items_schema = schema.get("items")
+            if items_schema is not None and len(value) > len(prefix):
+                for i, item in enumerate(value[len(prefix):], start=len(prefix)):
+                    ok, msg = validate_schema(item, items_schema, path=f"{path}[{i}]", defs=defs)
+                    if not ok:
+                        return False, msg
+        else:
+            items_schema = schema.get("items")
+            if items_schema is not None:
+                for i, item in enumerate(value):
+                    ok, msg = validate_schema(item, items_schema, path=f"{path}[{i}]", defs=defs)
+                    if not ok:
+                        return False, msg
+        contains = schema.get("contains")
+        if contains:
+            if not any(validate_schema(item, contains, path=f"{path}[?]", defs=defs)[0]
+                       for item in value):
+                return False, f"{path}: no item matches 'contains' schema"
+
+    # object keywords
+    if isinstance(value, dict):
+        mn, mx = schema.get("minProperties"), schema.get("maxProperties")
+        if mn is not None and len(value) < mn:
+            return False, f"{path}: object has {len(value)} properties < minProperties {mn}"
+        if mx is not None and len(value) > mx:
+            return False, f"{path}: object has {len(value)} properties > maxProperties {mx}"
+        required = schema.get("required", [])
+        for key in required:
+            if key not in value:
+                return False, f"{path}.{key}: required property missing"
+        properties = schema.get("properties", {})
+        for key, val in value.items():
+            if key in properties:
+                ok, msg = validate_schema(val, properties[key], path=f"{path}.{key}", defs=defs)
+                if not ok:
+                    return False, msg
+        add_props = schema.get("additionalProperties")
+        if add_props is False:
+            extra = set(value.keys()) - set(properties.keys()) - set(
+                schema.get("patternProperties", {}).keys())
+            if extra:
+                return False, f"{path}: additional properties not allowed: {sorted(extra)}"
+        elif isinstance(add_props, dict):
+            known = set(properties.keys())
+            for key, val in value.items():
+                if key not in known:
+                    ok, msg = validate_schema(val, add_props, path=f"{path}.{key}", defs=defs)
+                    if not ok:
+                        return False, msg
+
+    # composition keywords
+    one_of = schema.get("oneOf")
+    if one_of is not None:
+        matching = [i for i, s in enumerate(one_of)
+                    if validate_schema(value, s, path=path, defs=defs)[0]]
+        if len(matching) != 1:
+            return False, f"{path}: oneOf: exactly 1 schema must match, {len(matching)} matched"
+
+    any_of = schema.get("anyOf")
+    if any_of is not None:
+        if not any(validate_schema(value, s, path=path, defs=defs)[0] for s in any_of):
+            return False, f"{path}: anyOf: value must match at least one schema"
+
+    all_of = schema.get("allOf")
+    if all_of is not None:
+        for i, s in enumerate(all_of):
+            ok, msg = validate_schema(value, s, path=path, defs=defs)
+            if not ok:
+                return False, f"{path}: allOf[{i}]: {msg}"
+
+    not_schema = schema.get("not")
+    if not_schema is not None:
+        ok, _ = validate_schema(value, not_schema, path=path, defs=defs)
+        if ok:
+            return False, f"{path}: value must NOT match 'not' schema"
+
+    # if / then / else
+    if_schema = schema.get("if")
+    if if_schema is not None:
+        cond_ok, _ = validate_schema(value, if_schema, path=path, defs=defs)
+        branch = schema.get("then") if cond_ok else schema.get("else")
+        if branch is not None:
+            ok, msg = validate_schema(value, branch, path=path, defs=defs)
+            if not ok:
+                return False, msg
+
+    return True, ""
+
+
+# ── ToolGuardLayer ────────────────────────────────────────────────────────────
+
+class ToolGuardLayer:
+    """
+    Deterministic, multi-layer tool-call safety guard.
+
+    Usage::
+
+        guard = ToolGuardLayer(policies=[
+            ToolPolicy(
+                name="query_db",
+                side_effect=SideEffect.READ,
+                action=Verdict.ALLOW,
+                allowed_tenants={"acme"},
+                schema={
+                    "type": "object",
+                    "required": ["sql"],
+                    "properties": {
+                        "sql": {"type": "string", "maxLength": 4096}
+                    },
+                    "additionalProperties": False,
+                },
+                output_schema={...},
+                max_output_bytes=65536,
+            )
+        ])
+
+        decision = guard.evaluate("query_db", args, tenant_id="acme", session_id="s1")
+        if decision.verdict == Verdict.BLOCK:
+            raise PermissionError(decision.reason)
+
+        result = db.query(...)
+
+        out = guard.validate_output("query_db", result, tenant_id="acme", session_id="s1")
+        if not out.ok:
+            raise ValueError(out.reason)
+    """
+
+    def __init__(
+        self,
+        policies: list[ToolPolicy] | None = None,
+        default_verdict: Verdict = Verdict.BLOCK,
+        chain_window: int = 10,
+        judge: Optional[Any] = None,
+    ) -> None:
+        self.policies: dict[str, ToolPolicy] = {p.name: p for p in (policies or [])}
+        self.default_verdict = default_verdict
+        self.chain_window = chain_window
+        # (tenant_id, session_id) -> list of side_effects (bounded to chain_window)
+        self._side_effect_history: dict[tuple[str, str], list[str]] = defaultdict(list)
+        # per-(tenant, session, tool) call counter
+        self._call_counts: dict[tuple[str, str, str], int] = defaultdict(int)
+        # per-session output provenance log
+        self._provenance_log: list[OutputProvenance] = []
+        self.audit_log: list[ToolDecision] = []
+        # Optional LLMJudge: a semantic safety net consulted for
+        # high-severity tools via evaluate_async(). It can only make a
+        # decision STRICTER (ALLOW->ESCALATE/BLOCK), never looser.
+        self.judge = judge
+
+    def register(self, policy: ToolPolicy) -> None:
+        """Register a new tool policy at runtime."""
+        self.policies[policy.name] = policy
+
+    def _record(self, decision: ToolDecision) -> ToolDecision:
+        self.audit_log.append(decision)
+        return decision
+
+    def _block(self, tool_name, tenant_id, session_id, action_label, reason,
+               side_effect="unknown", **kwargs) -> ToolDecision:
+        return self._record(ToolDecision(
+            decision_id=str(uuid.uuid4()),
+            tool_name=tool_name, tenant_id=tenant_id, session_id=session_id,
+            action_label=action_label, verdict=Verdict.BLOCK,
+            reason=reason, side_effect=side_effect, **kwargs,
+        ))
+
+    def _escalate(self, tool_name, tenant_id, session_id, action_label, reason,
+                  side_effect="unknown", **kwargs) -> ToolDecision:
+        return self._record(ToolDecision(
+            decision_id=str(uuid.uuid4()),
+            tool_name=tool_name, tenant_id=tenant_id, session_id=session_id,
+            action_label=action_label, verdict=Verdict.ESCALATE,
+            reason=reason, side_effect=side_effect, **kwargs,
+        ))
+
+    def evaluate(
+        self,
+        tool_name: str,
+        arguments: dict[str, Any],
+        *,
+        tenant_id: str = "default",
+        session_id: str = "default",
+        action_label: str = "tool_call",
+    ) -> ToolDecision:
+        """Evaluate a proposed tool call. Returns a ToolDecision.
+
+        verdict == BLOCK   → must not execute
+        verdict == ESCALATE → requires human approval before execution
+        verdict == ALLOW   → cleared to execute
+        """
+        policy = self.policies.get(tool_name)
+
+        # 1. Policy allow-list
+        if policy is None:
+            return self._block(tool_name, tenant_id, session_id, action_label,
+                               f"tool '{tool_name}' is not registered")
+
+        # 2. Tenant allow-list
+        if policy.allowed_tenants is not None and tenant_id not in policy.allowed_tenants:
+            return self._block(tool_name, tenant_id, session_id, action_label,
+                               f"tenant '{tenant_id}' not in allowed_tenants for '{tool_name}'",
+                               side_effect=policy.side_effect)
+
+        # 3. Action allow-list
+        if policy.allowed_actions is not None and action_label not in policy.allowed_actions:
+            return self._block(tool_name, tenant_id, session_id, action_label,
+                               f"action '{action_label}' is not allowed for '{tool_name}'",
+                               side_effect=policy.side_effect)
+
+        # 4. Argument schema validation (full JSON Schema)
+        ok, schema_reason = validate_schema(arguments, policy.schema)
+        if not ok:
+            return self._block(tool_name, tenant_id, session_id, action_label,
+                               f"argument schema violation: {schema_reason}",
+                               side_effect=policy.side_effect)
+
+        # 5. Argument injection scanning
+        injection_findings = []
+        if not policy.skip_arg_injection_scan:
+            injection_findings = scan_arguments_for_injection(arguments)
+            if injection_findings:
+                pids = ", ".join(f["pattern_id"] for f in injection_findings)
+                return self._block(tool_name, tenant_id, session_id, action_label,
+                                   f"injection detected in arguments: {pids}",
+                                   side_effect=policy.side_effect,
+                                   injection_findings=injection_findings)
+
+        # 6. Per-session call limit
+        if policy.max_calls_per_session is not None:
+            count_key = (tenant_id, session_id, tool_name)
+            self._call_counts[count_key] += 1
+            if self._call_counts[count_key] > policy.max_calls_per_session:
+                return self._block(tool_name, tenant_id, session_id, action_label,
+                                   f"session call limit ({policy.max_calls_per_session}) exceeded",
+                                   side_effect=policy.side_effect)
+
+        # 7. Side-effect severity escalation
+        if policy.escalate_if_severity_gte and SideEffect.is_at_least(
+            policy.side_effect, policy.escalate_if_severity_gte
+        ):
+            return self._escalate(tool_name, tenant_id, session_id, action_label,
+                                  f"side-effect '{policy.side_effect}' meets escalation threshold "
+                                  f"(>= {policy.escalate_if_severity_gte})",
+                                  side_effect=policy.side_effect)
+
+        # 8. Tool-chain detection
+        hist_key = (tenant_id, session_id)
+        history = self._side_effect_history[hist_key]
+        # record this call's side-effect first, then check
+        history.append(policy.side_effect)
+        if len(history) > self.chain_window:
+            history.pop(0)
+
+        chain_verdict, chain_reason, chain_ctx = detect_dangerous_chain(history)
+        if chain_verdict == Verdict.ESCALATE:
+            return self._escalate(tool_name, tenant_id, session_id, action_label,
+                                  f"dangerous tool chain: {chain_reason}",
+                                  side_effect=policy.side_effect,
+                                  chain_context=chain_ctx)
+
+        # 9. Policy action
+        if policy.action == Verdict.BLOCK:
+            return self._block(tool_name, tenant_id, session_id, action_label,
+                               policy.detail or "blocked by policy",
+                               side_effect=policy.side_effect)
+        if policy.action == Verdict.ESCALATE:
+            return self._escalate(tool_name, tenant_id, session_id, action_label,
+                                  policy.detail or "escalated by policy",
+                                  side_effect=policy.side_effect)
+
+        return self._record(ToolDecision(
+            decision_id=str(uuid.uuid4()),
+            tool_name=tool_name, tenant_id=tenant_id, session_id=session_id,
+            action_label=action_label, verdict=Verdict.ALLOW,
+            reason="all checks passed", side_effect=policy.side_effect,
+        ))
+
+    async def evaluate_async(
+        self,
+        tool_name: str,
+        arguments: dict[str, Any],
+        *,
+        tenant_id: str = "default",
+        session_id: str = "default",
+        action_label: str = "tool_call",
+    ) -> ToolDecision:
+        """Async evaluate: run the deterministic checks, then (for high-severity
+        tools) consult the optional LLMJudge as a semantic safety net.
+
+        The judge can only tighten the verdict, never loosen it:
+        final = max_severity(deterministic_verdict, judge_verdict).
+        If no judge is configured this is equivalent to evaluate().
+        """
+        decision = self.evaluate(
+            tool_name, arguments,
+            tenant_id=tenant_id, session_id=session_id,
+            action_label=action_label,
+        )
+        # Only consult the judge when the deterministic layer did not already
+        # BLOCK, and the tool is registered (we know its side_effect).
+        if self.judge is None or decision.verdict == Verdict.BLOCK:
+            return decision
+        policy = self.policies.get(tool_name)
+        if policy is None:
+            return decision
+        try:
+            jd = await self.judge.evaluate(
+                tool_name, arguments,
+                side_effect=policy.side_effect,
+                tenant_id=tenant_id, session_id=session_id,
+            )
+        except Exception:
+            # Judge failure must not loosen the deterministic verdict.
+            return decision
+        order = {Verdict.ALLOW: 0, Verdict.REDACT: 1, Verdict.ESCALATE: 2, Verdict.BLOCK: 3}
+        if order.get(jd.verdict, 0) > order.get(decision.verdict, 0):
+            tightened = ToolDecision(
+                decision_id=decision.decision_id,
+                tool_name=tool_name, tenant_id=tenant_id, session_id=session_id,
+                action_label=action_label, verdict=jd.verdict,
+                reason=f"LLM judge tightened: {jd.reason}",
+                side_effect=decision.side_effect,
+                injection_findings=decision.injection_findings,
+                chain_context=decision.chain_context,
+            )
+            self.audit_log.append(tightened)
+            return tightened
+        return decision
+
+    def validate_output(
+        self,
+        tool_name: str,
+        output: Any,
+        *,
+        tenant_id: str = "default",
+        session_id: str = "default",
+    ) -> OutputValidationResult:
+        """Validate a tool's return value. Call after the tool executes.
+
+        Checks (in order):
+        1. Output size limit (if configured in policy)
+        2. Output schema (full JSON Schema)
+        3. Exfiltration marker scan on string output
+        Records a provenance entry regardless of outcome.
+        """
+        policy = self.policies.get(tool_name)
+
+        output_text = str(output)
+        output_bytes = len(output_text.encode("utf-8"))
+
+        def _prov(ok, findings, schema_validated=False):
+            p = OutputProvenance(
+                tool_name=tool_name, tenant_id=tenant_id, session_id=session_id,
+                ok=ok, findings=findings, output_size_bytes=output_bytes,
+                schema_validated=schema_validated,
+            )
+            self._provenance_log.append(p)
+            return p
+
+        if policy is None:
+            # Unknown tool: still scan for exfil markers
+            findings = _scan_output_exfil(output_text)
+            if findings:
+                prov = _prov(False, findings)
+                return OutputValidationResult(
+                    ok=False,
+                    reason=f"exfiltration markers in unregistered tool output: "
+                           f"{', '.join(f['pattern_id'] for f in findings)}",
+                    findings=findings, provenance=prov)
+            prov = _prov(True, [])
+            return OutputValidationResult(
+                ok=True, reason="tool not registered; output exfil scan passed",
+                provenance=prov)
+
+        # Size limit
+        if policy.max_output_bytes > 0 and output_bytes > policy.max_output_bytes:
+            prov = _prov(False, [])
+            return OutputValidationResult(
+                ok=False,
+                reason=f"tool output exceeds max_output_bytes ({output_bytes} > {policy.max_output_bytes})",
+                provenance=prov)
+
+        # Schema validation
+        schema_ok = False
+        if policy.output_schema is not None:
+            ok, reason = validate_schema(output, policy.output_schema)
+            if not ok:
+                prov = _prov(False, [])
+                return OutputValidationResult(
+                    ok=False, reason=f"output schema violation: {reason}", provenance=prov)
+            schema_ok = True
+
+        # Exfiltration scan
+        findings = _scan_output_exfil(output_text)
+        if findings:
+            prov = _prov(False, findings, schema_validated=schema_ok)
+            return OutputValidationResult(
+                ok=False,
+                reason=f"possible sensitive data in tool output: "
+                       f"{', '.join(f['pattern_id'] for f in findings)}",
+                findings=findings, provenance=prov)
+
+        prov = _prov(True, [], schema_validated=schema_ok)
+        return OutputValidationResult(ok=True, reason="output validation passed", provenance=prov)
+
+    def provenance_for(self, tenant_id: str, session_id: str) -> list[OutputProvenance]:
+        """Return all provenance records for a (tenant, session) pair."""
+        return [p for p in self._provenance_log
+                if p.tenant_id == tenant_id and p.session_id == session_id]
+
+
+def _scan_output_exfil(text: str) -> list[dict]:
+    return [{"pattern_id": pid, "detail": detail}
+            for pid, rx, detail in _OUTPUT_EXFIL if rx.search(text)]
+
+
+# ── module-level helpers ──────────────────────────────────────────────────────
+
+def scan_arguments_for_injection(arguments: Any, path: str = "$") -> list[dict]:
+    """Recursively scan all string values in arguments for injection patterns.
+    Returns a list of findings; empty means clean (not necessarily safe)."""
+    findings: list[dict] = []
+    if isinstance(arguments, str):
+        for pid, rx, detail in _ARG_INJECTION:
+            if rx.search(arguments):
+                findings.append({"path": path, "pattern_id": pid, "detail": detail})
+    elif isinstance(arguments, dict):
+        for key, val in arguments.items():
+            findings.extend(scan_arguments_for_injection(val, path=f"{path}.{key}"))
+    elif isinstance(arguments, list):
+        for idx, item in enumerate(arguments):
+            findings.extend(scan_arguments_for_injection(item, path=f"{path}[{idx}]"))
+    return findings
+
+
+def detect_dangerous_chain(
+    history: list[str],
+    window: int = 0,
+) -> tuple[Verdict, str, list[str]]:
+    """Check whether the recent side-effect history matches a dangerous chain.
+    Returns (verdict, reason, matching_history_slice)."""
+    scope = history[-window:] if window > 0 else history
+    for _name, pattern, reason in _DANGEROUS_CHAINS:
+        n = len(pattern)
+        if len(scope) >= n and scope[-n:] == pattern:
+            return Verdict.ESCALATE, reason, list(scope[-n:])
+    return Verdict.ALLOW, "", []

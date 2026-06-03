@@ -1,5 +1,5 @@
 """Tests for optional blockchain audit anchoring (Ethereum + Hyperledger stubs)."""
-from veritrace.audit import (HashChainBackend, EthereumBackend,
+from pramagent.audit import (HashChainBackend, EthereumBackend,
                              HyperledgerBackend)
 
 

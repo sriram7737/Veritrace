@@ -6,7 +6,7 @@ team and not proof of jailbreak resistance.
 ## Command
 
 ```bash
-veritrace redteam --json --dynamic --attacks 200 --seed 999
+pramagent redteam --json --dynamic --attacks 200 --seed 999
 ```
 
 ## Current Result
@@ -31,15 +31,15 @@ Last refreshed: 2026-06-01
 
 - Classifier path: zero-dependency keyword fallback.
 - Attack corpus: 200 runtime-mutated prompts generated from
-  `veritrace.redteam.EXTENDED_ATTACKS`.
+  `pramagent.redteam.EXTENDED_ATTACKS`.
 - Dynamic seed: 999. Re-run with another seed to explore different mutations.
-- Benign corpus: 6 normal prompts shipped in `veritrace.redteam.DEFAULT_BENIGN`.
+- Benign corpus: 6 normal prompts shipped in `pramagent.redteam.DEFAULT_BENIGN`.
 - Passing threshold used in release smoke tests: bypass rate must be `<= 0.10`.
 
 ## Honest Interpretation
 
 The current benchmark now includes deterministic runtime mutation, so it is less
 overfit than a fixed prompt list. It is still not proof of jailbreak resistance:
-the seed corpus and mutation templates are public. Veritrace still needs larger
+the seed corpus and mutation templates are public. Pramagent still needs larger
 third-party red-team sets, stronger semantic classifiers, and continuous
 adversarial testing before high-stakes claims.

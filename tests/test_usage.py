@@ -1,6 +1,6 @@
 import pytest
 
-from veritrace.usage import (
+from pramagent.usage import (
     InMemoryUsageLedger,
     InMemoryUsageSink,
     UsageLimits,
@@ -166,9 +166,9 @@ def test_usage_ledger_chains_and_filters_events():
 
 
 def test_usage_from_env_adds_webhook_sink(monkeypatch):
-    monkeypatch.setenv("VT_BILLING_WEBHOOK_URL", "https://billing.example/events")
-    monkeypatch.setenv("VT_BILLING_WEBHOOK_SECRET", "secret")
-    monkeypatch.setenv("VT_BILLING_WEBHOOK_TIMEOUT_S", "0.25")
+    monkeypatch.setenv("PRAMAGENT_BILLING_WEBHOOK_URL", "https://billing.example/events")
+    monkeypatch.setenv("PRAMAGENT_BILLING_WEBHOOK_SECRET", "secret")
+    monkeypatch.setenv("PRAMAGENT_BILLING_WEBHOOK_TIMEOUT_S", "0.25")
 
     tracker = UsageTracker.from_env()
 
@@ -180,7 +180,7 @@ def test_usage_from_env_adds_webhook_sink(monkeypatch):
 
 
 def test_usage_from_env_can_enable_hash_chain_ledger(monkeypatch):
-    monkeypatch.setenv("VT_USAGE_LEDGER", "memory")
+    monkeypatch.setenv("PRAMAGENT_USAGE_LEDGER", "memory")
 
     tracker = UsageTracker.from_env()
     assert isinstance(tracker.ledger, InMemoryUsageLedger)

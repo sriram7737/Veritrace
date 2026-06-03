@@ -4,7 +4,7 @@ import urllib.error
 
 import pytest
 
-from veritrace.providers import (GeminiProvider, OpenAICompatibleProvider,
+from pramagent.providers import (GeminiProvider, OpenAICompatibleProvider,
                                  OpenAIProvider)
 
 

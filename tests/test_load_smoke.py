@@ -9,12 +9,12 @@ import asyncio
 
 import pytest
 
-from veritrace import Veritrace
+from pramagent import Pramagent
 
 
 @pytest.mark.asyncio
 async def test_concurrent_runs_preserve_trace_uniqueness_and_hash_chain():
-    armor = Veritrace()
+    armor = Pramagent()
 
     responses = await asyncio.gather(*[
         armor.run(f"load smoke {i}", tenant_id="tenant", session_id=f"s{i % 5}")

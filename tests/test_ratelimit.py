@@ -4,9 +4,9 @@ import pytest
 fastapi = pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
 
-from veritrace.api.app import create_app  # noqa: E402
-from veritrace.auth import APIKeyRegistry  # noqa: E402
-from veritrace.ratelimit import TokenBucket  # noqa: E402
+from pramagent.api.app import create_app  # noqa: E402
+from pramagent.auth import APIKeyRegistry  # noqa: E402
+from pramagent.ratelimit import TokenBucket  # noqa: E402
 
 
 # ── bucket unit tests ──────────────────────────────────────────────────
@@ -31,8 +31,8 @@ def test_token_bucket_isolates_keys():
 # ── API integration ────────────────────────────────────────────────────
 def test_api_rate_limits_after_burst(monkeypatch):
     """Set burst=3, hit the endpoint 4 times, expect a 429 on the 4th."""
-    monkeypatch.setenv("VERITRACE_RATE_BURST", "3")
-    monkeypatch.setenv("VERITRACE_RATE_PER_SEC", "0.01")
+    monkeypatch.setenv("PRAMAGENT_RATE_BURST", "3")
+    monkeypatch.setenv("PRAMAGENT_RATE_PER_SEC", "0.01")
     client = TestClient(create_app(registry=APIKeyRegistry()))
     for i in range(3):
         r = client.post("/v1/run", json={"prompt": f"hi-{i}"})
@@ -44,8 +44,8 @@ def test_api_rate_limits_after_burst(monkeypatch):
 
 def test_rate_limit_is_per_tenant_when_authenticated(monkeypatch):
     """Tenant A exhausting its bucket must NOT block tenant B."""
-    monkeypatch.setenv("VERITRACE_RATE_BURST", "2")
-    monkeypatch.setenv("VERITRACE_RATE_PER_SEC", "0.01")
+    monkeypatch.setenv("PRAMAGENT_RATE_BURST", "2")
+    monkeypatch.setenv("PRAMAGENT_RATE_PER_SEC", "0.01")
     reg = APIKeyRegistry()
     key_a = reg.issue_key("tenant_a")
     key_b = reg.issue_key("tenant_b")

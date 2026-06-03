@@ -1,6 +1,6 @@
 # Load-test Runbook
 
-Veritrace has deterministic unit/concurrency smoke tests in CI and a first
+Pramagent has deterministic unit/concurrency smoke tests in CI and a first
 local smoke-load result in `LOAD_TEST_RESULTS.md`. Use this runbook to generate
 proper Docker/Postgres/Redis numbers for a pilot environment.
 

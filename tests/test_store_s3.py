@@ -3,9 +3,9 @@ import time
 import pytest
 from cryptography.fernet import Fernet
 
-from veritrace.store import MemoryStore
-from veritrace.store_s3 import S3ColdArchiveStore
-from veritrace.types import TraceEvent
+from pramagent.store import MemoryStore
+from pramagent.store_s3 import S3ColdArchiveStore
+from pramagent.types import TraceEvent
 
 
 class _Body:
@@ -68,7 +68,7 @@ def test_s3_archive_prune_encrypts_and_deletes_hot_trace():
     restored = store.get("old", tenant_id="tenant_a")
     assert restored.call_id == "old"
     assert restored.tenant_id == "tenant_a"
-    assert archived[0].uri.startswith("s3://audit-bucket/veritrace/traces/")
+    assert archived[0].uri.startswith("s3://audit-bucket/pramagent/traces/")
     assert s3.puts[0]["Metadata"]["encrypted"] == "true"
 
 

@@ -1,5 +1,32 @@
 # Changelog
 
+## v0.5.0 - 2026-06-02
+
+This release completes the public rebrand to Pramagent. It is a
+breaking package-name and import-path change.
+
+### Changed
+
+- PyPI/project package renamed to `pramagent`.
+- Python import path renamed to `pramagent`.
+- Console command renamed to `pramagent`.
+- Public API class renamed to `Pramagent`.
+- Environment variables, Docker Compose service config, dashboard cookies,
+  docs, release notes, and deployment examples now use `PRAMAGENT_*` and
+  Pramagent naming.
+- Design document filename changed to `docs/Pramagent-Design-Document.docx`.
+
+### Migration
+
+- New installs: `pip install pramagent`
+- New imports: `from pramagent import Pramagent`
+- New CLI: `pramagent --help`
+
+### Still Not Proven
+
+- This remains Alpha software. The rebrand does not add external certification,
+  SSO/OIDC/RBAC, or third-party jailbreak assurance.
+
 ## v0.4.4 - 2026-06-02
 
 This is a PyPI listing cleanup patch. It does not change runtime behavior.
@@ -18,10 +45,10 @@ security claims.
 ### Changed
 
 - README doc links now use absolute GitHub URLs so PyPI does not rewrite them
-  into broken `pypi.org/project/veritrace/docs/...` links.
+  into broken `pypi.org/project/pramagent/docs/...` links.
 - README now leads with badges, a sharper ToolGuard-first pitch, an inline
   trust-stack diagram, and a bare-install example that works with
-  `pip install veritrace`.
+  `pip install pramagent`.
 - README no longer contains pre-launch wording about PyPI publication.
 - Project metadata now includes an Author URL.
 - Release checklist and deployment example were updated for `v0.4.3`.
@@ -71,12 +98,12 @@ smoke testing.
 - Release checklist covering build, twine check, GitHub tag/release, and PyPI
   publish commands.
 - Dynamic red-team validation result:
-  `veritrace redteam --json --dynamic --attacks 200 --seed 999`.
+  `pramagent redteam --json --dynamic --attacks 200 --seed 999`.
 
 ### Verified
 
-- `veritrace --help` works from the installed console script.
-- `[project.scripts]` exposes `veritrace = "veritrace.cli:main"`.
+- `pramagent --help` works from the installed console script.
+- `[project.scripts]` exposes `pramagent = "pramagent.cli:main"`.
 - `pip install -e .` succeeds.
 - Dynamic red-team run caught 200/200 prompts with 0 false positives for seed
   `999`.
@@ -91,7 +118,7 @@ smoke testing.
 ## v0.4.0 - 2026-06-01
 
 This release adds two high-leverage production-adjacent capabilities while
-keeping the claims honest: Veritrace is stronger guardrail and audit middleware,
+keeping the claims honest: Pramagent is stronger guardrail and audit middleware,
 not certified bank-grade infrastructure.
 
 ### Added
@@ -109,9 +136,9 @@ not certified bank-grade infrastructure.
 - Authenticated Docker Compose load validation: 10 minutes, 12,000 requests,
   0 errors, 0 HTTP 5xx, with Redis/Postgres/dashboard healthy after the run.
 - Red-team CLI can now run a 100-prompt built-in smoke corpus with
-  `veritrace redteam --json --attacks 100`.
+  `pramagent redteam --json --attacks 100`.
 - Red-team CLI now supports runtime prompt mutation with reproducible seeds:
-  `veritrace redteam --json --dynamic --attacks 100 --seed 123`.
+  `pramagent redteam --json --dynamic --attacks 100 --seed 123`.
 
 ### Changed
 

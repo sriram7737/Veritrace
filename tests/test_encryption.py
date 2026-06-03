@@ -10,10 +10,10 @@ import pytest
 pytest.importorskip("cryptography")
 from cryptography.fernet import Fernet  # noqa: E402
 
-from veritrace import Veritrace, Verdict  # noqa: E402
-from veritrace.layers import SafetyLayer, Rule  # noqa: E402
-from veritrace.providers import MockProvider  # noqa: E402
-from veritrace.store_encrypted import EncryptedSQLiteStore  # noqa: E402
+from pramagent import Pramagent, Verdict  # noqa: E402
+from pramagent.layers import SafetyLayer, Rule  # noqa: E402
+from pramagent.providers import MockProvider  # noqa: E402
+from pramagent.store_encrypted import EncryptedSQLiteStore  # noqa: E402
 
 
 def run(coro):
@@ -33,7 +33,7 @@ def test_payload_is_actually_encrypted_on_disk():
     key = Fernet.generate_key()
     try:
         db = EncryptedSQLiteStore(path, key=key)
-        armor = Veritrace(provider=MockProvider(), store=db, audit=db)
+        armor = Pramagent(provider=MockProvider(), store=db, audit=db)
         secret = "this-secret-phrase-must-not-appear-on-disk-12345"
         run(armor.run(secret, tenant_id="t", session_id="s"))
         db.close()
@@ -57,7 +57,7 @@ def test_roundtrip_with_correct_key():
     key = Fernet.generate_key()
     try:
         db1 = EncryptedSQLiteStore(path, key=key)
-        armor = Veritrace(provider=MockProvider(), store=db1, audit=db1)
+        armor = Pramagent(provider=MockProvider(), store=db1, audit=db1)
         r = run(armor.run("hello encrypted world", tenant_id="t", session_id="s"))
         db1.close()
 
@@ -78,7 +78,7 @@ def test_wrong_key_fails_to_decrypt():
     wrong_key = Fernet.generate_key()
     try:
         db = EncryptedSQLiteStore(path, key=real_key)
-        armor = Veritrace(provider=MockProvider(), store=db, audit=db)
+        armor = Pramagent(provider=MockProvider(), store=db, audit=db)
         r = run(armor.run("secret", tenant_id="t", session_id="s"))
         db.close()
 
@@ -98,7 +98,7 @@ def test_tenant_guard_works_on_encrypted_store():
     key = Fernet.generate_key()
     try:
         db = EncryptedSQLiteStore(path, key=key)
-        armor = Veritrace(
+        armor = Pramagent(
             provider=MockProvider(),
             safety=SafetyLayer(rules=[Rule("blk", Verdict.BLOCK, pattern=r"forbidden")]),
             store=db, audit=db,
@@ -120,7 +120,7 @@ def test_chain_integrity_under_encryption():
     key = Fernet.generate_key()
     try:
         db = EncryptedSQLiteStore(path, key=key)
-        armor = Veritrace(provider=MockProvider(), store=db, audit=db)
+        armor = Pramagent(provider=MockProvider(), store=db, audit=db)
         for s in ["a", "b", "c"]:
             run(armor.run(s, tenant_id="t", session_id="s"))
         assert db.verify_chain() is True
@@ -135,7 +135,7 @@ def test_missing_key_raises():
     path = _new_db()
     try:
         # ensure env var isn't set
-        os.environ.pop("VERITRACE_ENCRYPTION_KEY", None)
+        os.environ.pop("PRAMAGENT_ENCRYPTION_KEY", None)
         with pytest.raises(ValueError):
             EncryptedSQLiteStore(path)
     finally:

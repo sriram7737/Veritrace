@@ -5,7 +5,7 @@ import tempfile
 
 import pytest
 
-from veritrace.backends.migrations import (MIGRATIONS, Migration,
+from pramagent.backends.migrations import (MIGRATIONS, Migration,
                                            MigrationRunner)
 
 

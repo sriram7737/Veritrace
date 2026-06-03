@@ -1,11 +1,11 @@
-# Veritrace — Control Mapping (SOC 2 / HIPAA / EU AI Act)
+# Pramagent — Control Mapping (SOC 2 / HIPAA / EU AI Act)
 
-This maps Veritrace's implemented controls to common framework expectations.
+This maps Pramagent's implemented controls to common framework expectations.
 It is an engineering self-assessment to accelerate an auditor's review — **not**
 a certification. Independent audit is required for any compliance claim.
 
 ## EU AI Act (high-risk systems)
-| Article | Expectation | Veritrace control |
+| Article | Expectation | Pramagent control |
 |---|---|---|
 | Art. 12 | Automatic record-keeping / logging | Hash-chained immutable trace per call; 180-day retention floor enforced |
 | Art. 13 | Transparency | Full trace + RCA replay/incident report per decision |
@@ -13,7 +13,7 @@ a certification. Independent audit is required for any compliance claim.
 | Art. 15 | Accuracy/robustness/security | ToolGuard schema validation, injection defense, circuit breakers |
 
 ## HIPAA Security Rule
-| Safeguard | Citation | Veritrace control |
+| Safeguard | Citation | Pramagent control |
 |---|---|---|
 | Access control | §164.312(a)(1) | API-key + JWT auth, per-tenant isolation, cross-tenant trace guard |
 | Audit controls | §164.312(b) | Tamper-evident hash chain + approval audit log |
@@ -22,7 +22,7 @@ a certification. Independent audit is required for any compliance claim.
 | Minimum necessary | §164.502(b) | PII scrubbing before model exposure |
 
 ## SOC 2 (Trust Services Criteria)
-| TSC | Veritrace control |
+| TSC | Pramagent control |
 |---|---|
 | CC6 (Logical access) | Auth, tenant isolation, rate limiting |
 | CC7 (System operations) | OTel tracing, structured logs, health/readiness probes, circuit breakers |

@@ -47,8 +47,8 @@ async def test_dashboard_approval_scope_404_for_unknown_request(monkeypatch):
 
 
 def test_dashboard_api_key_auth_can_be_tenant_scoped(monkeypatch):
-    monkeypatch.setattr(dashboard, "VT_DASHBOARD_KEY", "secret")
-    monkeypatch.setattr(dashboard, "VT_DASHBOARD_TENANT", "tenant_a")
+    monkeypatch.setattr(dashboard, "PRAMAGENT_DASHBOARD_KEY", "secret")
+    monkeypatch.setattr(dashboard, "PRAMAGENT_DASHBOARD_TENANT", "tenant_a")
     request = Request({
         "type": "http",
         "headers": [(b"x-api-key", b"secret")],
@@ -62,7 +62,7 @@ def test_dashboard_api_key_auth_can_be_tenant_scoped(monkeypatch):
 
 
 def test_dashboard_upstream_auth_uses_bearer_and_legacy_header(monkeypatch):
-    monkeypatch.setattr(dashboard, "VT_API_KEY", "secret")
+    monkeypatch.setattr(dashboard, "PRAMAGENT_API_KEY", "secret")
 
     headers = dashboard._upstream_headers()
 
@@ -87,7 +87,7 @@ def test_dashboard_redis_rate_limit_blocks_after_burst(monkeypatch):
         def set(self, key, value, ex=None):
             self.store[key] = value
 
-    monkeypatch.setattr(dashboard, "VT_DASHBOARD_REDIS_URL", "redis://fake")
+    monkeypatch.setattr(dashboard, "PRAMAGENT_DASHBOARD_REDIS_URL", "redis://fake")
     monkeypatch.setattr(dashboard, "_redis_client", FakeRedis())
     monkeypatch.setattr(dashboard, "_RL_CAPACITY", 1.0)
     monkeypatch.setattr(dashboard, "_RL_REFILL_S", 1000.0)
@@ -100,9 +100,9 @@ def test_dashboard_redis_rate_limit_blocks_after_burst(monkeypatch):
 
 
 def test_dashboard_login_cookie_uses_configured_tenant_and_secure_flag(monkeypatch):
-    monkeypatch.setattr(dashboard, "VT_DASHBOARD_KEY", "secret")
-    monkeypatch.setattr(dashboard, "VT_DASHBOARD_TENANT", "tenant_a")
-    monkeypatch.setattr(dashboard, "VT_DASHBOARD_SECURE_COOKIE", True)
+    monkeypatch.setattr(dashboard, "PRAMAGENT_DASHBOARD_KEY", "secret")
+    monkeypatch.setattr(dashboard, "PRAMAGENT_DASHBOARD_TENANT", "tenant_a")
+    monkeypatch.setattr(dashboard, "PRAMAGENT_DASHBOARD_SECURE_COOKIE", True)
     client = TestClient(dashboard.app)
 
     response = client.post(
@@ -114,7 +114,7 @@ def test_dashboard_login_cookie_uses_configured_tenant_and_secure_flag(monkeypat
     assert response.status_code == 302
     cookie = response.headers["set-cookie"]
     assert "Secure" in cookie
-    token = response.cookies["vt_session"]
+    token = response.cookies["pramagent_session"]
     payload = dashboard._verify(token)
     assert payload["sub"] == "alice"
     assert payload["tenant"] == "tenant_a"
@@ -142,8 +142,8 @@ def test_dashboard_usage_page_is_tenant_scoped(monkeypatch):
 
     monkeypatch.setattr(dashboard, "_get", fake_get)
     monkeypatch.setattr(dashboard, "_rate_limit", lambda request: None)
-    monkeypatch.setattr(dashboard, "VT_DASHBOARD_KEY", "secret")
-    monkeypatch.setattr(dashboard, "VT_DASHBOARD_TENANT", "tenant_a")
+    monkeypatch.setattr(dashboard, "PRAMAGENT_DASHBOARD_KEY", "secret")
+    monkeypatch.setattr(dashboard, "PRAMAGENT_DASHBOARD_TENANT", "tenant_a")
     client = TestClient(dashboard.app)
 
     response = client.get("/usage", headers={"X-API-Key": "secret"})

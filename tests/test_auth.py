@@ -10,8 +10,8 @@ import pytest
 fastapi = pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
 
-from veritrace.api.app import create_app  # noqa: E402
-from veritrace.auth import APIKeyRegistry  # noqa: E402
+from pramagent.api.app import create_app  # noqa: E402
+from pramagent.auth import APIKeyRegistry  # noqa: E402
 
 
 # ── unauthenticated mode (empty registry) ──────────────────────────────

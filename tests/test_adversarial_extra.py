@@ -6,12 +6,12 @@ adversarial prompting. Complements tests/test_adversarial.py and test_redteam.py
 import asyncio
 import pytest
 
-from veritrace.classifier import (build_classifier, KeywordFallbackClassifier,
+from pramagent.classifier import (build_classifier, KeywordFallbackClassifier,
                                    INJECTION_EXEMPLARS, BENIGN_EXEMPLARS)
-from veritrace.redteam import run_injection_benchmark
-from veritrace.layers import IsolationLayer
-from veritrace.layers.isolation import InjectionSuspected
-from veritrace.backends import InProcessBackend
+from pramagent.redteam import run_injection_benchmark
+from pramagent.layers import IsolationLayer
+from pramagent.layers.isolation import InjectionSuspected
+from pramagent.backends import InProcessBackend
 
 
 def run(coro):
@@ -122,7 +122,7 @@ def test_clear_scope_is_isolated():
 
 
 def test_oversized_input_rejected():
-    from veritrace.layers.isolation import InputTooLarge
+    from pramagent.layers.isolation import InputTooLarge
     iso = IsolationLayer(max_input_bytes=100, block_on_injection=False)
     with pytest.raises(InputTooLarge):
         run(iso.evaluate_input("A" * 200, tenant_id="t", session_id="s"))

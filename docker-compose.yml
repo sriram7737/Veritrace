@@ -1,9 +1,9 @@
-# Veritrace - pilot docker-compose
+# Pramagent - pilot docker-compose
 # ─────────────────────────────────────────────────────────────────────────────
 # Services:
 #   postgres  - audit store + hash chain persistence
 #   redis     - HITL signalling, rate-limit buckets, session memory
-#   api       - Veritrace FastAPI sidecar (trust pipeline)
+#   api       - Pramagent FastAPI sidecar (trust pipeline)
 #   dashboard - lightweight admin UI (trace browser, approvals, metrics)
 #
 # Quick start:
@@ -26,16 +26,16 @@ services:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-veritrace}
+      POSTGRES_USER: ${POSTGRES_USER:-pramagent}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
-      POSTGRES_DB: ${POSTGRES_DB:-veritrace}
+      POSTGRES_DB: ${POSTGRES_DB:-pramagent}
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./deploy/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-veritrace} -d ${POSTGRES_DB:-veritrace}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pramagent} -d ${POSTGRES_DB:-pramagent}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -63,7 +63,7 @@ services:
       retries: 5
     logging: *default-logging
 
-  # ── Veritrace API ──────────────────────────────────────────────────────────
+  # ── Pramagent API ──────────────────────────────────────────────────────────
   api:
     build:
       context: .
@@ -76,31 +76,30 @@ services:
       redis:
         condition: service_healthy
     environment:
-      VT_HOST: "0.0.0.0"
-      VT_PORT: "8080"
-      VT_LOG_LEVEL: ${VT_LOG_LEVEL:-info}
-      VT_REDIS_URL: "redis://:${REDIS_PASSWORD}@redis:6379/0"
-      VT_POSTGRES_DSN: "postgresql://${POSTGRES_USER:-veritrace}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-veritrace}"
-      VT_API_KEY: ${VT_API_KEY:?VT_API_KEY is required}
-      VERITRACE_API_KEYS: "default:${VT_API_KEY}"
-      VT_SIGNING_KEY: ${VT_SIGNING_KEY:?VT_SIGNING_KEY is required}
-      VT_JWT_SECRET: ${VT_JWT_SECRET:?VT_JWT_SECRET is required}
-      VERITRACE_JWT_SECRET: ${VT_JWT_SECRET:?VT_JWT_SECRET is required}
-      VT_MAX_INPUT_BYTES: ${VT_MAX_INPUT_BYTES:-65536}
-      VT_RATE_LIMIT_CAPACITY: ${VT_RATE_LIMIT_CAPACITY:-100}
-      VT_RATE_LIMIT_REFILL: ${VT_RATE_LIMIT_REFILL:-10}
-      VERITRACE_RATE_BURST: ${VT_RATE_LIMIT_CAPACITY:-100}
-      VERITRACE_RATE_PER_SEC: ${VT_RATE_LIMIT_REFILL:-10}
-      VT_QUOTA_CALLS: ${VT_QUOTA_CALLS:-}
-      VT_QUOTA_TOOL_VALIDATIONS: ${VT_QUOTA_TOOL_VALIDATIONS:-}
-      VT_QUOTA_COST_USD: ${VT_QUOTA_COST_USD:-}
-      VT_QUOTA_WINDOW_S: ${VT_QUOTA_WINDOW_S:-86400}
-      VT_BILLING_WEBHOOK_URL: ${VT_BILLING_WEBHOOK_URL:-}
-      VT_BILLING_WEBHOOK_SECRET: ${VT_BILLING_WEBHOOK_SECRET:-}
-      VT_BILLING_WEBHOOK_TIMEOUT_S: ${VT_BILLING_WEBHOOK_TIMEOUT_S:-2.0}
-      VT_HITL_SLACK_TOKEN: ${VT_HITL_SLACK_TOKEN:-}
-      VT_HITL_SLACK_CHANNEL: ${VT_HITL_SLACK_CHANNEL:-}
-      VT_OTEL_ENDPOINT: ${VT_OTEL_ENDPOINT:-}
+      PRAMAGENT_HOST: "0.0.0.0"
+      PRAMAGENT_PORT: "8080"
+      PRAMAGENT_LOG_LEVEL: ${PRAMAGENT_LOG_LEVEL:-info}
+      PRAMAGENT_REDIS_URL: "redis://:${REDIS_PASSWORD}@redis:6379/0"
+      PRAMAGENT_POSTGRES_DSN: "postgresql://${POSTGRES_USER:-pramagent}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-pramagent}"
+      PRAMAGENT_API_KEY: ${PRAMAGENT_API_KEY:?PRAMAGENT_API_KEY is required}
+      PRAMAGENT_API_KEYS: "default:${PRAMAGENT_API_KEY}"
+      PRAMAGENT_SIGNING_KEY: ${PRAMAGENT_SIGNING_KEY:?PRAMAGENT_SIGNING_KEY is required}
+      PRAMAGENT_JWT_SECRET: ${PRAMAGENT_JWT_SECRET:?PRAMAGENT_JWT_SECRET is required}
+      PRAMAGENT_MAX_INPUT_BYTES: ${PRAMAGENT_MAX_INPUT_BYTES:-65536}
+      PRAMAGENT_RATE_LIMIT_CAPACITY: ${PRAMAGENT_RATE_LIMIT_CAPACITY:-100}
+      PRAMAGENT_RATE_LIMIT_REFILL: ${PRAMAGENT_RATE_LIMIT_REFILL:-10}
+      PRAMAGENT_RATE_BURST: ${PRAMAGENT_RATE_LIMIT_CAPACITY:-100}
+      PRAMAGENT_RATE_PER_SEC: ${PRAMAGENT_RATE_LIMIT_REFILL:-10}
+      PRAMAGENT_QUOTA_CALLS: ${PRAMAGENT_QUOTA_CALLS:-}
+      PRAMAGENT_QUOTA_TOOL_VALIDATIONS: ${PRAMAGENT_QUOTA_TOOL_VALIDATIONS:-}
+      PRAMAGENT_QUOTA_COST_USD: ${PRAMAGENT_QUOTA_COST_USD:-}
+      PRAMAGENT_QUOTA_WINDOW_S: ${PRAMAGENT_QUOTA_WINDOW_S:-86400}
+      PRAMAGENT_BILLING_WEBHOOK_URL: ${PRAMAGENT_BILLING_WEBHOOK_URL:-}
+      PRAMAGENT_BILLING_WEBHOOK_SECRET: ${PRAMAGENT_BILLING_WEBHOOK_SECRET:-}
+      PRAMAGENT_BILLING_WEBHOOK_TIMEOUT_S: ${PRAMAGENT_BILLING_WEBHOOK_TIMEOUT_S:-2.0}
+      PRAMAGENT_HITL_SLACK_TOKEN: ${PRAMAGENT_HITL_SLACK_TOKEN:-}
+      PRAMAGENT_HITL_SLACK_CHANNEL: ${PRAMAGENT_HITL_SLACK_CHANNEL:-}
+      PRAMAGENT_OTEL_ENDPOINT: ${PRAMAGENT_OTEL_ENDPOINT:-}
     ports:
       - "${API_PORT:-8080}:8080"
     healthcheck:
@@ -121,14 +120,14 @@ services:
       api:
         condition: service_healthy
     environment:
-      VT_API_URL: "http://api:8080"
-      VT_API_KEY: ${VT_API_KEY}
-      VT_DASHBOARD_REDIS_URL: "redis://:${REDIS_PASSWORD}@redis:6379/1"
-      VT_DASHBOARD_KEY: ${VT_DASHBOARD_KEY:?VT_DASHBOARD_KEY is required}
-      VT_JWT_SECRET: ${VT_JWT_SECRET:?VT_JWT_SECRET is required}
-      VT_DASHBOARD_TENANT: ${VT_DASHBOARD_TENANT:-default}
-      VT_DASHBOARD_ALLOW_SUPER_ADMIN: ${VT_DASHBOARD_ALLOW_SUPER_ADMIN:-false}
-      VT_DASHBOARD_SECURE_COOKIE: ${VT_DASHBOARD_SECURE_COOKIE:-false}
+      PRAMAGENT_API_URL: "http://api:8080"
+      PRAMAGENT_API_KEY: ${PRAMAGENT_API_KEY}
+      PRAMAGENT_DASHBOARD_REDIS_URL: "redis://:${REDIS_PASSWORD}@redis:6379/1"
+      PRAMAGENT_DASHBOARD_KEY: ${PRAMAGENT_DASHBOARD_KEY:?PRAMAGENT_DASHBOARD_KEY is required}
+      PRAMAGENT_JWT_SECRET: ${PRAMAGENT_JWT_SECRET:?PRAMAGENT_JWT_SECRET is required}
+      PRAMAGENT_DASHBOARD_TENANT: ${PRAMAGENT_DASHBOARD_TENANT:-default}
+      PRAMAGENT_DASHBOARD_ALLOW_SUPER_ADMIN: ${PRAMAGENT_DASHBOARD_ALLOW_SUPER_ADMIN:-false}
+      PRAMAGENT_DASHBOARD_SECURE_COOKIE: ${PRAMAGENT_DASHBOARD_SECURE_COOKIE:-false}
       DASHBOARD_PORT: ${DASHBOARD_PORT:-8501}
     ports:
       - "${DASHBOARD_PORT:-8501}:8501"

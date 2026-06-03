@@ -1,0 +1,172 @@
+"""
+pramagent.backends.migrations
+=============================
+Tiny, dependency-free schema migration runner for the trace/audit stores.
+
+Why not Alembic? Alembic is excellent but pulls in SQLAlchemy. Pramagent's
+stores are deliberately thin (sqlite3 / psycopg2 directly), so a ~100-line
+forward-only runner keeps the dependency surface tiny while giving ops the one
+thing they actually need: ordered, idempotent, recorded schema changes.
+
+Model
+-----
+A Migration has an integer ``version``, a human ``name``, and ``up_sql``.
+Migrations are applied in ascending version order. Applied versions are recorded
+in a ``schema_migrations`` table, so re-running is a no-op (idempotent).
+
+Usage
+-----
+    from pramagent.backends.migrations import MigrationRunner, Migration
+
+    runner = MigrationRunner(sqlite_path="pramagent.db")        # or dsn=...
+    runner.run(MIGRATIONS)        # applies anything not yet applied
+    print(runner.current_version())
+
+The default MIGRATIONS list bootstraps the same schema the stores create on
+first connect, plus forward changes. Stores remain self-bootstrapping; the
+runner is for controlled, audited upgrades in multi-instance deployments.
+"""
+from __future__ import annotations
+
+import logging
+import sqlite3
+from dataclasses import dataclass
+from typing import Optional
+
+log = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class Migration:
+    version: int
+    name: str
+    up_sql: str
+
+
+class MigrationRunner:
+    """Forward-only migration runner for SQLite or Postgres.
+
+    Pass exactly one of ``sqlite_path`` or ``dsn``.
+    """
+
+    def __init__(self, *, sqlite_path: Optional[str] = None,
+                 dsn: Optional[str] = None) -> None:
+        if bool(sqlite_path) == bool(dsn):
+            raise ValueError("pass exactly one of sqlite_path or dsn")
+        self._sqlite_path = sqlite_path
+        self._dsn = dsn
+        self._is_pg = dsn is not None
+
+    # ── connection helpers ─────────────────────────────────────────────────
+    def _connect(self):
+        if self._is_pg:
+            import psycopg2  # type: ignore
+            return psycopg2.connect(self._dsn)
+        return sqlite3.connect(self._sqlite_path)
+
+    @property
+    def _param(self) -> str:
+        return "%s" if self._is_pg else "?"
+
+    def _ensure_table(self, conn) -> None:
+        cur = conn.cursor()
+        cur.execute(
+            "CREATE TABLE IF NOT EXISTS schema_migrations ("
+            " version INTEGER PRIMARY KEY,"
+            " name TEXT NOT NULL,"
+            " applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"
+        )
+        conn.commit()
+
+    # ── public API ─────────────────────────────────────────────────────────
+    def current_version(self) -> int:
+        conn = self._connect()
+        try:
+            self._ensure_table(conn)
+            cur = conn.cursor()
+            cur.execute("SELECT COALESCE(MAX(version), 0) FROM schema_migrations")
+            row = cur.fetchone()
+            return int(row[0]) if row and row[0] is not None else 0
+        finally:
+            conn.close()
+
+    def applied_versions(self) -> list[int]:
+        conn = self._connect()
+        try:
+            self._ensure_table(conn)
+            cur = conn.cursor()
+            cur.execute("SELECT version FROM schema_migrations ORDER BY version")
+            return [int(r[0]) for r in cur.fetchall()]
+        finally:
+            conn.close()
+
+    def run(self, migrations: list[Migration]) -> list[int]:
+        """Apply every migration whose version is not yet recorded.
+
+        Returns the list of versions applied in this run (empty if up-to-date).
+        Each migration runs in its own transaction; a failure rolls back that
+        migration and stops the run (forward-only, fail-fast).
+        """
+        applied_now: list[int] = []
+        conn = self._connect()
+        try:
+            self._ensure_table(conn)
+            cur = conn.cursor()
+            cur.execute("SELECT version FROM schema_migrations")
+            done = {int(r[0]) for r in cur.fetchall()}
+            for mig in sorted(migrations, key=lambda m: m.version):
+                if mig.version in done:
+                    continue
+                try:
+                    cur.execute(mig.up_sql)
+                    cur.execute(
+                        f"INSERT INTO schema_migrations (version, name) "
+                        f"VALUES ({self._param}, {self._param})",
+                        (mig.version, mig.name),
+                    )
+                    conn.commit()
+                    applied_now.append(mig.version)
+                    log.info("applied migration %d: %s", mig.version, mig.name)
+                except Exception:
+                    conn.rollback()
+                    log.exception("migration %d (%s) failed; stopping",
+                                  mig.version, mig.name)
+                    raise
+            return applied_now
+        finally:
+            conn.close()
+
+
+# ── default migrations (mirror the stores' bootstrap schema) ────────────────
+# SQLite-flavoured DDL; Postgres deployments should use MIGRATIONS_PG.
+
+MIGRATIONS: list[Migration] = [
+    Migration(
+        version=1,
+        name="create_traces",
+        up_sql=(
+            "CREATE TABLE IF NOT EXISTS traces ("
+            " call_id TEXT PRIMARY KEY,"
+            " tenant_id TEXT NOT NULL,"
+            " session_id TEXT NOT NULL,"
+            " created_at REAL NOT NULL,"
+            " data TEXT NOT NULL)"
+        ),
+    ),
+    Migration(
+        version=2,
+        name="create_audit_chain",
+        up_sql=(
+            "CREATE TABLE IF NOT EXISTS audit_chain ("
+            " seq INTEGER PRIMARY KEY AUTOINCREMENT,"
+            " payload TEXT NOT NULL,"
+            " prev_hash TEXT NOT NULL,"
+            " this_hash TEXT NOT NULL)"
+        ),
+    ),
+    Migration(
+        version=3,
+        name="index_traces_tenant",
+        up_sql="CREATE INDEX IF NOT EXISTS idx_traces_tenant ON traces(tenant_id, session_id)",
+    ),
+]

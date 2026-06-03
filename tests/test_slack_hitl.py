@@ -9,11 +9,11 @@ import pytest
 fastapi = pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
 
-from veritrace import Veritrace  # noqa: E402
-from veritrace.api.app import create_app  # noqa: E402
-from veritrace.hitl.slack import (SlackApprovalRegistry, SlackHITLApprover,  # noqa: E402
+from pramagent import Pramagent  # noqa: E402
+from pramagent.api.app import create_app  # noqa: E402
+from pramagent.hitl.slack import (SlackApprovalRegistry, SlackHITLApprover,  # noqa: E402
                                   SlackApprovalError, verify_slack_signature)
-from veritrace.layers import HITLLayer  # noqa: E402
+from pramagent.layers import HITLLayer  # noqa: E402
 
 
 class FakeSlackClient:
@@ -73,7 +73,7 @@ def test_slack_callback_records_approval():
         registry=registry,
         client=fake_slack,
     )
-    armor = Veritrace(
+    armor = Pramagent(
         hitl=HITLLayer(
             require_approval_for=["wire_transfer"],
             timeout_s=1.0,
@@ -85,7 +85,7 @@ def test_slack_callback_records_approval():
     request = registry.create("wire_transfer", {"tenant": "bank"})
     payload = {
         "actions": [{
-            "action_id": "veritrace_approve",
+            "action_id": "pramagent_approve",
             "value": request.request_id,
         }]
     }
@@ -109,7 +109,7 @@ def test_slack_callback_rejects_invalid_signature():
         public_url="https://example.test",
         client=FakeSlackClient(),
     )
-    armor = Veritrace(hitl=HITLLayer(require_approval_for=["wire_transfer"], approver=approver))
+    armor = Pramagent(hitl=HITLLayer(require_approval_for=["wire_transfer"], approver=approver))
     client = TestClient(create_app(armor=armor))
 
     response = client.post(

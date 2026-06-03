@@ -11,12 +11,12 @@ Covers:
 from __future__ import annotations
 import pytest
 
-from veritrace.classifier import (
+from pramagent.classifier import (
     KeywordFallbackClassifier, EmbeddingInjectionClassifier,
     build_classifier, INJECTION_EXEMPLARS, BENIGN_EXEMPLARS,
 )
-from veritrace.layers import IsolationLayer
-from veritrace.layers.isolation import InjectionSuspected
+from pramagent.layers import IsolationLayer
+from pramagent.layers.isolation import InjectionSuspected
 
 
 # ── KeywordFallbackClassifier ─────────────────────────────────────────────────
@@ -201,7 +201,7 @@ class TestExemplarCorpus:
 
     def test_all_exemplars_caught_by_keyword(self):
         """Every injection exemplar should be caught by at least heuristics or keyword."""
-        from veritrace.layers.isolation import _INJECTION_PATTERNS
+        from pramagent.layers.isolation import _INJECTION_PATTERNS
         clf = KeywordFallbackClassifier()
         misses = []
         for text in INJECTION_EXEMPLARS:

@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml ./
-COPY veritrace/ veritrace/
+COPY pramagent/ pramagent/
 COPY README.md ./
 
 # Install with all optional extras
@@ -26,24 +26,24 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /install /usr/local
-COPY veritrace/ veritrace/
+COPY pramagent/ pramagent/
 COPY pyproject.toml .
 
 # Non-root user for security
-RUN useradd -r -u 1001 -g root veritrace \
+RUN useradd -r -u 1001 -g root pramagent \
     && chown -R 1001:0 /app
 USER 1001
 
 # Default: run the FastAPI sidecar
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    VT_HOST=0.0.0.0 \
-    VT_PORT=8080 \
-    VT_LOG_LEVEL=info
+    PRAMAGENT_HOST=0.0.0.0 \
+    PRAMAGENT_PORT=8080 \
+    PRAMAGENT_LOG_LEVEL=info
 
 EXPOSE 8080
 
 HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=3 \
-    CMD curl -f http://localhost:${VT_PORT}/health || exit 1
+    CMD curl -f http://localhost:${PRAMAGENT_PORT}/health || exit 1
 
-CMD ["sh", "-c", "python -m uvicorn veritrace.api.app:app --host ${VT_HOST} --port ${VT_PORT} --log-level ${VT_LOG_LEVEL}"]
+CMD ["sh", "-c", "python -m uvicorn pramagent.api.app:app --host ${PRAMAGENT_HOST} --port ${PRAMAGENT_PORT} --log-level ${PRAMAGENT_LOG_LEVEL}"]

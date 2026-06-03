@@ -1,5 +1,5 @@
 """Regression tests for context-guarded PII scrubbing."""
-from veritrace.layers import ComplianceLayer
+from pramagent.layers import ComplianceLayer
 
 
 def test_bare_nine_digits_not_redacted_without_context():

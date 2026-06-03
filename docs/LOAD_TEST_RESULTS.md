@@ -8,10 +8,10 @@ Environment:
 
 - Windows local development machine
 - Docker Desktop 4.74.0 / Docker Engine 29.4.3
-- `docker compose --env-file .env.load -p veritrace_load up -d --build`
+- `docker compose --env-file .env.load -p pramagent_load up -d --build`
 - Services: API, dashboard, Redis 7, Postgres 16
 - Target: `POST /v1/run`
-- Auth: enabled via `VERITRACE_API_KEYS`, with Bearer auth on load requests.
+- Auth: enabled via `PRAMAGENT_API_KEYS`, with Bearer auth on load requests.
 
 Result:
 
@@ -66,10 +66,10 @@ Post-run checks:
 Post-run container snapshot:
 
 ```text
-veritrace_load-dashboard-1   5.11% CPU   58.16MiB
-veritrace_load-api-1         1.27% CPU   87.9MiB
-veritrace_load-postgres-1    0.00% CPU   25.39MiB
-veritrace_load-redis-1       0.53% CPU   4.832MiB
+pramagent_load-dashboard-1   5.11% CPU   58.16MiB
+pramagent_load-api-1         1.27% CPU   87.9MiB
+pramagent_load-postgres-1    0.00% CPU   25.39MiB
+pramagent_load-redis-1       0.53% CPU   4.832MiB
 ```
 
 Interpretation:
@@ -87,7 +87,7 @@ Interpretation:
 Environment:
 
 - Windows local development machine
-- `uvicorn veritrace.api.app:app --host 127.0.0.1 --port 8090`
+- `uvicorn pramagent.api.app:app --host 127.0.0.1 --port 8090`
 - Default local app configuration
 - No Docker Compose, Redis, Postgres, or external provider load
 

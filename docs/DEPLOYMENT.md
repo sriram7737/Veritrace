@@ -1,25 +1,25 @@
-# Veritrace Deployment Guide
+# Pramagent Deployment Guide
 
 ## One-command local (Docker Compose)
 ```bash
-veritrace init           # generates .env with secrets + starter config
+pramagent init           # generates .env with secrets + starter config
 docker compose up -d     # Postgres + Redis + API + dashboard
 # API:       http://localhost:8080/docs
 # Dashboard: http://localhost:8501/
-veritrace validate       # checks config + Redis/Postgres connectivity
+pramagent validate       # checks config + Redis/Postgres connectivity
 ```
 
 ## Local without Docker (dev)
 ```bash
 pip install -e ".[dev,api,redis,postgres,otel,encrypted]"
 python -m pytest -q  # 363 passing
-uvicorn veritrace.api.app:app --port 8080
+uvicorn pramagent.api.app:app --port 8080
 ```
 
 ## Schema migrations
 ```python
-from veritrace.backends.migrations import MigrationRunner, MIGRATIONS
-MigrationRunner(sqlite_path="veritrace.db").run(MIGRATIONS)      # dev
+from pramagent.backends.migrations import MigrationRunner, MIGRATIONS
+MigrationRunner(sqlite_path="pramagent.db").run(MIGRATIONS)      # dev
 MigrationRunner(dsn="postgresql://...").run(MIGRATIONS)          # prod
 ```
 
@@ -27,35 +27,35 @@ MigrationRunner(dsn="postgresql://...").run(MIGRATIONS)          # prod
 Set any of these env vars to enable quota enforcement. Omit them to leave quotas disabled.
 
 ```bash
-VT_QUOTA_CALLS=10000
-VT_QUOTA_TOOL_VALIDATIONS=50000
-VT_QUOTA_COST_USD=100.00
-VT_QUOTA_WINDOW_S=86400
+PRAMAGENT_QUOTA_CALLS=10000
+PRAMAGENT_QUOTA_TOOL_VALIDATIONS=50000
+PRAMAGENT_QUOTA_COST_USD=100.00
+PRAMAGENT_QUOTA_WINDOW_S=86400
 ```
 
 The API returns HTTP 429 when a tenant exceeds a quota and exposes current
 window usage at `GET /v1/usage`.
 
 ## Usage analytics / billing webhook
-Set `VT_BILLING_WEBHOOK_URL` to emit fail-open JSON usage events for calls,
+Set `PRAMAGENT_BILLING_WEBHOOK_URL` to emit fail-open JSON usage events for calls,
 tool validations, cost records, and quota blocks. This is a pilot integration
 hook, not invoice reconciliation or a full billing provider.
 
 ```bash
-VT_BILLING_WEBHOOK_URL=https://billing.example.com/veritrace/events
-VT_BILLING_WEBHOOK_SECRET=shared-secret
-VT_BILLING_WEBHOOK_TIMEOUT_S=2.0
+PRAMAGENT_BILLING_WEBHOOK_URL=https://billing.example.com/pramagent/events
+PRAMAGENT_BILLING_WEBHOOK_SECRET=shared-secret
+PRAMAGENT_BILLING_WEBHOOK_TIMEOUT_S=2.0
 ```
 
 Enable a local tamper-evident usage ledger for pilots with:
 
 ```bash
-VT_USAGE_LEDGER=memory
-# aliases: VERITRACE_USAGE_LEDGER, VT_BILLING_LEDGER, VERITRACE_BILLING_LEDGER
+PRAMAGENT_USAGE_LEDGER=memory
+# aliases: PRAMAGENT_USAGE_LEDGER, PRAMAGENT_BILLING_LEDGER, PRAMAGENT_BILLING_LEDGER
 ```
 
 The ledger is exposed at `GET /v1/usage/ledger?tenant_id=<tenant>` and uses a
-local SHA-256 hash chain. Keep `VERITRACE_QUOTA_FAIL_OPEN=true` for availability
+local SHA-256 hash chain. Keep `PRAMAGENT_QUOTA_FAIL_OPEN=true` for availability
 or set it to `false` when billing/ledger sink failure must block the request.
 
 ## Dashboard scope
@@ -63,23 +63,23 @@ The dashboard is still a lightweight admin UI, not an enterprise IAM system.
 Use these env vars to keep it honest in pilots:
 
 ```bash
-VT_DASHBOARD_TENANT=tenant_a        # "*" means super-admin
-VT_DASHBOARD_ALLOW_SUPER_ADMIN=false
-VT_DASHBOARD_SECURE_COOKIE=true     # set true behind TLS
+PRAMAGENT_DASHBOARD_TENANT=tenant_a        # "*" means super-admin
+PRAMAGENT_DASHBOARD_ALLOW_SUPER_ADMIN=false
+PRAMAGENT_DASHBOARD_SECURE_COOKIE=true     # set true behind TLS
 ```
 
-All-tenant dashboard access is ignored unless both `VT_DASHBOARD_TENANT=*` and
-`VT_DASHBOARD_ALLOW_SUPER_ADMIN=true` are set.
+All-tenant dashboard access is ignored unless both `PRAMAGENT_DASHBOARD_TENANT=*` and
+`PRAMAGENT_DASHBOARD_ALLOW_SUPER_ADMIN=true` are set.
 
 ## Dashboard rate limiting and usage page
 The dashboard uses Redis-backed per-IP rate limiting when
-`VT_DASHBOARD_REDIS_URL` or `VT_REDIS_URL` is configured, and falls back to a
+`PRAMAGENT_DASHBOARD_REDIS_URL` or `PRAMAGENT_REDIS_URL` is configured, and falls back to a
 local in-process bucket for development.
 
 ```bash
-VT_DASHBOARD_REDIS_URL=redis://:password@redis:6379/1
-VT_DASHBOARD_RL_CAPACITY=60
-VT_DASHBOARD_RL_REFILL=60
+PRAMAGENT_DASHBOARD_REDIS_URL=redis://:password@redis:6379/1
+PRAMAGENT_DASHBOARD_RL_CAPACITY=60
+PRAMAGENT_DASHBOARD_RL_REFILL=60
 ```
 
 The dashboard exposes `/usage` for per-tenant calls, tool validations, tracked
@@ -93,7 +93,7 @@ while Slack, a quorum approver, or a custom webhook collects the approve/deny
 decision.
 
 ```python
-from veritrace.hitl import CompositeApprover, ServiceNowNotifier
+from pramagent.hitl import CompositeApprover, ServiceNowNotifier
 
 approver = CompositeApprover(
     notifiers=[
@@ -116,19 +116,19 @@ Install the optional dependency:
 pip install -e ".[ethereum]"
 ```
 
-Use `EthereumBackend` with a Sepolia RPC URL and private key. Veritrace records
+Use `EthereumBackend` with a Sepolia RPC URL and private key. Pramagent records
 the transaction hash in `trace.anchor_tx_id` and the block in
 `trace.anchor_block_number`.
 
 ```python
-from veritrace import Veritrace
-from veritrace.audit import EthereumBackend
+from pramagent import Pramagent
+from pramagent.audit import EthereumBackend
 
 audit = EthereumBackend(
     rpc_url="https://sepolia.infura.io/v3/...",
     private_key="0x...",
 )
-armor = Veritrace(audit=audit)
+armor = Pramagent(audit=audit)
 ```
 
 This is still testnet anchoring. Use a dedicated wallet, minimal funds, and a
@@ -145,12 +145,12 @@ Wrap a hot store so retention/erasure flows archive old traces to S3 as
 encrypted gzip JSON before deleting them from the primary store:
 
 ```python
-from veritrace.store import SQLiteStore
-from veritrace.store_s3 import S3ColdArchiveStore
+from pramagent.store import SQLiteStore
+from pramagent.store_s3 import S3ColdArchiveStore
 
 store = S3ColdArchiveStore(
-    SQLiteStore("veritrace.db"),
-    bucket="my-veritrace-audit-archive",
+    SQLiteStore("pramagent.db"),
+    bucket="my-pramagent-audit-archive",
     encryption_key="...",  # Fernet key; use KMS/envelope encryption in prod
 )
 ```
@@ -161,17 +161,17 @@ Postgres for auditor lookup.
 
 ## Kubernetes (Helm)
 ```bash
-kubectl create secret generic veritrace-secrets \
-  --from-literal=VT_API_KEY=... --from-literal=VT_JWT_SECRET=... \
-  --from-literal=VT_REDIS_URL=redis://... --from-literal=VT_POSTGRES_DSN=postgresql://...
-helm install veritrace deploy/helm/veritrace \
-  --set image.tag=0.4.4 --set otel.endpoint=http://otel-collector:4317
+kubectl create secret generic pramagent-secrets \
+  --from-literal=PRAMAGENT_API_KEY=... --from-literal=PRAMAGENT_JWT_SECRET=... \
+  --from-literal=PRAMAGENT_REDIS_URL=redis://... --from-literal=PRAMAGENT_POSTGRES_DSN=postgresql://...
+helm install pramagent deploy/helm/pramagent \
+  --set image.tag=0.5.0 --set otel.endpoint=http://otel-collector:4317
 ```
 Includes readiness/liveness probes, HorizontalPodAutoscaler (3–10 replicas), and
 secret-based config. Point `otel.endpoint` at any OTLP collector (Jaeger,
 Honeycomb, Datadog, Grafana Tempo) for distributed traces.
 
 ## Cloud notes
-- **Postgres**: any managed PG (RDS, Cloud SQL, Neon). Set `VT_POSTGRES_DSN`.
-- **Redis**: any managed Redis (ElastiCache, Memorystore, Upstash). Set `VT_REDIS_URL`.
+- **Postgres**: any managed PG (RDS, Cloud SQL, Neon). Set `PRAMAGENT_POSTGRES_DSN`.
+- **Redis**: any managed Redis (ElastiCache, Memorystore, Upstash). Set `PRAMAGENT_REDIS_URL`.
 - Both fail open to local backends if unreachable, so a cache blip won't take the API down.

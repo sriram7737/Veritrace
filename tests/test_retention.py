@@ -4,9 +4,9 @@ import os
 import tempfile
 import time
 
-from veritrace import Veritrace
-from veritrace.providers import MockProvider
-from veritrace.store import MemoryStore, SQLiteStore
+from pramagent import Pramagent
+from pramagent.providers import MockProvider
+from pramagent.store import MemoryStore, SQLiteStore
 
 
 def run(coro):
@@ -16,7 +16,7 @@ def run(coro):
 # ── MemoryStore ────────────────────────────────────────────────────────
 def test_memory_prune_older_than():
     store = MemoryStore()
-    armor = Veritrace(provider=MockProvider(), store=store)
+    armor = Pramagent(provider=MockProvider(), store=store)
     run(armor.run("old", tenant_id="t", session_id="s"))
     # write directly to backdate the trace
     store._traces[0].created_at = time.time() - 200 * 86400   # ~200 days old
@@ -30,7 +30,7 @@ def test_memory_prune_older_than():
 
 def test_memory_delete_for_tenant():
     store = MemoryStore()
-    armor = Veritrace(provider=MockProvider(), store=store)
+    armor = Pramagent(provider=MockProvider(), store=store)
     run(armor.run("a", tenant_id="bank", session_id="s"))
     run(armor.run("b", tenant_id="hospital", session_id="s"))
     run(armor.run("c", tenant_id="bank", session_id="s"))
@@ -52,7 +52,7 @@ def test_sqlite_prune_older_than():
     path = _sqlite_path()
     try:
         db = SQLiteStore(path)
-        armor = Veritrace(provider=MockProvider(), store=db, audit=db)
+        armor = Pramagent(provider=MockProvider(), store=db, audit=db)
         run(armor.run("recent", tenant_id="t", session_id="s"))
         # backdate the row
         db._conn.execute("UPDATE traces SET created_at = ?",
@@ -74,7 +74,7 @@ def test_sqlite_delete_for_tenant_preserves_chain():
     path = _sqlite_path()
     try:
         db = SQLiteStore(path)
-        armor = Veritrace(provider=MockProvider(), store=db, audit=db)
+        armor = Pramagent(provider=MockProvider(), store=db, audit=db)
         run(armor.run("alpha", tenant_id="bank", session_id="s"))
         run(armor.run("beta", tenant_id="hospital", session_id="s"))
         run(armor.run("gamma", tenant_id="bank", session_id="s"))

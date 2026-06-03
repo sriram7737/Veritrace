@@ -1,8 +1,8 @@
 import pytest
 
-from veritrace import Veritrace, Verdict
-from veritrace.layers import ToolGuardLayer, ToolPolicy
-from veritrace.layers.tool_guard import SideEffect
+from pramagent import Pramagent, Verdict
+from pramagent.layers import ToolGuardLayer, ToolPolicy
+from pramagent.layers.tool_guard import SideEffect
 
 
 def _guard():
@@ -147,7 +147,7 @@ async def test_core_pipeline_uses_async_tool_guard_judge():
         ],
         judge=BlockingJudge(),
     )
-    armor = Veritrace(tool_guard=guard)
+    armor = Pramagent(tool_guard=guard)
 
     response = await armor.run(
         "transfer funds",

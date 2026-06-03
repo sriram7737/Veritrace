@@ -1,0 +1,354 @@
+"""
+pramagent.providers
+===================
+The ProviderAdapter is the universal LLM interface. Every concrete provider
+implements the same `complete()` contract, so the trust layers never know or
+care which model is underneath. This is what makes Pramagent plug-and-play.
+
+Add a new provider by subclassing BaseProvider and implementing `complete()`.
+"""
+from __future__ import annotations
+
+import asyncio
+import json
+import os
+import time
+from dataclasses import dataclass
+from typing import Any, Optional
+import urllib.error
+import urllib.request
+
+
+@dataclass
+class ProviderResult:
+    text: str
+    model: str
+    cost_usd: float = 0.0
+    latency_ms: float = 0.0
+
+
+class BaseProvider:
+    """Abstract provider. Subclass and implement `complete`."""
+    name: str = "base"
+
+    async def complete(self, prompt: str, **kwargs) -> ProviderResult:
+        raise NotImplementedError
+
+
+class MockProvider(BaseProvider):
+    """
+    Deterministic provider for tests, demos, and offline development.
+    Given the same prompt it returns the same output -> makes the whole
+    pipeline reproducible, which is exactly what RCA decision-replay needs.
+    """
+    name = "mock"
+
+    def __init__(self, model: str = "mock-1", scripted: dict[str, str] | None = None):
+        self.model = model
+        self.scripted = scripted or {}
+
+    async def complete(self, prompt: str, **kwargs) -> ProviderResult:
+        t0 = time.perf_counter()
+        await asyncio.sleep(0.01)  # simulate network
+        if prompt in self.scripted:
+            text = self.scripted[prompt]
+        else:
+            text = f"[mock-{self.model}] Acknowledged: {prompt[:120]}"
+        return ProviderResult(
+            text=text,
+            model=self.model,
+            cost_usd=0.0,
+            latency_ms=(time.perf_counter() - t0) * 1000,
+        )
+
+
+class AnthropicProvider(BaseProvider):
+    """
+    Production adapter for the Anthropic API.
+    Requires `pip install anthropic` and ANTHROPIC_API_KEY in the environment.
+    Left importable but not invoked in the offline demo.
+    """
+    name = "anthropic"
+
+    def __init__(self, model: str = "claude-sonnet-4-20250514", max_tokens: int = 1024):
+        self.model = model
+        self.max_tokens = max_tokens
+
+    async def complete(self, prompt: str, **kwargs) -> ProviderResult:
+        from anthropic import AsyncAnthropic  # lazy import
+        client = AsyncAnthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+        t0 = time.perf_counter()
+        msg = await client.messages.create(
+            model=self.model,
+            max_tokens=self.max_tokens,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = "".join(b.text for b in msg.content if getattr(b, "type", "") == "text")
+        # cost is illustrative; real pricing depends on token counts
+        cost = (msg.usage.input_tokens * 3e-6) + (msg.usage.output_tokens * 15e-6)
+        return ProviderResult(text=text, model=self.model, cost_usd=cost,
+                              latency_ms=(time.perf_counter() - t0) * 1000)
+
+
+class OpenAICompatibleProvider(BaseProvider):
+    """
+    Provider for OpenAI-compatible chat-completions APIs.
+
+    Works with OpenAI itself, vLLM, LM Studio, llama.cpp server, Together,
+    Groq-style compatible gateways, and many locally deployed inference stacks
+    that expose `/v1/chat/completions`.
+    """
+    name = "openai-compatible"
+
+    def __init__(
+        self,
+        *,
+        model: str,
+        base_url: str = "https://api.openai.com/v1",
+        api_key: Optional[str] = None,
+        timeout_s: float = 60.0,
+        max_tokens: int = 1024,
+        temperature: float = 0.0,
+        headers: Optional[dict[str, str]] = None,
+    ):
+        self.model = model
+        self.base_url = base_url.rstrip("/")
+        self.api_key = api_key
+        self.timeout_s = timeout_s
+        self.max_tokens = max_tokens
+        self.temperature = temperature
+        self.headers = headers or {}
+
+    async def complete(self, prompt: str, **kwargs) -> ProviderResult:
+        return await asyncio.to_thread(self._complete_sync, prompt, **kwargs)
+
+    def _complete_sync(self, prompt: str, **kwargs) -> ProviderResult:
+        t0 = time.perf_counter()
+        body = {
+            "model": kwargs.get("model", self.model),
+            "messages": kwargs.get("messages") or [{"role": "user", "content": prompt}],
+            "max_tokens": int(kwargs.get("max_tokens", self.max_tokens)),
+            "temperature": float(kwargs.get("temperature", self.temperature)),
+        }
+        payload = self._request_with_openai_compat_fallback(body)
+        text = _extract_openai_text(payload)
+        usage = payload.get("usage") or {}
+        return ProviderResult(
+            text=text,
+            model=str(payload.get("model") or body["model"]),
+            cost_usd=0.0,
+            latency_ms=(time.perf_counter() - t0) * 1000,
+        )
+
+    def _request_with_openai_compat_fallback(self, body: dict[str, Any]) -> dict[str, Any]:
+        # Some newer OpenAI models reject the legacy chat-completions
+        # `max_tokens` parameter and require `max_completion_tokens` instead.
+        # Local OpenAI-compatible servers often still expect `max_tokens`, so
+        # try the broad-compatible shape first and only mutate on explicit 400s.
+        request_body = dict(body)
+        last_error: Optional[RuntimeError] = None
+        for _ in range(3):
+            try:
+                return self._post_chat_completion(request_body)
+            except RuntimeError as exc:
+                message = str(exc)
+                last_error = exc
+                if (
+                    "max_tokens" in message
+                    and "max_completion_tokens" in message
+                    and "max_tokens" in request_body
+                ):
+                    request_body["max_completion_tokens"] = request_body.pop("max_tokens")
+                    continue
+                if (
+                    "temperature" in message.lower()
+                    and "unsupported" in message.lower()
+                    and "temperature" in request_body
+                ):
+                    request_body.pop("temperature", None)
+                    continue
+                raise
+        raise last_error or RuntimeError("provider request failed")
+
+    def _post_chat_completion(self, body: dict[str, Any]) -> dict[str, Any]:
+        data = json.dumps(body).encode("utf-8")
+        headers = {
+            "Content-Type": "application/json",
+            **self.headers,
+        }
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        req = urllib.request.Request(
+            f"{self.base_url}/chat/completions",
+            data=data,
+            headers=headers,
+            method="POST",
+        )
+        return _json_request(req, timeout=self.timeout_s)
+
+
+class OpenAIProvider(OpenAICompatibleProvider):
+    """OpenAI-hosted adapter using the OpenAI-compatible endpoint."""
+    name = "openai"
+
+    def __init__(
+        self,
+        model: str = "gpt-4o-mini",
+        *,
+        api_key: Optional[str] = None,
+        base_url: str = "https://api.openai.com/v1",
+        max_tokens: int = 1024,
+        temperature: float = 0.0,
+        timeout_s: float = 60.0,
+    ):
+        super().__init__(
+            model=model,
+            base_url=base_url,
+            api_key=api_key or os.environ.get("OPENAI_API_KEY"),
+            max_tokens=max_tokens,
+            temperature=temperature,
+            timeout_s=timeout_s,
+        )
+
+
+class GeminiProvider(BaseProvider):
+    """Google Gemini adapter using the public generateContent REST endpoint."""
+    name = "gemini"
+
+    def __init__(
+        self,
+        model: str = "gemini-1.5-flash",
+        *,
+        api_key: Optional[str] = None,
+        base_url: str = "https://generativelanguage.googleapis.com/v1beta",
+        max_tokens: int = 1024,
+        temperature: float = 0.0,
+        timeout_s: float = 60.0,
+    ):
+        self.model = model
+        self.api_key = api_key or os.environ.get("GEMINI_API_KEY")
+        self.base_url = base_url.rstrip("/")
+        self.max_tokens = max_tokens
+        self.temperature = temperature
+        self.timeout_s = timeout_s
+
+    async def complete(self, prompt: str, **kwargs) -> ProviderResult:
+        return await asyncio.to_thread(self._complete_sync, prompt, **kwargs)
+
+    def _complete_sync(self, prompt: str, **kwargs) -> ProviderResult:
+        if not self.api_key:
+            raise RuntimeError("GEMINI_API_KEY is required for GeminiProvider")
+        t0 = time.perf_counter()
+        model = kwargs.get("model", self.model)
+        body = {
+            "contents": kwargs.get("contents") or [
+                {"role": "user", "parts": [{"text": prompt}]}
+            ],
+            "generationConfig": {
+                "maxOutputTokens": int(kwargs.get("max_tokens", self.max_tokens)),
+                "temperature": float(kwargs.get("temperature", self.temperature)),
+            },
+        }
+        data = json.dumps(body).encode("utf-8")
+        req = urllib.request.Request(
+            f"{self.base_url}/models/{model}:generateContent?key={self.api_key}",
+            data=data,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        payload = _json_request(req, timeout=self.timeout_s)
+        return ProviderResult(
+            text=_extract_gemini_text(payload),
+            model=str(model),
+            cost_usd=0.0,
+            latency_ms=(time.perf_counter() - t0) * 1000,
+        )
+
+
+class OllamaProvider(BaseProvider):
+    """
+    Production adapter for a local Ollama server (offline / edge / air-gapped).
+    Requires a running Ollama daemon. Demonstrates that the same trust stack
+    works with a 1B local model exactly as it does with a frontier API.
+    """
+    name = "ollama"
+
+    def __init__(self, model: str = "llama3.2:1b", host: str = "http://localhost:11434"):
+        self.model = model
+        self.host = host
+
+    async def complete(self, prompt: str, **kwargs) -> ProviderResult:
+        import aiohttp  # lazy import
+        t0 = time.perf_counter()
+        async with aiohttp.ClientSession() as s:
+            async with s.post(f"{self.host}/api/generate",
+                              json={"model": self.model, "prompt": prompt, "stream": False}) as r:
+                data = await r.json()
+        return ProviderResult(text=data.get("response", ""), model=self.model, cost_usd=0.0,
+                              latency_ms=(time.perf_counter() - t0) * 1000)
+
+
+def _json_request(req: urllib.request.Request, *, timeout: float) -> dict[str, Any]:
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            raw = resp.read().decode("utf-8")
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"provider HTTP {exc.code}: {detail[:400]}") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"provider request failed: {exc}") from exc
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"provider returned non-JSON response: {raw[:200]}") from exc
+
+
+def _extract_openai_text(payload: dict[str, Any]) -> str:
+    choices = payload.get("choices") or []
+    if not choices:
+        return ""
+    message = choices[0].get("message") or {}
+    content = message.get("content", "")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for item in content:
+            if isinstance(item, dict):
+                parts.append(str(item.get("text", "")))
+        return "".join(parts)
+    return str(content)
+
+
+def _extract_gemini_text(payload: dict[str, Any]) -> str:
+    candidates = payload.get("candidates") or []
+    if not candidates:
+        return ""
+    content = candidates[0].get("content") or {}
+    parts = content.get("parts") or []
+    return "".join(str(part.get("text", "")) for part in parts if isinstance(part, dict))
+
+
+class FallbackProvider(BaseProvider):
+    """
+    Wraps an ordered list of providers. Tries each in turn until one succeeds.
+    This is the ProviderAdapter's fallback chain -- continuity during outages.
+    """
+    name = "fallback"
+
+    def __init__(self, providers: list[BaseProvider]):
+        assert providers, "FallbackProvider needs at least one provider"
+        self.providers = providers
+
+    async def complete(self, prompt: str, **kwargs) -> ProviderResult:
+        last_err: Exception | None = None
+        for i, p in enumerate(self.providers):
+            try:
+                res = await p.complete(prompt, **kwargs)
+                if i > 0:
+                    res.model = f"{res.model} (fallback#{i})"
+                return res
+            except Exception as e:  # noqa: BLE001  (we genuinely want to try the next)
+                last_err = e
+                continue
+        raise RuntimeError(f"all providers failed; last error: {last_err}")

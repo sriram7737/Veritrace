@@ -1,8 +1,8 @@
-# Veritrace — Current Implementation Status
+# Pramagent — Current Implementation Status
 
-_Last updated after the v0.4.4 PyPI listing cleanup release pass._
+_Last updated after the v0.5.0 Pramagent rebrand release pass._
 
-This document is deliberately blunt. Veritrace is **strong trust middleware for
+This document is deliberately blunt. Pramagent is **strong trust middleware for
 AI agents** — deterministic guardrails, HITL, tool policy, and tamper-evident
 traces. It is **not** "bank-grade production infrastructure" yet. Use the table
 below to know exactly what you are getting.
@@ -55,7 +55,7 @@ Actions is configured to run the same suite on Python 3.10, 3.11, 3.12, and
   `/v1/usage/ledger` ledger evidence)
 - Dashboard usage page + Redis-backed dashboard rate limiting with local fallback
 - Built-in red-team benchmark CLI with static and dynamic mutation modes
-  (`veritrace redteam --json --dynamic --attacks 200 --seed 999`)
+  (`pramagent redteam --json --dynamic --attacks 200 --seed 999`)
 - Public red-team result/methodology doc and load-test runbook
 - Syntax-health test that compiles every Python source file before release
 - Small concurrency smoke test for trace uniqueness and hash-chain integrity

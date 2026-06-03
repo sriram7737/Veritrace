@@ -2,10 +2,10 @@ import asyncio
 
 import pytest
 
-from veritrace import Veritrace
-from veritrace.audit import EthereumBackend
-from veritrace.anchoring.ethereum import EthereumAnchor, EthereumAnchorError
-from veritrace.providers import MockProvider
+from pramagent import Pramagent
+from pramagent.audit import EthereumBackend
+from pramagent.anchoring.ethereum import EthereumAnchor, EthereumAnchorError
+from pramagent.providers import MockProvider
 
 
 class _Signed:
@@ -111,7 +111,7 @@ def test_ethereum_backend_records_real_anchor_metadata():
 
 
 def test_trace_stores_anchor_block_number_from_backend():
-    armor = Veritrace(
+    armor = Pramagent(
         provider=MockProvider(),
         audit=EthereumBackend(anchor=EthereumAnchor(web3=_Web3(), private_key="secret")),
     )

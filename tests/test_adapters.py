@@ -2,7 +2,7 @@
 import asyncio
 import pytest
 
-from veritrace.hitl.adapters import (CompositeApprover, EmailNotifier,
+from pramagent.hitl.adapters import (CompositeApprover, EmailNotifier,
                                       PagerDutyNotifier, ServiceNowNotifier,
                                       SMTPConfig, WebhookApprover)
 
@@ -82,7 +82,7 @@ def test_servicenow_notifier_payload_contains_context():
     sn = ServiceNowNotifier(
         "https://acme.service-now.com",
         assignment_group="security",
-        extra_fields={"caller_id": "veritrace"},
+        extra_fields={"caller_id": "pramagent"},
     )
 
     payload = sn._payload(
@@ -90,9 +90,9 @@ def test_servicenow_notifier_payload_contains_context():
         {"tenant": "bank", "request_id": "r1", "output_preview": "transfer"},
     )
 
-    assert payload["short_description"] == "Veritrace approval needed: wire_transfer"
+    assert payload["short_description"] == "Pramagent approval needed: wire_transfer"
     assert payload["assignment_group"] == "security"
-    assert payload["caller_id"] == "veritrace"
+    assert payload["caller_id"] == "pramagent"
     assert "bank" in payload["description"]
     assert "r1" in payload["description"]
 

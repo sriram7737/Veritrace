@@ -1,6 +1,6 @@
-# Veritrace Hardening Guide
+# Pramagent Hardening Guide
 
-This guide is intentionally blunt. Veritrace is useful guardrail and audit
+This guide is intentionally blunt. Pramagent is useful guardrail and audit
 middleware today, but regulated production use needs more proof, stronger
 controls, and third-party validation.
 
@@ -19,8 +19,8 @@ Run these before any public release announcement:
 
 ```bash
 python -m pytest -q --tb=no
-python -m compileall veritrace tests
-veritrace redteam --json --dynamic --attacks 200 --seed 999
+python -m compileall pramagent tests
+pramagent redteam --json --dynamic --attacks 200 --seed 999
 ```
 
 Then validate the optional systems you plan to claim:

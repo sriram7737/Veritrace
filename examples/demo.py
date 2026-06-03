@@ -1,6 +1,6 @@
 """
-End-to-end Veritrace demo — runs fully offline with the MockProvider.
-Set VERITRACE_PROVIDER=openai (+ OPENAI_API_KEY) to swap in a real OpenAI call.
+End-to-end Pramagent demo — runs fully offline with the MockProvider.
+Set PRAMAGENT_PROVIDER=openai (+ OPENAI_API_KEY) to swap in a real OpenAI call.
 
     python examples/demo.py
 
@@ -15,12 +15,12 @@ Demonstrates the v0.3 "Production Guardrails MVP" live path:
 """
 import asyncio
 
-from veritrace import Veritrace, Verdict
-from veritrace.layers import (ComplianceLayer, HITLLayer, ReliabilityLayer,
+from pramagent import Pramagent, Verdict
+from pramagent.layers import (ComplianceLayer, HITLLayer, ReliabilityLayer,
                               Rule, SafetyLayer, ToolGuardLayer, ToolPolicy)
-from veritrace.layers.tool_guard import SideEffect
-from veritrace.providers import MockProvider
-from veritrace.rca import RCAEngine
+from pramagent.layers.tool_guard import SideEffect
+from pramagent.providers import MockProvider
+from pramagent.rca import RCAEngine
 
 
 def banner(t): print("\n" + "=" * 68 + f"\n  {t}\n" + "=" * 68)
@@ -40,7 +40,7 @@ async def main():
                            "properties": {"amount_usd": {"type": "number", "maximum": 10000}}}),
     ])
 
-    armor = Veritrace(
+    armor = Pramagent(
         provider=MockProvider(model="demo-1"),
         compliance=ComplianceLayer(standards=["HIPAA", "PCI_DSS"]),
         safety=SafetyLayer(rules=[

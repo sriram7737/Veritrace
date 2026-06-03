@@ -1,18 +1,18 @@
-# Veritrace
+# Pramagent
 
-[![PyPI version](https://img.shields.io/pypi/v/veritrace.svg)](https://pypi.org/project/veritrace/)
-[![Python versions](https://img.shields.io/pypi/pyversions/veritrace.svg)](https://pypi.org/project/veritrace/)
-[![License](https://img.shields.io/pypi/l/veritrace.svg)](https://github.com/sriram7737/Veritrace/blob/main/LICENSE)
-[![CI](https://github.com/sriram7737/Veritrace/actions/workflows/tests.yml/badge.svg)](https://github.com/sriram7737/Veritrace/actions/workflows/tests.yml)
+[![PyPI version](https://img.shields.io/pypi/v/pramagent.svg)](https://pypi.org/project/pramagent/)
+[![Python versions](https://img.shields.io/pypi/pyversions/pramagent.svg)](https://pypi.org/project/pramagent/)
+[![License](https://img.shields.io/pypi/l/pramagent.svg)](https://github.com/sriram7737/Pramagent/blob/main/LICENSE)
+[![CI](https://github.com/sriram7737/Pramagent/actions/workflows/tests.yml/badge.svg)](https://github.com/sriram7737/Pramagent/actions/workflows/tests.yml)
 
 Trust middleware for LLM agents: deterministic tool policy, HITL approvals,
 and tamper-evident audit traces. **Alpha** - read the
-[implementation status](https://github.com/sriram7737/Veritrace/blob/main/docs/IMPLEMENTATION_STATUS.md)
+[implementation status](https://github.com/sriram7737/Pramagent/blob/main/docs/IMPLEMENTATION_STATUS.md)
 before customer-facing pilots.
 
-![Veritrace trust stack](https://raw.githubusercontent.com/sriram7737/Veritrace/main/docs/stack.png)
+![Pramagent trust stack](https://raw.githubusercontent.com/sriram7737/Pramagent/main/docs/stack.png)
 
-Veritrace wraps OpenAI, Anthropic, Gemini, Ollama, local, and
+Pramagent wraps OpenAI, Anthropic, Gemini, Ollama, local, and
 OpenAI-compatible providers with guardrails that run outside the model. The
 most differentiated layer is ToolGuard: deterministic tool validation with JSON
 Schema, tenant/action allow-lists, side-effect taxonomy, dangerous-chain
@@ -20,18 +20,18 @@ detection, output scanning, and HITL escalation.
 
 ## Alpha Maturity Notice
 
-Veritrace is published as **Alpha software**. It has live smoke-test evidence
+Pramagent is published as **Alpha software**. It has live smoke-test evidence
 for Sepolia anchoring, S3 cold archive, local load testing, real OpenAI/Ollama
 provider calls, and bundled red-team runs, but it has **not** passed an
 external penetration test, SOC 2 audit, HIPAA assessment, or
 regulated-production certification.
 
-Do not treat Veritrace as bank-grade or healthcare-grade security
+Do not treat Pramagent as bank-grade or healthcare-grade security
 infrastructure. Do not claim prompt-injection immunity, production compliance,
 or third-party-validated safety from the bundled benchmarks alone. Read
-[Implementation status](https://github.com/sriram7737/Veritrace/blob/main/docs/IMPLEMENTATION_STATUS.md),
-[Live test results](https://github.com/sriram7737/Veritrace/blob/main/docs/LIVE_TEST_RESULTS.md), and
-[Hardening guide](https://github.com/sriram7737/Veritrace/blob/main/docs/HARDENING_GUIDE.md)
+[Implementation status](https://github.com/sriram7737/Pramagent/blob/main/docs/IMPLEMENTATION_STATUS.md),
+[Live test results](https://github.com/sriram7737/Pramagent/blob/main/docs/LIVE_TEST_RESULTS.md), and
+[Hardening guide](https://github.com/sriram7737/Pramagent/blob/main/docs/HARDENING_GUIDE.md)
 before using it in a customer-facing pilot.
 
 ## Bare Install Quickstart
@@ -40,15 +40,15 @@ This works with the base package only. No Docker, API server, or provider key is
 required.
 
 ```bash
-pip install veritrace
+pip install pramagent
 ```
 
 ```python
 import asyncio
-from veritrace import Veritrace
+from pramagent import Pramagent
 
 async def main():
-    resp = await Veritrace().run("Summarize this request", tenant_id="demo", session_id="s1")
+    resp = await Pramagent().run("Summarize this request", tenant_id="demo", session_id="s1")
     print(resp.output)
     print(resp.trace.this_hash)
 
@@ -60,22 +60,22 @@ That creates a tamper-evident trace using the deterministic mock provider.
 ## API And Dashboard Install
 
 ```bash
-pip install "veritrace[api,dashboard,redis,postgres]"
+pip install "pramagent[api,dashboard,redis,postgres]"
 ```
 
 From source:
 
 ```bash
-git clone git@github.com:sriram7737/Veritrace.git
-cd Veritrace
+git clone git@github.com:sriram7737/Pramagent.git
+cd Pramagent
 pip install -e ".[dev,api,redis,postgres,dashboard]"
 ```
 
 ## CLI And Docker Quickstart
 
 ```bash
-veritrace init
-veritrace validate
+pramagent init
+pramagent validate
 ```
 
 Run the local stack:
@@ -94,8 +94,8 @@ Run the release sanity checks:
 
 ```bash
 python -m pytest -q --tb=no
-veritrace redteam --json --attacks 100
-veritrace redteam --json --dynamic --attacks 200 --seed 999
+pramagent redteam --json --attacks 100
+pramagent redteam --json --dynamic --attacks 200 --seed 999
 ```
 
 Current local result: `364 passed, 2 warnings`.
@@ -105,9 +105,9 @@ Current local result: `364 passed, 2 warnings`.
 ```python
 import asyncio
 
-from veritrace import Veritrace, Verdict
-from veritrace.layers import ToolGuardLayer, ToolPolicy
-from veritrace.layers.tool_guard import SideEffect
+from pramagent import Pramagent, Verdict
+from pramagent.layers import ToolGuardLayer, ToolPolicy
+from pramagent.layers.tool_guard import SideEffect
 
 guard = ToolGuardLayer(policies=[
     ToolPolicy(
@@ -127,7 +127,7 @@ guard = ToolGuardLayer(policies=[
     )
 ])
 
-armor = Veritrace(tool_guard=guard)
+armor = Pramagent(tool_guard=guard)
 
 async def main():
     decision = armor.validate_tool(
@@ -150,7 +150,7 @@ async def main():
 asyncio.run(main())
 ```
 
-## When To Use Veritrace
+## When To Use Pramagent
 
 - You are wrapping LLM calls or agent workflows and need audit trails, policy
   checks, HITL approvals, PII scrubbing, and provider fallback in one place.
@@ -161,7 +161,7 @@ asyncio.run(main())
 - You need tamper-evident traces with optional Sepolia anchoring and encrypted
   S3 cold archive support.
 
-## When Not To Use Veritrace Yet
+## When Not To Use Pramagent Yet
 
 - You need certified bank-grade, healthcare-grade, or SOC2-audited production
   infrastructure today.
@@ -214,7 +214,7 @@ asyncio.run(main())
 ## Optional Anchoring And Archive
 
 ```bash
-pip install "veritrace[ethereum,s3]"
+pip install "pramagent[ethereum,s3]"
 ```
 
 Ethereum/Sepolia anchoring submits the audit head as transaction calldata and
@@ -225,10 +225,10 @@ gzip JSON while keeping metadata available for compliance reporting.
 ## Demo Flow
 
 ```bash
-veritrace init
+pramagent init
 docker compose up -d
 python -m pytest -q --tb=no
-veritrace redteam --json --dynamic --attacks 200 --seed 999
+pramagent redteam --json --dynamic --attacks 200 --seed 999
 ```
 
 Then use the dashboard to inspect traces, pending HITL approvals, audit status,
@@ -236,17 +236,17 @@ metrics, and per-tenant usage.
 
 ## Docs
 
-- [Deployment guide](https://github.com/sriram7737/Veritrace/blob/main/docs/DEPLOYMENT.md)
-- [Implementation status](https://github.com/sriram7737/Veritrace/blob/main/docs/IMPLEMENTATION_STATUS.md)
-- [Compliance mapping](https://github.com/sriram7737/Veritrace/blob/main/docs/COMPLIANCE_MAPPING.md)
-- [Red-team results](https://github.com/sriram7737/Veritrace/blob/main/docs/REDTEAM_RESULTS.md)
-- [Live test results](https://github.com/sriram7737/Veritrace/blob/main/docs/LIVE_TEST_RESULTS.md)
-- [Load-test runbook](https://github.com/sriram7737/Veritrace/blob/main/docs/LOAD_TEST.md)
-- [Load-test results](https://github.com/sriram7737/Veritrace/blob/main/docs/LOAD_TEST_RESULTS.md)
-- [Hardening guide](https://github.com/sriram7737/Veritrace/blob/main/docs/HARDENING_GUIDE.md)
-- [Demo script](https://github.com/sriram7737/Veritrace/blob/main/docs/DEMO_SCRIPT.md)
-- [Changelog](https://github.com/sriram7737/Veritrace/blob/main/CHANGELOG.md)
-- [Design document](https://github.com/sriram7737/Veritrace/blob/main/docs/Veritrace-Design-Document.docx)
+- [Deployment guide](https://github.com/sriram7737/Pramagent/blob/main/docs/DEPLOYMENT.md)
+- [Implementation status](https://github.com/sriram7737/Pramagent/blob/main/docs/IMPLEMENTATION_STATUS.md)
+- [Compliance mapping](https://github.com/sriram7737/Pramagent/blob/main/docs/COMPLIANCE_MAPPING.md)
+- [Red-team results](https://github.com/sriram7737/Pramagent/blob/main/docs/REDTEAM_RESULTS.md)
+- [Live test results](https://github.com/sriram7737/Pramagent/blob/main/docs/LIVE_TEST_RESULTS.md)
+- [Load-test runbook](https://github.com/sriram7737/Pramagent/blob/main/docs/LOAD_TEST.md)
+- [Load-test results](https://github.com/sriram7737/Pramagent/blob/main/docs/LOAD_TEST_RESULTS.md)
+- [Hardening guide](https://github.com/sriram7737/Pramagent/blob/main/docs/HARDENING_GUIDE.md)
+- [Demo script](https://github.com/sriram7737/Pramagent/blob/main/docs/DEMO_SCRIPT.md)
+- [Changelog](https://github.com/sriram7737/Pramagent/blob/main/CHANGELOG.md)
+- [Design document](https://github.com/sriram7737/Pramagent/blob/main/docs/Pramagent-Design-Document.docx)
 
 ## Author
 

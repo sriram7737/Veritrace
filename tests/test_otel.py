@@ -1,7 +1,7 @@
 import pytest
 
-from veritrace.layers import ObservabilityLayer
-from veritrace.otel import OpenTelemetryExporter, OpenTelemetryNotInstalled
+from pramagent.layers import ObservabilityLayer
+from pramagent.otel import OpenTelemetryExporter, OpenTelemetryNotInstalled
 
 
 def test_otel_exporter_registers_against_installed_api():

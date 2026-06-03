@@ -5,11 +5,11 @@ import tempfile
 
 import pytest
 
-from veritrace.compliance import (ComplianceReporter, ConsentRegistry,
+from pramagent.compliance import (ComplianceReporter, ConsentRegistry,
                                    Purpose, RetentionPolicy)
-from veritrace.store import MemoryStore
-from veritrace.audit import HashChainBackend
-from veritrace.types import TraceEvent
+from pramagent.store import MemoryStore
+from pramagent.audit import HashChainBackend
+from pramagent.types import TraceEvent
 
 
 # ── ConsentRegistry ────────────────────────────────────────────────────────
@@ -89,7 +89,7 @@ def test_report_json_and_text():
     parsed = json.loads(blob)
     assert parsed["framework"] == "EU_AI_ACT"
     text = rep.to_text(tenant_id="acme")
-    assert "VERITRACE COMPLIANCE REPORT" in text
+    assert "PRAMAGENT COMPLIANCE REPORT" in text
     assert "HASH CHAIN" in text.upper()
 
 

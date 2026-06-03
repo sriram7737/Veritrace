@@ -4,14 +4,14 @@ import pytest
 fastapi = pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
 
-from veritrace.api.app import create_app  # noqa: E402
-from veritrace.api.app import build_default_armor  # noqa: E402
-from veritrace import Veritrace, Verdict  # noqa: E402
-from veritrace.hitl.slack import SlackApprovalRegistry  # noqa: E402
-from veritrace.layers import HITLLayer, ToolGuardLayer, ToolPolicy  # noqa: E402
-from veritrace.layers.tool_guard import SideEffect  # noqa: E402
-from veritrace.ratelimit import TokenBucket  # noqa: E402
-from veritrace.usage import InMemoryUsageLedger, UsageLimits, UsageTracker  # noqa: E402
+from pramagent.api.app import create_app  # noqa: E402
+from pramagent.api.app import build_default_armor  # noqa: E402
+from pramagent import Pramagent, Verdict  # noqa: E402
+from pramagent.hitl.slack import SlackApprovalRegistry  # noqa: E402
+from pramagent.layers import HITLLayer, ToolGuardLayer, ToolPolicy  # noqa: E402
+from pramagent.layers.tool_guard import SideEffect  # noqa: E402
+from pramagent.ratelimit import TokenBucket  # noqa: E402
+from pramagent.usage import InMemoryUsageLedger, UsageLimits, UsageTracker  # noqa: E402
 
 
 @pytest.fixture
@@ -39,7 +39,7 @@ def test_run_returns_trace_fields(client):
 
 
 def test_run_passes_trace_headers_to_core():
-    armor = Veritrace()
+    armor = Pramagent()
     original_run = armor.run
     seen = {}
 
@@ -260,7 +260,7 @@ def test_hitl_pending_includes_registry_tenant_context():
         "wire_transfer",
         {"tenant": "bank", "output_preview": "transfer preview"},
     )
-    armor = Veritrace(hitl=HITLLayer(
+    armor = Pramagent(hitl=HITLLayer(
         require_approval_for=["wire_transfer"],
         approver=RegistryBackedApprover(registry),
     ))
@@ -276,7 +276,7 @@ def test_hitl_pending_includes_registry_tenant_context():
 
 
 def test_default_api_provider_can_be_selected_from_env(monkeypatch):
-    monkeypatch.setenv("VERITRACE_PROVIDER", "anthropic")
+    monkeypatch.setenv("PRAMAGENT_PROVIDER", "anthropic")
     monkeypatch.setenv("ANTHROPIC_MODEL", "claude-test-model")
     armor = build_default_armor()
 
@@ -294,7 +294,7 @@ def test_default_api_provider_can_be_selected_from_env(monkeypatch):
     ],
 )
 def test_api_provider_matrix_from_env(monkeypatch, provider_name, env, expected_name, expected_model):
-    monkeypatch.setenv("VERITRACE_PROVIDER", provider_name)
+    monkeypatch.setenv("PRAMAGENT_PROVIDER", provider_name)
     for key, value in env.items():
         monkeypatch.setenv(key, value)
 

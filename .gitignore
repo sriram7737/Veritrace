@@ -11,7 +11,7 @@ htmlcov/
 *.egg-info/
 build/
 dist/
-veritrace-[0-9]*/
+pramagent-[0-9]*/
 
 # Virtual environments
 .venv/
