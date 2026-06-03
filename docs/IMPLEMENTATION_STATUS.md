@@ -1,6 +1,6 @@
 # Pramagent — Current Implementation Status
 
-_Last updated after the v0.5.1 PyPI link hotfix release pass._
+_Last updated after the v0.5.2 final GitHub repository rename release pass._
 
 This document is deliberately blunt. Pramagent is **strong trust middleware for
 AI agents** — deterministic guardrails, HITL, tool policy, and tamper-evident

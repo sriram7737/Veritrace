@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.5.2 - 2026-06-02
+
+This is a final repository-link cleanup patch after the GitHub repository was
+renamed to `sriram7737/pramagent`. It does not change runtime behavior.
+
+### Fixed
+
+- README badge, CI, diagram, documentation, clone, and project metadata links
+  now point at `https://github.com/sriram7737/pramagent`.
+
 ## v0.5.1 - 2026-06-02
 
 This is a PyPI listing hotfix. It does not change runtime behavior.
