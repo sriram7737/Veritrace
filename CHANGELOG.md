@@ -1,5 +1,31 @@
 # Changelog
 
+## v0.5.3 - 2026-06-04
+
+This release adds the canonical live workflow evidence for Pramagent's public
+Alpha launch story.
+
+### Added
+
+- `examples/live_payment_agent.py`, a real payment-agent workflow that can run
+  against either the mock provider or live OpenAI.
+- `docs/LIVE_WORKFLOW_DEMO.md`, including the verified live OpenAI result:
+  allowed read-only lookup, HITL-idle payment, tenant block, schema block, and
+  valid SQLite audit chain.
+- `docs/TECHNICAL_MARKETING_POST.md`, a technical launch/post template grounded
+  in the live workflow demo.
+
+### Changed
+
+- README docs index now links to the live workflow demo.
+- Release checklist now references the live workflow result and `v0.5.3`.
+
+### Still Not Proven
+
+- This remains Alpha software. The live workflow demo is stronger evidence than
+  unit tests alone, but it is not an external penetration test, compliance
+  certification, or proof of prompt-injection immunity.
+
 ## v0.5.2 - 2026-06-02
 
 This is a final repository-link cleanup patch after the GitHub repository was

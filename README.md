@@ -241,6 +241,7 @@ metrics, and per-tenant usage.
 - [Compliance mapping](https://github.com/sriram7737/pramagent/blob/main/docs/COMPLIANCE_MAPPING.md)
 - [Red-team results](https://github.com/sriram7737/pramagent/blob/main/docs/REDTEAM_RESULTS.md)
 - [Live test results](https://github.com/sriram7737/pramagent/blob/main/docs/LIVE_TEST_RESULTS.md)
+- [Live workflow demo](https://github.com/sriram7737/pramagent/blob/main/docs/LIVE_WORKFLOW_DEMO.md)
 - [Load-test runbook](https://github.com/sriram7737/pramagent/blob/main/docs/LOAD_TEST.md)
 - [Load-test results](https://github.com/sriram7737/pramagent/blob/main/docs/LOAD_TEST_RESULTS.md)
 - [Hardening guide](https://github.com/sriram7737/pramagent/blob/main/docs/HARDENING_GUIDE.md)
