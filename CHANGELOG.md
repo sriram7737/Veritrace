@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.5.5 - 2026-06-04
+
+This is a README/PyPI listing-quality release.
+
+### Changed
+
+- ToolGuard README example now shows two blocked cases in addition to HITL
+  escalation: an oversized payment rejected by JSON Schema and a wrong-tenant
+  payment rejected by tenant policy.
+
+### Still Not Proven
+
+- This remains Alpha software. The stronger example demonstrates policy
+  enforcement semantics, not third-party safety certification.
+
 ## v0.5.4 - 2026-06-04
 
 This is a listing-quality release focused on making the package feel runnable

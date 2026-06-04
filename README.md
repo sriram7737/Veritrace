@@ -140,6 +140,22 @@ async def main():
     )
     print(decision.verdict)  # ESCALATE
 
+    too_large = armor.validate_tool(
+        "send_payment",
+        {"amount_usd": 9000.00, "destination": "acct-123456"},
+        tenant_id="finance_team",
+        session_id="demo",
+    )
+    print(too_large.verdict, too_large.reason)  # BLOCK: schema violation
+
+    wrong_tenant = armor.validate_tool(
+        "send_payment",
+        {"amount_usd": 250.00, "destination": "acct-123456"},
+        tenant_id="marketing_team",
+        session_id="demo",
+    )
+    print(wrong_tenant.verdict, wrong_tenant.reason)  # BLOCK: tenant mismatch
+
     response = await armor.run(
         "Summarize this payment request",
         tenant_id="finance_team",
