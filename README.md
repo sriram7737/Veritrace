@@ -59,6 +59,15 @@ asyncio.run(main())
 
 That creates a tamper-evident trace using the deterministic mock provider.
 
+Swap to a real OpenAI model by setting `OPENAI_API_KEY`:
+
+```python
+from pramagent import Pramagent
+from pramagent.providers import OpenAIProvider
+
+armor = Pramagent(provider=OpenAIProvider(model="gpt-4o-mini"))
+```
+
 ## API And Dashboard Install
 
 ```bash

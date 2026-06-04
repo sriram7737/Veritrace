@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.5.6 - 2026-06-04
+
+This is a README/PyPI listing-quality release.
+
+### Changed
+
+- Bare-install section now includes the exact import path for swapping from the
+  mock provider to a real OpenAI provider:
+  `from pramagent.providers import OpenAIProvider`.
+
+### Still Not Proven
+
+- This remains Alpha software. The provider snippet shows how to connect a real
+  model; it is not a claim of provider-specific safety certification.
+
 ## v0.5.5 - 2026-06-04
 
 This is a README/PyPI listing-quality release.
