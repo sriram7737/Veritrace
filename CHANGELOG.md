@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- GitHub Actions Trusted Publishing workflow for PyPI releases using OIDC and
+  `pypa/gh-action-pypi-publish@release/v1`.
+
+### Changed
+
+- Release checklist now documents the PyPI Trusted Publisher setup and treats
+  token-based local Twine upload as an emergency fallback.
+
 ## v0.5.7 - 2026-06-04
 
 This is a README/PyPI listing-quality release.

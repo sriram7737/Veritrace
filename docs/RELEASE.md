@@ -51,6 +51,28 @@ Confirm the release positioning:
   in the built artifacts.
 - QuantumLayer is described only as future research, not as an exposed feature.
 
+## Trusted Publishing Setup
+
+Pramagent is configured for PyPI Trusted Publishing through
+`.github/workflows/publish.yml`. This removes the need to store or paste a PyPI
+API token during normal releases.
+
+One-time PyPI project setup:
+
+- Go to the `pramagent` project on PyPI.
+- Add a GitHub Trusted Publisher with:
+  - Owner: `sriram7737`
+  - Repository name: `pramagent`
+  - Workflow filename: `publish.yml`
+  - Environment name: `pypi`
+- In GitHub repository settings, create an environment named `pypi`.
+- Recommended: require a manual reviewer on the `pypi` environment so a
+  compromised push cannot publish without approval.
+
+The publish workflow uses OIDC through `pypa/gh-action-pypi-publish@release/v1`
+with `id-token: write`. Do not add `TWINE_PASSWORD`, `PYPI_API_TOKEN`, or other
+PyPI credentials to this workflow.
+
 ## Build
 
 ```bash
@@ -81,20 +103,24 @@ Create a GitHub Release from tag `v0.5.7` and include:
 
 ## PyPI
 
-Publishing requires a PyPI API token with permission for the `pramagent`
-project.
+Publishing should happen through the GitHub Actions Trusted Publishing
+workflow, not local Twine upload.
 
-Go ahead with PyPI publication when the preflight, build, twine check, and
-positioning checks above pass.
+Normal release path:
 
-```bash
-python -m twine upload dist/*
-```
+1. Complete the preflight checks above.
+2. Push the release commit and tag.
+3. Create and publish the GitHub Release.
+4. Confirm `.github/workflows/publish.yml` completes successfully.
+5. Verify the PyPI release page and run the post-release smoke check below.
 
 The PyPI page uses `README.md` as the long description. Do not publish if the
 Alpha maturity notice or honest-limits section has been removed.
 
-Use TestPyPI first when validating a new publishing setup:
+Token-based local upload is now an emergency fallback only. If used, rotate the
+token afterward and document why Trusted Publishing was bypassed.
+
+Use TestPyPI first when validating any new publishing setup:
 
 ```bash
 python -m twine upload --repository testpypi dist/*
