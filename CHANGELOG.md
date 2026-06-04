@@ -1,5 +1,27 @@
 # Changelog
 
+## v0.5.4 - 2026-06-04
+
+This is a listing-quality release focused on making the package feel runnable
+within the first five seconds of evaluation.
+
+### Added
+
+- `docs/quickstart-terminal.png`, a terminal-style screenshot of
+  `pip install pramagent` followed by the bare mock-provider quickstart with a
+  printed `this_hash`.
+
+### Changed
+
+- README now shows the quickstart screenshot immediately after the bare-install
+  code block.
+- Source and wheel distributions now include PNG docs assets.
+
+### Still Not Proven
+
+- This remains Alpha software. The screenshot proves the base package runs; it
+  is not a production safety claim or external certification.
+
 ## v0.5.3 - 2026-06-04
 
 This release adds the canonical live workflow evidence for Pramagent's public

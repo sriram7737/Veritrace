@@ -55,6 +55,8 @@ async def main():
 asyncio.run(main())
 ```
 
+![Pramagent bare-install terminal quickstart](https://raw.githubusercontent.com/sriram7737/pramagent/main/docs/quickstart-terminal.png)
+
 That creates a tamper-evident trace using the deterministic mock provider.
 
 ## API And Dashboard Install
