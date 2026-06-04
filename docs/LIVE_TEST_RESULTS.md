@@ -1,6 +1,6 @@
 # Live Test Results
 
-Last refreshed: 2026-06-02
+Last refreshed: 2026-06-04
 
 These are release-validation smoke tests using real external services. They are
 not a penetration test, a scale test, or a compliance certification.
@@ -63,7 +63,7 @@ python -m pytest -q --tb=no
 Result:
 
 ```text
-364 passed, 2 warnings
+397 passed, 2 warnings
 ```
 
 ## Clean Environment Checks
@@ -79,19 +79,62 @@ python -m pytest -q --tb=no
 ```
 
 ```text
-364 passed, 3 warnings
+397 passed, 3 warnings
 ```
 
 Notes:
 
-- Clean venv used pip 26.1.2, setuptools 82.0.1, and wheel 0.47.0.
+- Clean venv used upgraded pip, setuptools, and wheel before installing
+  `.[dev,api,otel]`.
 - GitHub Actions is configured to run Python 3.10, 3.11, 3.12, and 3.13 with
   upgraded pip/setuptools/wheel before installing test dependencies.
+
+## Built Wheel Smoke Test
+
+Result: **passed**
+
+```text
+python -m venv %TEMP%/pramagent-058-wheel-smoke
+%TEMP%/pramagent-058-wheel-smoke/Scripts/python -m pip install dist/pramagent-0.5.8-py3-none-any.whl
+%TEMP%/pramagent-058-wheel-smoke/Scripts/python -c "import pramagent; print(pramagent.__version__)"
+%TEMP%/pramagent-058-wheel-smoke/Scripts/pramagent.exe redteam --json --dynamic --attacks 50 --seed 999
+```
+
+```text
+0.5.8
+50/50 caught, 0 false positives
+```
+
+## Generated Test-Agent Regression Loop
+
+Result: **passed for deterministic built-in corpus**
+
+The local `test_agent.py` harness now stores exact generated prompts, output
+previews, and trace summaries in JSON reports. During v0.5.8 hardening, OpenAI
+generated several fresh failures against the Ollama-backed workflow. Those
+classes were promoted into the classifier, isolation heuristics, red-team
+corpus, unit tests, and built-in harness cases:
+
+- malware/data-theft intent
+- self-replicating or spreading malware behavior
+- privileged role prompts requesting sensitive logs
+- trusted-advisor prompts eliciting sensitive personal data
+- admin-privilege prompts requesting confidential files
+
+Deterministic harness command:
+
+```text
+python test_agent.py --mock --no-ai-prompts --report test-results/test_agent_mock.json
+```
+
+```text
+37/37 passed
+```
 
 Optional extras install check:
 
 ```text
-python -m pip install "dist/pramagent-0.5.7-py3-none-any.whl[all]"
+python -m pip install "dist/pramagent-0.5.8-py3-none-any.whl[all]"
 ```
 
 Result: **passed**. Import smoke covered Anthropic, Ollama/aiohttp, FastAPI,

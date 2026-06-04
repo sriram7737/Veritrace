@@ -151,3 +151,87 @@ def test_dashboard_usage_page_is_tenant_scoped(monkeypatch):
     assert response.status_code == 200
     assert "tenant_a" in response.text
     assert "Usage Event Sinks" in response.text
+
+
+def test_dashboard_logout_revokes_session_and_protected_pages_are_no_store(monkeypatch):
+    async def fake_get(path, params=None):
+        if path == "/usage":
+            return {"tenant_id": "tenant_a", "calls": 1, "limits": {}, "remaining": {}}
+        if path == "/metrics":
+            return {}
+        raise AssertionError(path)
+
+    monkeypatch.setattr(dashboard, "_get", fake_get)
+    monkeypatch.setattr(dashboard, "_rate_limit", lambda request: None)
+    monkeypatch.setattr(dashboard, "PRAMAGENT_DASHBOARD_KEY", "secret")
+    monkeypatch.setattr(dashboard, "PRAMAGENT_DASHBOARD_TENANT", "tenant_a")
+    monkeypatch.setattr(dashboard, "PRAMAGENT_DASHBOARD_SECURE_COOKIE", False)
+    dashboard._revoked_sessions.clear()
+    client = TestClient(dashboard.app)
+
+    login = client.post(
+        "/login",
+        data={"username": "alice", "password": "secret"},
+        follow_redirects=False,
+    )
+    assert login.status_code == 302
+
+    usage = client.get("/usage")
+    assert usage.status_code == 200
+    assert "no-store" in usage.headers["cache-control"]
+
+    logout = client.post("/logout", follow_redirects=False)
+    assert logout.status_code == 303
+    assert "pramagent_session=" in logout.headers["set-cookie"]
+    assert "Max-Age=0" in logout.headers["set-cookie"]
+
+    protected = client.get("/usage", follow_redirects=False)
+    assert protected.status_code == 302
+    assert protected.headers["location"] == "/login"
+
+
+def test_dashboard_csv_export_is_tenant_scoped_and_downloadable(monkeypatch):
+    async def fake_get(path, params=None):
+        assert path == "/traces"
+        assert params == {"limit": 10000, "tenant_id": "tenant_a"}
+        return {
+            "items": [
+                {
+                    "created_at": "2026-06-04T00:00:00Z",
+                    "call_id": "call-1",
+                    "this_hash": "abc",
+                    "prev_hash": "000",
+                    "tenant_id": "tenant_a",
+                    "session_id": "s1",
+                    "action": "respond",
+                    "input_text": "hello",
+                    "output_text": "world",
+                    "blocked": False,
+                    "block_reason": "",
+                    "pre_verdict": "allow",
+                    "post_verdict": "allow",
+                    "hitl_status": "auto",
+                    "provider": "mock",
+                    "provider_model": "demo",
+                    "provider_cost_usd": 0,
+                    "total_latency_ms": 1.2,
+                },
+                {"tenant_id": "tenant_b", "this_hash": "blocked-by-scope"},
+            ]
+        }
+
+    monkeypatch.setattr(dashboard, "_get", fake_get)
+    monkeypatch.setattr(dashboard, "_rate_limit", lambda request: None)
+    monkeypatch.setattr(dashboard, "PRAMAGENT_DASHBOARD_KEY", "secret")
+    monkeypatch.setattr(dashboard, "PRAMAGENT_DASHBOARD_TENANT", "tenant_a")
+    client = TestClient(dashboard.app)
+
+    response = client.get("/export/traces.csv", headers={"X-API-Key": "secret"})
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/csv")
+    assert 'filename="pramagent_traces.csv"' in response.headers["content-disposition"]
+    assert "no-store" in response.headers["cache-control"]
+    assert "call_id" in response.text
+    assert "call-1" in response.text
+    assert "blocked-by-scope" not in response.text

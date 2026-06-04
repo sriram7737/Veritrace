@@ -245,7 +245,7 @@ Pramagent wraps model calls and agent workflows with:
 
 Release evidence:
 
-- 364 passing tests
+- 397 passing tests
 - Python 3.10, 3.11, 3.12, and 3.13 CI matrix
 - live OpenAI smoke test
 - local Ollama smoke test
@@ -382,7 +382,7 @@ The most important layer is ToolGuard:
 - escalate risky tools to human approval
 - record decisions in a tamper-evident trace
 
-The release has 364 passing tests and a Python 3.10 through 3.13 CI matrix, plus
+The release has 397 passing tests and a Python 3.10 through 3.13 CI matrix, plus
 live smoke evidence for OpenAI, Ollama, Sepolia anchoring, and S3
 archive/restore. That does not make it production-certified, but it does mean
 the release is more than a README.
@@ -431,7 +431,7 @@ Pramagent currently includes:
 - optional Sepolia timestamp anchoring and S3 cold archive support
 - FastAPI sidecar, dashboard skeleton, Redis/Postgres support, OTel spans
 - red-team benchmark CLI
-- 364 passing tests across Python 3.10 through 3.13
+- 397 passing tests across Python 3.10 through 3.13
 
 Important: it is Alpha software. It is not bank-grade, healthcare-grade,
 externally audited, or prompt-injection-proof. I documented the current status
@@ -471,7 +471,7 @@ What is included today:
 - hash-chain audit traces
 - optional Sepolia timestamp anchoring and S3 archive support
 - FastAPI sidecar, dashboard skeleton, Redis/Postgres, OTel
-- 364 passing tests
+- 397 passing tests
 
 It is Alpha and not externally certified. The implementation status is public
 and intentionally blunt.
@@ -538,7 +538,7 @@ anchoring, S3 archive support, Redis/Postgres, OTel, and a FastAPI sidecar.
 
 6. Current release evidence:
 
-- 364 passing tests
+- 397 passing tests
 - Python 3.10 to 3.13 CI
 - OpenAI and Ollama smoke tests
 - Sepolia anchoring smoke

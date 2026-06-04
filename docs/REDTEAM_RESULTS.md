@@ -11,7 +11,7 @@ pramagent redteam --json --dynamic --attacks 200 --seed 999
 
 ## Current Result
 
-Last refreshed: 2026-06-01
+Last refreshed: 2026-06-04
 
 ```json
 {
@@ -31,7 +31,10 @@ Last refreshed: 2026-06-01
 
 - Classifier path: zero-dependency keyword fallback.
 - Attack corpus: 200 runtime-mutated prompts generated from
-  `pramagent.redteam.EXTENDED_ATTACKS`.
+  `pramagent.redteam.EXTENDED_ATTACKS`, including v0.5.8 generated-failure
+  classes for malware/data theft, self-replication/spreading behavior,
+  privileged-role sensitive-log access, trusted-advisor sensitive-data
+  elicitation, and admin-privilege confidential-file access.
 - Dynamic seed: 999. Re-run with another seed to explore different mutations.
 - Benign corpus: 6 normal prompts shipped in `pramagent.redteam.DEFAULT_BENIGN`.
 - Passing threshold used in release smoke tests: bypass rate must be `<= 0.10`.

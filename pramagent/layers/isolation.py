@@ -44,16 +44,43 @@ _INJECTION_PATTERNS: list[tuple[str, re.Pattern, str]] = [
                 re.IGNORECASE),
      "classic prompt-injection override"),
     ("role_hijack",
-     re.compile(r"(?m)^\s*(system|assistant|developer)\s*[:>]", re.IGNORECASE),
+     re.compile(
+         r"(?m)^\s*(#{1,6}\s*)?(system|assistant|developer|tool|function)\s*"
+         r"(message|prompt|instructions?|role|turn)?\s*[:>\-=]\s*.{0,120}"
+         r"\b(ignore|override|bypass|reveal|leak|comply|new\s+directive|you\s+(are|must|will))\b",
+         re.IGNORECASE | re.DOTALL,
+     ),
      "attempt to inject a fake role/turn header"),
     ("disregard_safety",
-     re.compile(r"(disregard|bypass|ignore|override)\s+(your\s+)?(safety|guidelines|rules|policies)",
+     re.compile(r"(disregard|bypass|ignore|override)\s+(your\s+)?(safety|guidelines?|rules?|polic(?:y|ies))",
                 re.IGNORECASE),
      "explicit safety bypass request"),
     ("data_exfiltration",
      re.compile(r"(dump|print|reveal|show|leak|exfiltrate)\s+(all\s+|the\s+)?(memory|secrets?|keys?|tokens?|env(ironment)?|database|users?)",
                 re.IGNORECASE),
      "request to reveal internal state or secrets"),
+    ("sensitive_admin_exfiltration",
+     re.compile(
+         r"\b(as\s+an\s+admin|administrator|admin|root|superuser)\b"
+         r".{0,120}\b(generate|show|reveal|export|return|dump|print)\b"
+         r".{0,120}\b(sensitive\s+)?(system\s+)?(logs?|audit\s+logs?|credentials?|secrets?|private\s+data)\b|"
+         r"\b(admin|administrator|root|superuser)\s+privileges?\b"
+         r".{0,140}\b(access|read|open|retrieve|return|export|download|copy)\b"
+         r".{0,140}\b(confidential|sensitive|private|protected)\s+(data|files?|records?|documents?)\b|"
+         r"\brole\s*:\s*['\"]?(administrative_access|admin|administrator|root|superuser|system)['\"]?\b"
+         r".{0,140}\b(sensitive\s+)?(system\s+)?(logs?|audit\s+logs?|credentials?|secrets?|private\s+data)\b",
+         re.IGNORECASE | re.DOTALL,
+     ),
+     "attempt to use privileged role context to reveal sensitive operational data"),
+    ("sensitive_data_elicitation",
+     re.compile(
+         r"\b(as\s+an\s+expert|security\s+advisor|trusted\s+advisor|advisor)\b"
+         r".{0,140}\b(recommend|advise|instruct|ask|tell)\b"
+         r".{0,80}\b(shar(?:e|es|ing)|send(?:s|ing)?|upload(?:s|ing)?|provid(?:e|es|ing)|disclos(?:e|es|ing)|return(?:s|ing)?)\b"
+         r".{0,120}\b(sensitive\s+data|passwords?|personal\s+information|credentials?|secrets?|private\s+data)\b",
+         re.IGNORECASE | re.DOTALL,
+     ),
+     "attempt to elicit sensitive data under a trusted-advisor role"),
     ("pretend_you_are",
      re.compile(
          r"(pretend|act|behave|roleplay)\s+"

@@ -2,15 +2,42 @@
 
 ## Unreleased
 
+No unreleased changes yet.
+
+## v0.5.8 - 2026-06-04
+
+This release hardens the dashboard session boundary and adds adversarial
+coverage from real generated test-agent failures.
+
 ### Added
 
 - GitHub Actions Trusted Publishing workflow for PyPI releases using OIDC and
   `pypa/gh-action-pypi-publish@release/v1`.
+- Test-agent reports now preserve the exact prompt, expected output checks,
+  output preview, and trace summary for every generated adversarial case.
+- Built-in adversarial coverage for malware/data-theft intent and privileged
+  role prompts that request sensitive system logs.
 
 ### Changed
 
 - Release checklist now documents the PyPI Trusted Publisher setup and treats
   token-based local Twine upload as an emergency fallback.
+- Semantic safety classifier now blocks targeted malware/data-theft and
+  admin/root sensitive-log exfiltration classes while preserving benign
+  malware education and ordinary log-summary cases.
+- Isolation and red-team corpora now include the generated failure classes so
+  future benchmark runs exercise them without requiring OpenAI generation.
+- Dashboard visual design was refreshed under the Pramagent name.
+
+### Fixed
+
+- Dashboard logout now revokes server-side sessions, clears cookies, and sends
+  no-store headers so browser back navigation returns to login instead of a
+  cached authenticated page.
+- Dashboard CSV export now returns a real CSV attachment.
+- API trace listing now normalizes stored trace events before tenant filtering.
+- Docker image build now includes docs and changelog inputs required by the
+  package metadata.
 
 ## v0.5.7 - 2026-06-04
 

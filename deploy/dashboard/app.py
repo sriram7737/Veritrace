@@ -26,6 +26,7 @@ import json
 import logging
 import os
 import time
+import uuid
 from pathlib import Path
 from typing import Optional
 
@@ -67,6 +68,29 @@ app = FastAPI(title="Pramagent Dashboard", docs_url=None, redoc_url=None)
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 log = logging.getLogger("pramagent.dashboard")
 
+_NO_STORE_HEADERS = {
+    "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0, private",
+    "Pragma": "no-cache",
+    "Expires": "0",
+    "X-Frame-Options": "DENY",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "same-origin",
+}
+
+
+def _apply_security_headers(response: Response) -> Response:
+    for key, value in _NO_STORE_HEADERS.items():
+        response.headers[key] = value
+    return response
+
+
+@app.middleware("http")
+async def no_store_dashboard_pages(request: Request, call_next):
+    response = await call_next(request)
+    if request.url.path != "/health":
+        _apply_security_headers(response)
+    return response
+
 
 # ── minimal JWT (HS256, no external deps) ────────────────────────────────────
 
@@ -82,7 +106,7 @@ def _sign(payload: dict) -> str:
     sig = hmac.new(PRAMAGENT_JWT_SECRET.encode(), signing_input, hashlib.sha256).digest()
     return f"{header}.{body}.{_b64url(sig)}"
 
-def _verify(token: str) -> Optional[dict]:
+def _verify(token: str, *, check_revocation: bool = True) -> Optional[dict]:
     try:
         parts = token.split(".")
         if len(parts) != 3:
@@ -98,6 +122,8 @@ def _verify(token: str) -> Optional[dict]:
         padded = body + "=" * (4 - len(body) % 4)
         payload = json.loads(base64.urlsafe_b64decode(padded))
         if payload.get("exp", 0) < time.time():
+            return None
+        if check_revocation and payload.get("jti") and _is_session_revoked(payload["jti"]):
             return None
         return payload
     except Exception:
@@ -140,6 +166,7 @@ def require_auth(request: Request) -> AuthContext:
 # ── rate limit (Redis-backed when configured, in-process fallback) ────────────
 
 _rl_state: dict[str, tuple[float, float]] = {}  # ip -> (tokens, last_refill)
+_revoked_sessions: dict[str, float] = {}        # dashboard session id -> exp
 _RL_CAPACITY    = float(os.environ.get("PRAMAGENT_DASHBOARD_RL_CAPACITY", "60"))
 _RL_REFILL_S    = float(os.environ.get("PRAMAGENT_DASHBOARD_RL_REFILL", "60"))  # tokens/minute
 _redis_client = None
@@ -189,6 +216,34 @@ def _redis_rate_limit(key: str) -> bool:
         raise HTTPException(status_code=429, detail="Rate limit exceeded")
     client.set(redis_key, json.dumps([tokens - 1, now]), ex=max(1, int(_RL_REFILL_S * 2)))
     return True
+
+
+def _is_session_revoked(jti: str) -> bool:
+    client = _dashboard_redis()
+    if client is not None:
+        try:
+            return bool(client.get(f"pramagent:dashboard:revoked:{jti}"))
+        except Exception as exc:
+            log.warning("dashboard redis session revocation check failed open to local store: %s", exc)
+
+    now = time.time()
+    expired = [key for key, exp in _revoked_sessions.items() if exp < now]
+    for key in expired:
+        _revoked_sessions.pop(key, None)
+    return jti in _revoked_sessions
+
+
+def _revoke_session(jti: str, exp: int | float) -> None:
+    ttl = max(1, int(exp - time.time()))
+    client = _dashboard_redis()
+    if client is not None:
+        try:
+            client.set(f"pramagent:dashboard:revoked:{jti}", "1", ex=ttl)
+            return
+        except Exception as exc:
+            log.warning("dashboard redis session revocation failed open to local store: %s", exc)
+    _revoked_sessions[jti] = float(exp)
+
 
 def _rate_limit(request: Request) -> None:
     ip = request.client.host if request.client else "unknown"
@@ -286,6 +341,7 @@ async def login(request: Request, username: str = Form(...), password: str = For
     payload = {
         "sub": username,
         "tenant": PRAMAGENT_DASHBOARD_TENANT,
+        "jti": str(uuid.uuid4()),
         "iat": int(time.time()),
         "exp": int(time.time()) + SESSION_TTL_S,
     }
@@ -299,11 +355,39 @@ async def login(request: Request, username: str = Form(...), password: str = For
     return resp
 
 
-@app.get("/logout")
-async def logout():
-    resp = RedirectResponse("/login", status_code=302)
-    resp.delete_cookie("pramagent_session")
+def _expire_session_cookie(resp: Response) -> Response:
+    resp.set_cookie(
+        "pramagent_session",
+        "",
+        max_age=0,
+        expires=0,
+        path="/",
+        httponly=True,
+        samesite="lax",
+        secure=PRAMAGENT_DASHBOARD_SECURE_COOKIE,
+    )
     return resp
+
+
+def _logout_response(request: Request) -> RedirectResponse:
+    token = request.cookies.get("pramagent_session", "")
+    if token:
+        payload = _verify(token, check_revocation=False)
+        if payload and payload.get("jti"):
+            _revoke_session(payload["jti"], payload.get("exp", time.time() + SESSION_TTL_S))
+    resp = RedirectResponse("/login", status_code=303)
+    _expire_session_cookie(resp)
+    return resp
+
+
+@app.post("/logout")
+async def logout(request: Request):
+    return _logout_response(request)
+
+
+@app.get("/logout")
+async def logout_get(request: Request):
+    return _logout_response(request)
 
 
 # ── overview ──────────────────────────────────────────────────────────────────
@@ -383,7 +467,7 @@ async def trace_detail(
     if not ctx.scope(trace.get("tenant_id", "")):
         raise HTTPException(status_code=403, detail="Access denied")
     return templates.TemplateResponse(request, "trace_detail.html", {
-        "trace": trace, "user": ctx.username,
+        "trace": trace, "user": ctx.username, "tenant": ctx.tenant,
     })
 
 
@@ -403,6 +487,7 @@ async def approvals(
     return templates.TemplateResponse(request, "approvals.html", {
         "approvals": _filter_by_tenant(items, ctx),
         "user": ctx.username,
+        "tenant": ctx.tenant,
     })
 
 
@@ -449,7 +534,7 @@ async def metrics_page(
     except Exception as exc:
         data = {"error": str(exc)}
     return templates.TemplateResponse(request, "metrics.html", {
-        "metrics": data, "user": ctx.username,
+        "metrics": data, "user": ctx.username, "tenant": ctx.tenant,
     })
 
 
@@ -504,6 +589,14 @@ async def export_csv(
 ):
     """Export trace list as CSV for compliance."""
     import csv, io
+
+    def csv_value(value):
+        if value is None:
+            return ""
+        if isinstance(value, (dict, list)):
+            return json.dumps(value, sort_keys=True)
+        return value
+
     params: dict = {"limit": 10000}
     if ctx.tenant != "*":
         params["tenant_id"] = ctx.tenant
@@ -515,15 +608,37 @@ async def export_csv(
     traces = _filter_by_tenant(traces, ctx)
 
     buf = io.StringIO()
-    fieldnames = ["this_hash", "tenant_id", "session_id", "input_text",
-                  "output_text", "blocked", "block_reason", "total_latency_ms",
-                  "provider", "provider_model", "provider_cost_usd", "hitl_status"]
-    w = csv.DictWriter(buf, fieldnames=fieldnames, extrasaction="ignore")
+    fieldnames = [
+        "created_at",
+        "call_id",
+        "this_hash",
+        "prev_hash",
+        "tenant_id",
+        "session_id",
+        "action",
+        "input_text",
+        "output_text",
+        "blocked",
+        "block_reason",
+        "pre_verdict",
+        "post_verdict",
+        "hitl_status",
+        "provider",
+        "provider_model",
+        "provider_cost_usd",
+        "total_latency_ms",
+    ]
+    w = csv.DictWriter(buf, fieldnames=fieldnames, extrasaction="ignore", lineterminator="\n")
     w.writeheader()
     for t in traces:
-        w.writerow(t)
+        w.writerow({field: csv_value(t.get(field)) for field in fieldnames})
     return Response(
         content=buf.getvalue(),
         media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=pramagent_traces.csv"},
+        headers={
+            "Content-Disposition": 'attachment; filename="pramagent_traces.csv"',
+            "Cache-Control": _NO_STORE_HEADERS["Cache-Control"],
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
     )

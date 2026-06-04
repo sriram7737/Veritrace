@@ -11,6 +11,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY pyproject.toml ./
 COPY pramagent/ pramagent/
 COPY README.md ./
+COPY CHANGELOG.md ./
+COPY docs/ docs/
 
 # Install with all optional extras
 RUN pip install --no-cache-dir --prefix=/install \

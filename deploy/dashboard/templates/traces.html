@@ -10,33 +10,33 @@
     <option value="true" {% if blocked=="true" %}selected{% endif %}>Blocked only</option>
     <option value="false" {% if blocked=="false" %}selected{% endif %}>Allowed only</option>
   </select>
-  <button class="btn" type="submit">Filter</button>
+  <button class="btn btn-primary" type="submit">Filter</button>
 </form>
 
 <div class="card">
   {% if traces %}
-  <table>
-    <thead><tr>
-      <th>Trace ID</th><th>Tenant</th><th>Session</th><th>Input</th>
-      <th>Verdict</th><th>Block Reason</th><th>Latency</th>
-    </tr></thead>
-    <tbody>
-    {% for t in traces %}
-    <tr>
-      <td class="mono"><a href="/traces/{{ t.get('this_hash','') }}">{{ t.get('this_hash','')[:12] }}…</a></td>
-      <td>{{ t.get("tenant_id","") }}</td>
-      <td>{{ t.get("session_id","") }}</td>
-      <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
-        {{ t.get("input_text","")[:50] }}
-      </td>
-      <td>{% if t.get("blocked") %}<span class="badge badge-block">BLOCKED</span>
-          {% else %}<span class="badge badge-ok">OK</span>{% endif %}</td>
-      <td style="color:#94a3b8;font-size:0.8rem">{{ t.get("block_reason","") }}</td>
-      <td>{{ "%.0f"|format(t.get("total_latency_ms",0)) }}ms</td>
-    </tr>
-    {% endfor %}
-    </tbody>
-  </table>
+  <div class="table-wrap">
+    <table>
+      <thead><tr>
+        <th>Trace ID</th><th>Tenant</th><th>Session</th><th>Input</th>
+        <th>Verdict</th><th>Block Reason</th><th>Latency</th>
+      </tr></thead>
+      <tbody>
+      {% for t in traces %}
+      <tr>
+        <td class="mono"><a href="/traces/{{ t.get('this_hash','') }}">{{ t.get('this_hash','')[:12] }}...</a></td>
+        <td>{{ t.get("tenant_id","") }}</td>
+        <td>{{ t.get("session_id","") }}</td>
+        <td class="truncate">{{ t.get("input_text","")[:80] }}</td>
+        <td>{% if t.get("blocked") %}<span class="badge badge-block">BLOCKED</span>
+            {% else %}<span class="badge badge-ok">OK</span>{% endif %}</td>
+        <td style="color:#64748b;font-size:0.8rem">{{ t.get("block_reason","") }}</td>
+        <td>{{ "%.0f"|format(t.get("total_latency_ms",0)) }}ms</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
   {% else %}
   <div class="empty">No traces match your filter.</div>
   {% endif %}

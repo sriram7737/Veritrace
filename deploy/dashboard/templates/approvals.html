@@ -3,36 +3,38 @@
 <h1>Pending Approvals</h1>
 <div class="card">
   {% if approvals %}
-  <table>
-    <thead><tr>
-      <th>Request ID</th><th>Action</th><th>Tenant</th><th>Preview</th><th>Age</th><th>Decision</th>
-    </tr></thead>
-    <tbody>
-    {% for a in approvals %}
-    <tr id="approval-{{ a.request_id }}">
-      <td class="mono">{{ a.request_id[:12] }}…</td>
-      <td><code>{{ a.action }}</code></td>
-      <td>{{ a.context.get("tenant","") }}</td>
-      <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#94a3b8">
-        {{ a.context.get("output_preview","") }}
-      </td>
-      <td style="color:#64748b">—</td>
-      <td style="display:flex;gap:0.5rem">
-        <button class="btn btn-approve"
-          hx-post="/approvals/{{ a.request_id }}/approve"
-          hx-target="#approval-{{ a.request_id }}"
-          hx-swap="outerHTML">Approve</button>
-        <button class="btn btn-deny"
-          hx-post="/approvals/{{ a.request_id }}/deny"
-          hx-target="#approval-{{ a.request_id }}"
-          hx-swap="outerHTML">Deny</button>
-      </td>
-    </tr>
-    {% endfor %}
-    </tbody>
-  </table>
+  <div class="table-wrap">
+    <table>
+      <thead><tr>
+        <th>Request ID</th><th>Action</th><th>Tenant</th><th>Preview</th><th>Age</th><th>Decision</th>
+      </tr></thead>
+      <tbody>
+      {% for a in approvals %}
+      <tr id="approval-{{ a.request_id }}">
+        <td class="mono">{{ a.request_id[:12] }}...</td>
+        <td><code>{{ a.action }}</code></td>
+        <td>{{ a.context.get("tenant","") }}</td>
+        <td class="truncate" style="color:#64748b">
+          {{ a.context.get("output_preview","") }}
+        </td>
+        <td style="color:#64748b">-</td>
+        <td style="display:flex;gap:0.5rem">
+          <button class="btn btn-approve"
+            hx-post="/approvals/{{ a.request_id }}/approve"
+            hx-target="#approval-{{ a.request_id }}"
+            hx-swap="outerHTML">Approve</button>
+          <button class="btn btn-deny"
+            hx-post="/approvals/{{ a.request_id }}/deny"
+            hx-target="#approval-{{ a.request_id }}"
+            hx-swap="outerHTML">Deny</button>
+        </td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
   {% else %}
-  <div class="empty">No pending approvals. ✓</div>
+  <div class="empty">No pending approvals.</div>
   {% endif %}
 </div>
 {% endblock %}

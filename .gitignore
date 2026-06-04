@@ -33,6 +33,7 @@ pramagent_config.py
 *.sqlite3
 *.log
 .test*.txt
+test-results/
 
 # OS/editor
 .DS_Store

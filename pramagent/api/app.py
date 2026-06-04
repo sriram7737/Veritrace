@@ -276,7 +276,7 @@ def create_app(armor: Optional[Pramagent] = None,
 
     app = FastAPI(
         title="Pramagent",
-        version="0.5.7",
+        version="0.5.8",
         description="Trust middleware for AI agents: deterministic guardrails, HITL, tool policy, tamper-evident traces.",
     )
     if os.environ.get("PRAMAGENT_OTEL_ENDPOINT") or os.environ.get("PRAMAGENT_OTEL_CONSOLE") == "1":
@@ -643,6 +643,13 @@ def create_app(armor: Optional[Pramagent] = None,
         limit: int = 50,
     ):
         """Return recent traces. Dashboard uses this for the trace browser."""
+        def trace_to_dict(trace):
+            if isinstance(trace, dict):
+                return trace
+            if hasattr(trace, "to_dict"):
+                return trace.to_dict()
+            return vars(trace)
+
         store = app.state.armor.store
         items = []
         if hasattr(store, "list_all"):
@@ -651,7 +658,8 @@ def create_app(armor: Optional[Pramagent] = None,
             # MemoryStore: return sorted by recency
             all_traces = list(store._traces.values())
             all_traces.sort(key=lambda t: getattr(t, "total_latency_ms", 0), reverse=False)
-            items = [t.to_dict() if hasattr(t, "to_dict") else vars(t) for t in all_traces[-limit:]]
+            items = all_traces[-limit:]
+        items = [trace_to_dict(t) for t in items]
         # filters
         if tenant_id:
             items = [t for t in items if t.get("tenant_id") == tenant_id]

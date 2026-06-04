@@ -6,7 +6,7 @@
   <form method="get" action="/usage" style="display:flex;gap:0.75rem;flex-wrap:wrap">
     <input name="tenant_id" value="{{ tenant_id }}" placeholder="tenant_id"
            {% if tenant != "*" %}readonly{% endif %}>
-    <button class="btn" type="submit">Refresh</button>
+    <button class="btn btn-primary" type="submit">Refresh</button>
   </form>
 </div>
 
