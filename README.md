@@ -263,18 +263,10 @@ metrics, and per-tenant usage.
 
 ## Docs
 
-- [Deployment guide](https://github.com/sriram7737/pramagent/blob/main/docs/DEPLOYMENT.md)
 - [Implementation status](https://github.com/sriram7737/pramagent/blob/main/docs/IMPLEMENTATION_STATUS.md)
-- [Compliance mapping](https://github.com/sriram7737/pramagent/blob/main/docs/COMPLIANCE_MAPPING.md)
-- [Red-team results](https://github.com/sriram7737/pramagent/blob/main/docs/REDTEAM_RESULTS.md)
 - [Live test results](https://github.com/sriram7737/pramagent/blob/main/docs/LIVE_TEST_RESULTS.md)
-- [Live workflow demo](https://github.com/sriram7737/pramagent/blob/main/docs/LIVE_WORKFLOW_DEMO.md)
-- [Load-test runbook](https://github.com/sriram7737/pramagent/blob/main/docs/LOAD_TEST.md)
-- [Load-test results](https://github.com/sriram7737/pramagent/blob/main/docs/LOAD_TEST_RESULTS.md)
 - [Hardening guide](https://github.com/sriram7737/pramagent/blob/main/docs/HARDENING_GUIDE.md)
-- [Demo script](https://github.com/sriram7737/pramagent/blob/main/docs/DEMO_SCRIPT.md)
-- [Changelog](https://github.com/sriram7737/pramagent/blob/main/CHANGELOG.md)
-- [Design document](https://github.com/sriram7737/pramagent/blob/main/docs/Pramagent-Design-Document.docx)
+- [More documentation](https://github.com/sriram7737/pramagent/tree/main/docs)
 
 ## Author
 

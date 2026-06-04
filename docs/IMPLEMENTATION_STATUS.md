@@ -1,6 +1,6 @@
 # Pramagent — Current Implementation Status
 
-_Last updated after the v0.5.6 real-provider README example release pass._
+_Last updated after the v0.5.7 README docs-surface cleanup release pass._
 
 This document is deliberately blunt. Pramagent is **strong trust middleware for
 AI agents** — deterministic guardrails, HITL, tool policy, and tamper-evident

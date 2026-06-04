@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.5.7 - 2026-06-04
+
+This is a README/PyPI listing-quality release.
+
+### Changed
+
+- Docs section now shows only the three highest-signal links on the launch
+  surface: implementation status, live test results, and hardening guide.
+- Remaining docs are collapsed behind one `More documentation` link to the
+  GitHub docs directory.
+
+### Still Not Proven
+
+- This remains Alpha software. This patch improves reader onboarding; it does
+  not change runtime safety guarantees.
+
 ## v0.5.6 - 2026-06-04
 
 This is a README/PyPI listing-quality release.
