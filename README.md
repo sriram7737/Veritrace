@@ -109,7 +109,7 @@ pramagent redteam --json --attacks 100
 pramagent redteam --json --dynamic --attacks 200 --seed 999
 ```
 
-Current local result: `397 passed, 2 warnings`.
+Current local result: `398 passed, 2 warnings`.
 
 ## ToolGuard Example
 

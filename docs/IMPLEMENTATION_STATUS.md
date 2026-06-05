@@ -1,6 +1,6 @@
 # Pramagent — Current Implementation Status
 
-_Last updated after the v0.5.8 dashboard/session and adversarial-hardening release pass._
+_Last updated after the v0.5.9 post-safety false-positive fix release pass._
 
 This document is deliberately blunt. Pramagent is **strong trust middleware for
 AI agents** — deterministic guardrails, HITL, tool policy, and tamper-evident
@@ -13,7 +13,7 @@ exist.
 
 ## Test status
 
-`python -m pytest -q --tb=no` -> **397 passing, 2 warnings**. No skips or
+`python -m pytest -q --tb=no` -> **398 passing, 2 warnings**. No skips or
 expected failures hiding classifier misses in the bundled suite.
 
 The local pre-PyPI clean-environment check was run on Python 3.13.13. GitHub

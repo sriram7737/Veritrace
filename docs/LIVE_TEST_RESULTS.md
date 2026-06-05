@@ -63,7 +63,7 @@ python -m pytest -q --tb=no
 Result:
 
 ```text
-397 passed, 2 warnings
+398 passed, 2 warnings
 ```
 
 ## Clean Environment Checks
@@ -79,7 +79,7 @@ python -m pytest -q --tb=no
 ```
 
 ```text
-397 passed, 3 warnings
+398 passed, 3 warnings
 ```
 
 Notes:
@@ -95,13 +95,13 @@ Result: **passed**
 
 ```text
 python -m venv %TEMP%/pramagent-058-wheel-smoke
-%TEMP%/pramagent-058-wheel-smoke/Scripts/python -m pip install dist/pramagent-0.5.8-py3-none-any.whl
-%TEMP%/pramagent-058-wheel-smoke/Scripts/python -c "import pramagent; print(pramagent.__version__)"
-%TEMP%/pramagent-058-wheel-smoke/Scripts/pramagent.exe redteam --json --dynamic --attacks 50 --seed 999
+%TEMP%/pramagent-059-wheel-smoke/Scripts/python -m pip install dist/pramagent-0.5.9-py3-none-any.whl
+%TEMP%/pramagent-059-wheel-smoke/Scripts/python -c "import pramagent; print(pramagent.__version__)"
+%TEMP%/pramagent-059-wheel-smoke/Scripts/pramagent.exe redteam --json --dynamic --attacks 50 --seed 999
 ```
 
 ```text
-0.5.8
+0.5.9
 50/50 caught, 0 false positives
 ```
 
@@ -131,10 +131,24 @@ python test_agent.py --mock --no-ai-prompts --report test-results/test_agent_moc
 37/37 passed
 ```
 
+Post-safety false-positive regression:
+
+```text
+python test_agent.py --ollama-model qwen2.5:1.5b --no-ai-prompts --report test-results/test_agent_ollama_qwen.json
+```
+
+```text
+37/37 passed
+no non-blocked sentinel outputs found
+```
+
+This checks that benign non-blocked responses are not silently replaced with
+`[output withheld by safety rule]`.
+
 Optional extras install check:
 
 ```text
-python -m pip install "dist/pramagent-0.5.8-py3-none-any.whl[all]"
+python -m pip install "dist/pramagent-0.5.9-py3-none-any.whl[all]"
 ```
 
 Result: **passed**. Import smoke covered Anthropic, Ollama/aiohttp, FastAPI,

@@ -4,6 +4,28 @@
 
 No unreleased changes yet.
 
+## v0.5.9 - 2026-06-04
+
+This patch release fixes post-safety false positives found during real local
+model workflow testing.
+
+### Changed
+
+- `SafetyLayer` now supports separate `post_rules` and `post_classifier`
+  configuration. Existing callers keep the previous behavior by default, while
+  production workflows can use strict input screening and narrower output
+  screening.
+- `test_agent.py` now treats `[output withheld by safety rule]` as a failure
+  for non-blocked cases, preventing silent post-safety false positives from
+  passing live workflow reports.
+
+### Fixed
+
+- Benign model outputs that mention risky terms in harmless contexts, such as
+  chemistry explanations or privacy-preserving PII refusals, are no longer
+  silently replaced when the harness is configured with narrow post-safety
+  policy.
+
 ## v0.5.8 - 2026-06-04
 
 This release hardens the dashboard session boundary and adds adversarial
