@@ -63,3 +63,26 @@ def test_rca_replay_reproducible():
     rep = rca.replay(r.trace.call_id)
     assert rep["derived_from_rules"] == "block"
     assert rep["reproducible"]
+
+
+def test_narrow_post_safety_does_not_silently_withhold_benign_output():
+    provider = MockProvider(scripted={
+        "safe chemistry": (
+            "This chemistry answer says not to make explosives and explains "
+            "that exothermic reactions release heat."
+        )
+    })
+    armor = Pramagent(
+        provider=provider,
+        safety=SafetyLayer(
+            rules=[Rule("block_make_explosives", Verdict.BLOCK, pattern=r"make explosives")],
+            post_rules=[],
+            post_classifier=lambda _: Verdict.ALLOW,
+        ),
+    )
+
+    r = run(armor.run("safe chemistry", tenant_id="t", session_id="s"))
+    assert r.blocked is False
+    assert r.trace.post_verdict == "allow"
+    assert r.output != "[output withheld by safety rule]"
+    assert "exothermic reactions" in r.output

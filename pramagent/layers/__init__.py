@@ -148,6 +148,9 @@ class Rule:
                           detail=self.detail if fired else "")
 
 
+_UNSET = object()
+
+
 class SafetyLayer:
     """
     Two-pass safety. `pre()` screens input; `post()` screens output. A classifier
@@ -158,9 +161,13 @@ class SafetyLayer:
     _PRECEDENCE = {Verdict.BLOCK: 3, Verdict.ESCALATE: 2, Verdict.REDACT: 1, Verdict.ALLOW: 0}
 
     def __init__(self, rules: list[Rule] | None = None,
-                 classifier: Optional[Callable[[str], Verdict]] = None):
+                 classifier: Optional[Callable[[str], Verdict]] = None,
+                 post_rules: list[Rule] | None = None,
+                 post_classifier=_UNSET):
         self.rules = rules or []
         self.classifier = classifier
+        self.post_rules = self.rules if post_rules is None else post_rules
+        self.post_classifier = self.classifier if post_classifier is _UNSET else post_classifier
 
     def _combine(self, results: list[RuleResult], clf: Optional[Verdict]) -> Verdict:
         verdicts = [r.action for r in results if r.fired]
@@ -170,13 +177,23 @@ class SafetyLayer:
             return Verdict.ALLOW
         return max(verdicts, key=lambda v: self._PRECEDENCE[v])
 
-    def evaluate(self, text: str) -> tuple[Verdict, list[RuleResult]]:
-        results = [r.evaluate(text) for r in self.rules]
-        clf = self.classifier(text) if self.classifier else None
+    def _evaluate_with(
+        self,
+        text: str,
+        rules: list[Rule],
+        classifier: Optional[Callable[[str], Verdict]],
+    ) -> tuple[Verdict, list[RuleResult]]:
+        results = [r.evaluate(text) for r in rules]
+        clf = classifier(text) if classifier else None
         return self._combine(results, clf), results
 
+    def evaluate(self, text: str) -> tuple[Verdict, list[RuleResult]]:
+        return self._evaluate_with(text, self.rules, self.classifier)
+
     pre = evaluate
-    post = evaluate
+
+    def post(self, text: str) -> tuple[Verdict, list[RuleResult]]:
+        return self._evaluate_with(text, self.post_rules, self.post_classifier)
 
 
 # ───────────────────────────── ReliabilityLayer ────────────────────────────
