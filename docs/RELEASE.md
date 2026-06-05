@@ -10,6 +10,8 @@ python -m pip install -e ".[dev,api,redis,postgres,dashboard]"
 pramagent --help
 python -m compileall -q pramagent tests
 python -m pytest -q --tb=no
+python test_agent_v2.py --mock --suite load tenant regression --report test-results/test_agent_v2_mock.json
+python examples/dynamic_feed_agent.py --provider mock --reset-db --report test-results/dynamic_feed_agent_mock.json
 pramagent redteam --json --dynamic --attacks 200 --seed 999
 ```
 
@@ -25,7 +27,7 @@ python -m venv %TEMP%/pramagent-release-venv
 Optional extras install check:
 
 ```bash
-python -m pip install dist/pramagent-0.5.9-py3-none-any.whl[all]
+python -m pip install dist/pramagent-0.5.10-py3-none-any.whl[all]
 python - <<'PY'
 import anthropic, aiohttp, fastapi, uvicorn, jinja2, httpx, cryptography
 import opentelemetry, redis, psycopg2, web3, boto3
@@ -84,14 +86,16 @@ python -m twine check dist/*
 
 ```bash
 git status --short
-git tag -a v0.5.9 -m "v0.5.9"
+git tag -a v0.5.10 -m "v0.5.10"
 git push origin main
-git push origin v0.5.9
+git push origin v0.5.10
 ```
 
-Create a GitHub Release from tag `v0.5.9` and include:
+Create a GitHub Release from tag `v0.5.10` and include:
 
-- Test result: `398 passed, 2 warnings`
+- Test result: `402 passed, 2 warnings`
+- Test-agent v2 result: `57/57 passed`
+- Dynamic feed agent result: mock `8/8 passed`, Ollama `qwen2.5:1.5b` `8/8 passed`
 - Dynamic red-team result: `200/200 caught`, seed `999`
 - Live OpenAI payment-agent workflow result from `docs/LIVE_WORKFLOW_DEMO.md`
 - Real OpenAI + local Ollama smoke-test results from `docs/LIVE_TEST_RESULTS.md`

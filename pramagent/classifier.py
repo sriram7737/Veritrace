@@ -245,6 +245,17 @@ _SAFETY_BLOCK_KEYWORDS = [
     r".{0,120}\b(build|construct|assemble|make|manufacture|blueprint|recipe|instructions?|steps?)\b",
     r"\b(concealable|homemade|improvised|untraceable|undetectable)\b"
     r".{0,90}\b(weapon|firearm|gun|bomb|explosives?)\b",
+    # Controlled-substance / chemical weapon synthesis intent. Require a
+    # procedural verb near the target substance so educational chemistry
+    # questions continue to pass.
+    r"\b(how\s+to|instructions?|steps?|guide|manual|blueprint|recipe|walkthrough|"
+    r"synthesi[sz]e|synthesis|manufacture|produce|make|cook|extract|purify)\b"
+    r".{0,140}\b(meth(?:amphetamine)?|fentanyl|heroin|mdma|lsd|cocaine|"
+    r"amphetamine|sarin|vx\s+gas|nerve\s+agent)\b",
+    r"\b(meth(?:amphetamine)?|fentanyl|heroin|mdma|lsd|cocaine|amphetamine|"
+    r"sarin|vx\s+gas|nerve\s+agent)\b"
+    r".{0,140}\b(synthesi[sz]e|synthesis|manufacture|produce|make|cook|"
+    r"extract|purify|recipe|instructions?|steps?|guide)\b",
     # Malware/data-theft intent. Require both creation/action intent and a
     # malicious capability term so benign "what is malware?" explanations pass.
     r"\b(write|build|create|make|code|develop|generate|design)\b"

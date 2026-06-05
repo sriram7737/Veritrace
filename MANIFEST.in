@@ -1,4 +1,7 @@
 include README.md
 include CHANGELOG.md
+include test_agent.py
+include test_agent_v2.py
+recursive-include examples *.py
 recursive-include docs *.md
 recursive-include docs *.png

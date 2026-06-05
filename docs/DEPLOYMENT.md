@@ -1,4 +1,4 @@
-# Pramagent Deployment Guide
+﻿# Pramagent Deployment Guide
 
 ## One-command local (Docker Compose)
 ```bash
@@ -165,7 +165,7 @@ kubectl create secret generic pramagent-secrets \
   --from-literal=PRAMAGENT_API_KEY=... --from-literal=PRAMAGENT_JWT_SECRET=... \
   --from-literal=PRAMAGENT_REDIS_URL=redis://... --from-literal=PRAMAGENT_POSTGRES_DSN=postgresql://...
 helm install pramagent deploy/helm/pramagent \
-  --set image.tag=0.5.9 --set otel.endpoint=http://otel-collector:4317
+  --set image.tag=0.5.10 --set otel.endpoint=http://otel-collector:4317
 ```
 Includes readiness/liveness probes, HorizontalPodAutoscaler (3–10 replicas), and
 secret-based config. Point `otel.endpoint` at any OTLP collector (Jaeger,
@@ -175,3 +175,4 @@ Honeycomb, Datadog, Grafana Tempo) for distributed traces.
 - **Postgres**: any managed PG (RDS, Cloud SQL, Neon). Set `PRAMAGENT_POSTGRES_DSN`.
 - **Redis**: any managed Redis (ElastiCache, Memorystore, Upstash). Set `PRAMAGENT_REDIS_URL`.
 - Both fail open to local backends if unreachable, so a cache blip won't take the API down.
+

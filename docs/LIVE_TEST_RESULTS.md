@@ -63,7 +63,7 @@ python -m pytest -q --tb=no
 Result:
 
 ```text
-398 passed, 2 warnings
+402 passed, 2 warnings
 ```
 
 ## Clean Environment Checks
@@ -79,7 +79,7 @@ python -m pytest -q --tb=no
 ```
 
 ```text
-398 passed, 3 warnings
+402 passed, 3 warnings
 ```
 
 Notes:
@@ -94,14 +94,14 @@ Notes:
 Result: **passed**
 
 ```text
-python -m venv %TEMP%/pramagent-058-wheel-smoke
-%TEMP%/pramagent-059-wheel-smoke/Scripts/python -m pip install dist/pramagent-0.5.9-py3-none-any.whl
-%TEMP%/pramagent-059-wheel-smoke/Scripts/python -c "import pramagent; print(pramagent.__version__)"
-%TEMP%/pramagent-059-wheel-smoke/Scripts/pramagent.exe redteam --json --dynamic --attacks 50 --seed 999
+python -m venv %TEMP%/pramagent-0510-wheel-smoke
+%TEMP%/pramagent-0510-wheel-smoke/Scripts/python -m pip install dist/pramagent-0.5.10-py3-none-any.whl
+%TEMP%/pramagent-0510-wheel-smoke/Scripts/python -c "import pramagent; print(pramagent.__version__)"
+%TEMP%/pramagent-0510-wheel-smoke/Scripts/pramagent.exe redteam --json --dynamic --attacks 50 --seed 999
 ```
 
 ```text
-0.5.9
+0.5.10
 50/50 caught, 0 false positives
 ```
 
@@ -148,7 +148,7 @@ This checks that benign non-blocked responses are not silently replaced with
 Optional extras install check:
 
 ```text
-python -m pip install "dist/pramagent-0.5.9-py3-none-any.whl[all]"
+python -m pip install "dist/pramagent-0.5.10-py3-none-any.whl[all]"
 ```
 
 Result: **passed**. Import smoke covered Anthropic, Ollama/aiohttp, FastAPI,
@@ -201,6 +201,36 @@ Notes:
 - First cold Ollama load can exceed the default 15s reliability timeout; warm
   the model before release smoke tests or configure a longer timeout in the
   host application.
+
+## Dynamic Feed Agent Workflow
+
+Result: **passed**
+
+This workflow generates fresh runtime feed items instead of replaying one static
+prompt list: vendor invoices, support notes with PII, retrieved tool-output
+injection, privileged-role exfiltration, controlled-substance synthesis, and
+ToolGuard payment attempts.
+
+Commands:
+
+```text
+python examples/dynamic_feed_agent.py --provider mock --reset-db --report test-results/dynamic_feed_agent_mock.json --db test-results/dynamic_feed_agent_mock.db
+python examples/dynamic_feed_agent.py --provider mock --reset-db --report test-results/dynamic_feed_agent_mock_repeat.json --db test-results/dynamic_feed_agent_mock_repeat.db
+python examples/dynamic_feed_agent.py --provider ollama --ollama-model qwen2.5:1.5b --reset-db --report test-results/dynamic_feed_agent_ollama_qwen.json --db test-results/dynamic_feed_agent_ollama_qwen.db
+```
+
+Results:
+
+```text
+mock run #1: 8/8 passed, chain_valid=True, seed=1663236727
+mock run #2: 8/8 passed, chain_valid=True, seed=1617985603
+ollama/qwen2.5:1.5b: 8/8 passed, chain_valid=True, seed=1208745367
+```
+
+The JSON reports preserve exact generated prompts, tool arguments, ToolGuard
+decisions, response hashes, layer events, and RCA summaries. They are stored
+under ignored local `test-results/` because they are generated artifacts, not
+source-controlled release docs.
 
 ## Red-team Benchmark
 

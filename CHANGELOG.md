@@ -4,6 +4,35 @@
 
 No unreleased changes yet.
 
+## v0.5.10 - 2026-06-04
+
+This patch release adds a deeper release harness and fixes a default API safety
+miss found by that harness.
+
+### Added
+
+- `test_agent_v2.py`, a standalone release harness covering load,
+  multi-tenant isolation, API/HTTP behavior, and regression checks.
+- `examples/dynamic_feed_agent.py`, a dynamic workflow agent that generates
+  fresh invoices, support notes, retrieved tool output, and adversarial feed
+  items at runtime. It stores the exact prompts and RCA paths in JSON reports.
+
+### Changed
+
+- The keyword safety classifier now blocks controlled-substance and chemical
+  weapon synthesis intent when procedural language appears near the substance.
+- API `/v1/run` now rejects empty prompts at the schema boundary with 422.
+- The v2 release harness is ASCII-safe on Windows consoles and avoids
+  cross-test pollution from rate-limit exhaustion.
+
+### Verified
+
+- `python -m pytest -q --tb=short` -> `402 passed, 2 warnings`.
+- `test_agent_v2.py` full run -> `57/57 passed`.
+- Dynamic feed agent with mock provider -> `8/8 passed`, hash chain valid.
+- Dynamic feed agent with local Ollama `qwen2.5:1.5b` -> `8/8 passed`,
+  hash chain valid.
+
 ## v0.5.9 - 2026-06-04
 
 This patch release fixes post-safety false positives found during real local

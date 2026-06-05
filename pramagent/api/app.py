@@ -66,7 +66,11 @@ from ..usage import UsageTracker
 
 # ──────────────────────────── request / response ───────────────────────────
 class RunRequest(BaseModel):
-    prompt: str = Field(..., description="The input to run through the trust stack")
+    prompt: str = Field(
+        ...,
+        min_length=1,
+        description="The input to run through the trust stack",
+    )
     tenant_id: Optional[str] = Field(
         None,
         description="Tenant id. IGNORED when API-key auth is enabled — the tenant"
@@ -276,7 +280,7 @@ def create_app(armor: Optional[Pramagent] = None,
 
     app = FastAPI(
         title="Pramagent",
-        version="0.5.9",
+        version="0.5.10",
         description="Trust middleware for AI agents: deterministic guardrails, HITL, tool policy, tamper-evident traces.",
     )
     if os.environ.get("PRAMAGENT_OTEL_ENDPOINT") or os.environ.get("PRAMAGENT_OTEL_CONSOLE") == "1":

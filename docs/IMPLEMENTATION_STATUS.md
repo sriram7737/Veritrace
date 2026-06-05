@@ -1,6 +1,6 @@
 # Pramagent — Current Implementation Status
 
-_Last updated after the v0.5.9 post-safety false-positive fix release pass._
+_Last updated after the v0.5.10 dynamic workflow and API safety release pass._
 
 This document is deliberately blunt. Pramagent is **strong trust middleware for
 AI agents** — deterministic guardrails, HITL, tool policy, and tamper-evident
@@ -13,8 +13,18 @@ exist.
 
 ## Test status
 
-`python -m pytest -q --tb=no` -> **398 passing, 2 warnings**. No skips or
+`python -m pytest -q --tb=short` -> **402 passing, 2 warnings**. No skips or
 expected failures hiding classifier misses in the bundled suite.
+
+Additional release harnesses:
+
+- `python test_agent_v2.py --mock --api-url http://127.0.0.1:8010 --report test-results/test_agent_v2_full.json`
+  -> **57/57 passing** across load, multi-tenant isolation, API/HTTP, and
+  regression suites.
+- `python examples/dynamic_feed_agent.py --provider mock --reset-db` ->
+  **8/8 dynamic feed cases passing**, hash chain valid.
+- `python examples/dynamic_feed_agent.py --provider ollama --ollama-model qwen2.5:1.5b --reset-db`
+  -> **8/8 dynamic feed cases passing**, hash chain valid.
 
 The local pre-PyPI clean-environment check was run on Python 3.13.13. GitHub
 Actions is configured to run the same suite on Python 3.10, 3.11, 3.12, and
