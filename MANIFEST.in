@@ -3,5 +3,9 @@ include CHANGELOG.md
 include test_agent.py
 include test_agent_v2.py
 recursive-include examples *.py
+exclude examples/job_search_agent.py
+exclude examples/pramagent_guard.py
+exclude examples/test_agent_db_threats.py
 recursive-include docs *.md
+exclude docs/JOB_AGENT_RCA_2026-06-05.md
 recursive-include docs *.png

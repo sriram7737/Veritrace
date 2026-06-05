@@ -64,9 +64,13 @@ _INJECTION_PATTERNS: list[tuple[str, re.Pattern, str]] = [
          r"\b(as\s+an\s+admin|administrator|admin|root|superuser)\b"
          r".{0,120}\b(generate|show|reveal|export|return|dump|print)\b"
          r".{0,120}\b(sensitive\s+)?(system\s+)?(logs?|audit\s+logs?|credentials?|secrets?|private\s+data)\b|"
+         r"\b(as\s+an\s+admin|administrator|admin|root|superuser)\b"
+         r".{0,140}\b(elevated|admin(?:istrative)?|root|superuser)\s+(privileges?|access|permissions?)\b"
+         r".{0,140}\b(access|read|open|retrieve|return|export|download|copy|show|reveal)\b"
+         r".{0,140}\b(confidential|sensitive|private|protected)\s+(?:\w+\s+){0,3}(data|files?|records?|documents?)\b|"
          r"\b(admin|administrator|root|superuser)\s+privileges?\b"
          r".{0,140}\b(access|read|open|retrieve|return|export|download|copy)\b"
-         r".{0,140}\b(confidential|sensitive|private|protected)\s+(data|files?|records?|documents?)\b|"
+         r".{0,140}\b(confidential|sensitive|private|protected)\s+(?:\w+\s+){0,3}(data|files?|records?|documents?)\b|"
          r"\brole\s*:\s*['\"]?(administrative_access|admin|administrator|root|superuser|system)['\"]?\b"
          r".{0,140}\b(sensitive\s+)?(system\s+)?(logs?|audit\s+logs?|credentials?|secrets?|private\s+data)\b",
          re.IGNORECASE | re.DOTALL,

@@ -25,6 +25,8 @@ class ProviderResult:
     model: str
     cost_usd: float = 0.0
     latency_ms: float = 0.0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
 
 
 class BaseProvider:
@@ -133,11 +135,20 @@ class OpenAICompatibleProvider(BaseProvider):
         payload = self._request_with_openai_compat_fallback(body)
         text = _extract_openai_text(payload)
         usage = payload.get("usage") or {}
+        prompt_tokens = int(usage.get("prompt_tokens") or 0)
+        completion_tokens = int(usage.get("completion_tokens") or 0)
+        model = str(payload.get("model") or body["model"])
         return ProviderResult(
             text=text,
-            model=str(payload.get("model") or body["model"]),
-            cost_usd=0.0,
+            model=model,
+            cost_usd=_estimate_chat_completion_cost_usd(
+                model,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+            ),
             latency_ms=(time.perf_counter() - t0) * 1000,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
         )
 
     def _request_with_openai_compat_fallback(self, body: dict[str, Any]) -> dict[str, Any]:
@@ -318,6 +329,51 @@ def _extract_openai_text(payload: dict[str, Any]) -> str:
                 parts.append(str(item.get("text", "")))
         return "".join(parts)
     return str(content)
+
+
+def _estimate_chat_completion_cost_usd(
+    model: str,
+    *,
+    prompt_tokens: int,
+    completion_tokens: int,
+) -> float:
+    """Best-effort chat-completion cost estimate from API usage tokens.
+
+    Prices can change and OpenAI-compatible local gateways may not bill at all.
+    Set PRAMAGENT_OPENAI_INPUT_PRICE_PER_MTOK and
+    PRAMAGENT_OPENAI_OUTPUT_PRICE_PER_MTOK to override the built-in public
+    model defaults.
+    """
+    if prompt_tokens <= 0 and completion_tokens <= 0:
+        return 0.0
+
+    override_in = os.environ.get("PRAMAGENT_OPENAI_INPUT_PRICE_PER_MTOK")
+    override_out = os.environ.get("PRAMAGENT_OPENAI_OUTPUT_PRICE_PER_MTOK")
+    if override_in is not None and override_out is not None:
+        return (
+            (prompt_tokens / 1_000_000) * float(override_in)
+            + (completion_tokens / 1_000_000) * float(override_out)
+        )
+
+    name = model.lower()
+    # USD per 1M tokens. Best-effort defaults for common OpenAI hosted models;
+    # unknown/local OpenAI-compatible models intentionally report zero.
+    price_table = [
+        ("gpt-5.5-pro", 30.00, 180.00),
+        ("gpt-5.5", 5.00, 30.00),
+        ("gpt-4o-mini", 0.15, 0.60),
+        ("gpt-4.1-mini", 0.40, 1.60),
+        ("gpt-4.1-nano", 0.10, 0.40),
+        ("gpt-4.1", 2.00, 8.00),
+        ("gpt-4o", 2.50, 10.00),
+    ]
+    for prefix, input_per_mtok, output_per_mtok in price_table:
+        if name.startswith(prefix):
+            return (
+                (prompt_tokens / 1_000_000) * input_per_mtok
+                + (completion_tokens / 1_000_000) * output_per_mtok
+            )
+    return 0.0
 
 
 def _extract_gemini_text(payload: dict[str, Any]) -> str:

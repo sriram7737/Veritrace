@@ -50,7 +50,7 @@ from ..classifier import build_classifier, build_safety_classifier
 from ..core import Pramagent
 from ..layers import IsolationLayer
 from ..hitl.slack import (SlackApprovalError, SlackHITLApprover,
-                          verify_slack_signature)
+                          slack_decision_response, verify_slack_signature)
 from ..layers import (ComplianceLayer, HITLLayer, ReliabilityLayer, Rule,
                       SafetyLayer, ToolGuardLayer, ToolPolicy)
 from ..providers import (AnthropicProvider, GeminiProvider, MockProvider,
@@ -280,7 +280,7 @@ def create_app(armor: Optional[Pramagent] = None,
 
     app = FastAPI(
         title="Pramagent",
-        version="0.5.10",
+        version="0.5.11",
         description="Trust middleware for AI agents: deterministic guardrails, HITL, tool policy, tamper-evident traces.",
     )
     if os.environ.get("PRAMAGENT_OTEL_ENDPOINT") or os.environ.get("PRAMAGENT_OTEL_CONSOLE") == "1":
@@ -511,8 +511,7 @@ def create_app(armor: Optional[Pramagent] = None,
         )
         return ToolValidateResponse(**decision.to_dict())
 
-    @app.post("/v1/hitl/slack/action")
-    async def slack_hitl_action(request: Request):
+    async def _handle_slack_hitl_action(request: Request):
         """Receive Slack approve/deny button callbacks.
 
         This endpoint is authenticated with Slack's signing secret, not a
@@ -539,9 +538,16 @@ def create_app(armor: Optional[Pramagent] = None,
         except (json.JSONDecodeError, SlackApprovalError) as exc:
             raise HTTPException(status_code=400, detail=str(exc))
 
-        if not found:
-            return {"text": "This Pramagent approval request has expired."}
-        return {"text": f"Pramagent request {decision}."}
+        await approver.update_original_message(payload, decision, found=found)
+        return slack_decision_response(decision, found=found)
+
+    @app.post("/v1/hitl/slack/action")
+    async def slack_hitl_action(request: Request):
+        return await _handle_slack_hitl_action(request)
+
+    @app.post("/v1/hitl/slack/actions")
+    async def slack_hitl_actions(request: Request):
+        return await _handle_slack_hitl_action(request)
 
 
     @app.post("/v1/rca/{call_id}/replay")

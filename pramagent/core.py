@@ -238,6 +238,8 @@ class Pramagent:
                     tr.provider_model = result.model
                     tr.provider_cost_usd = result.cost_usd
                     tr.provider_latency_ms = result.latency_ms
+                    tr.provider_prompt_tokens = getattr(result, "prompt_tokens", 0)
+                    tr.provider_completion_tokens = getattr(result, "completion_tokens", 0)
                     tr.used_fallback = "fallback" in result.model
                     output = result.text
                     span.set_attribute("provider", self.provider.name)

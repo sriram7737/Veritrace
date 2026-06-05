@@ -1,6 +1,6 @@
 # Live Test Results
 
-Last refreshed: 2026-06-04
+Last refreshed: 2026-06-05
 
 These are release-validation smoke tests using real external services. They are
 not a penetration test, a scale test, or a compliance certification.
@@ -63,7 +63,7 @@ python -m pytest -q --tb=no
 Result:
 
 ```text
-402 passed, 2 warnings
+405 passed, 0 warnings
 ```
 
 ## Clean Environment Checks
@@ -79,13 +79,16 @@ python -m pytest -q --tb=no
 ```
 
 ```text
-402 passed, 3 warnings
+405 passed, 1 warning
 ```
 
 Notes:
 
 - Clean venv used upgraded pip, setuptools, and wheel before installing
   `.[dev,api,otel]`.
+- The single clean-venv warning is from FastAPI/Starlette's `TestClient`
+  dependency path (`httpx` deprecation notice), not auth, crypto, HITL, provider
+  usage, or audit-chain code.
 - GitHub Actions is configured to run Python 3.10, 3.11, 3.12, and 3.13 with
   upgraded pip/setuptools/wheel before installing test dependencies.
 
@@ -94,14 +97,14 @@ Notes:
 Result: **passed**
 
 ```text
-python -m venv %TEMP%/pramagent-0510-wheel-smoke
-%TEMP%/pramagent-0510-wheel-smoke/Scripts/python -m pip install dist/pramagent-0.5.10-py3-none-any.whl
-%TEMP%/pramagent-0510-wheel-smoke/Scripts/python -c "import pramagent; print(pramagent.__version__)"
-%TEMP%/pramagent-0510-wheel-smoke/Scripts/pramagent.exe redteam --json --dynamic --attacks 50 --seed 999
+python -m venv %TEMP%/pramagent-0511-wheel-smoke
+%TEMP%/pramagent-0511-wheel-smoke/Scripts/python -m pip install dist/pramagent-0.5.11-py3-none-any.whl
+%TEMP%/pramagent-0511-wheel-smoke/Scripts/python -c "import pramagent; print(pramagent.__version__)"
+%TEMP%/pramagent-0511-wheel-smoke/Scripts/pramagent.exe redteam --json --dynamic --attacks 50 --seed 999
 ```
 
 ```text
-0.5.10
+0.5.11
 50/50 caught, 0 false positives
 ```
 
@@ -148,12 +151,114 @@ This checks that benign non-blocked responses are not silently replaced with
 Optional extras install check:
 
 ```text
-python -m pip install "dist/pramagent-0.5.10-py3-none-any.whl[all]"
+python -m pip install "dist/pramagent-0.5.11-py3-none-any.whl[all]"
 ```
 
 Result: **passed**. Import smoke covered Anthropic, Ollama/aiohttp, FastAPI,
 uvicorn, Jinja2, httpx, cryptography, OpenTelemetry, Redis, psycopg2, Web3,
 boto3, and Pramagent itself.
+
+## Real Slack HITL UI Flow
+
+Result: **passed**
+
+The job-agent integration was exposed through a public Cloudflare Tunnel and
+Slack Interactivity was pointed at:
+
+```text
+/v1/hitl/slack/actions
+```
+
+Approve path:
+
+```json
+{
+  "approved": true,
+  "hitl": "approved",
+  "side_effect": "simulated_email_outbox",
+  "chain_valid": true,
+  "trace_hash": "ff70c2adb3ed15b434bb6c63f8bb23b634b9840815d2b6e49e2bfa237681d08c"
+}
+```
+
+Deny path:
+
+```json
+{
+  "approved": false,
+  "hitl": "denied",
+  "side_effect": null,
+  "chain_valid": true,
+  "trace_hash": "d9bd6d07070b6391401a0ac24dcd24cae760435a206d5b3425038ff37e395064"
+}
+```
+
+Notes:
+
+- Both paths used real Slack button clicks from the Slack UI.
+- The callback route verified the Slack signature.
+- The approved path wrote only a simulated local email side effect to
+  `test-results/live_email_outbox.jsonl`; no external email was sent.
+- The Slack message is updated after approval/denial so the action buttons are
+  removed and the decision is visible in-channel.
+
+## Real OpenAI Job-Agent Load Run
+
+Result: **passed**
+
+Report:
+
+```text
+C:\Users\srira\OneDrive\Desktop\agent\test-results\stress_openai_4omini_216_20260605.json
+```
+
+Summary:
+
+```json
+{
+  "model": "gpt-4o-mini",
+  "tenants": 5,
+  "concurrency": 10,
+  "total_calls": 216,
+  "blocked": 90,
+  "hitl_idle_or_pending": 54,
+  "hitl_auto": 72,
+  "real_fetches_executed": 18,
+  "real_fetch_errors": 0,
+  "provider_errors": 0,
+  "circuit_breaker_blocks": 0,
+  "quota_blocks": 0,
+  "post_safety_withheld": 0,
+  "provider_prompt_tokens": 2142,
+  "provider_completion_tokens": 10712,
+  "provider_cost_usd": 0.0067485,
+  "duration_s": 29.12,
+  "avg_latency_ms": 1261.19,
+  "p50_latency_ms": 1180.77,
+  "p95_latency_ms": 3104.49,
+  "p99_latency_ms": 4207.98,
+  "max_latency_ms": 4293.46,
+  "chain_valid": true
+}
+```
+
+Notes:
+
+- The run used the real OpenAI API with `gpt-4o-mini`, not the mock provider.
+- The measured provider cost was approximately `$0.031` per 1,000 calls for
+  this workload (`$0.00674850 / 216 calls`). At 100,000 similar calls per month,
+  raw model cost would be about `$3.12` before infrastructure and margin.
+- Tenants rotated across `tenant_a` through `tenant_e`; every call used a
+  per-request session ID to avoid false-positive write-chain buildup.
+- The harness executed 18 actual read-only public page fetches after ToolGuard
+  allowed the `fetch_public_page` schema.
+- SSRF variants using `169.254.169.254` were blocked before any network call.
+- Consequential actions such as email, LinkedIn posting, and full
+  `scrape_company_site` remain HITL-gated. Slack was intentionally disabled for
+  this load run, so those decisions timed out to `hitl=idle`; the separate
+  Slack UI test above validates live approval/denial.
+- This is useful beta evidence. It is not a formal pen-test, third-party
+  red-team, or production SLA load test.
 
 ## Real LLM Provider Smoke Tests
 

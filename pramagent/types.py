@@ -78,6 +78,8 @@ class TraceEvent:
     provider_model: str = ""
     provider_cost_usd: float = 0.0
     provider_latency_ms: float = 0.0
+    provider_prompt_tokens: int = 0
+    provider_completion_tokens: int = 0
     used_fallback: bool = False
 
     hitl_status: str = HITLStatus.NOT_REQUIRED.value

@@ -54,6 +54,16 @@ class SlackMessageClient(Protocol):
         action: str,
         context: dict[str, Any],
         public_url: str,
+    ) -> Optional[dict[str, Any]]:
+        ...
+
+    async def update_message(
+        self,
+        *,
+        channel: str,
+        ts: str,
+        text: str,
+        blocks: list[dict[str, Any]],
     ) -> None:
         ...
 
@@ -132,14 +142,30 @@ class HTTPSlackMessageClient:
         action: str,
         context: dict[str, Any],
         public_url: str,
-    ) -> None:
-        await asyncio.to_thread(
+    ) -> Optional[dict[str, Any]]:
+        return await asyncio.to_thread(
             self._post_approval_sync,
             channel=channel,
             request_id=request_id,
             action=action,
             context=context,
             public_url=public_url,
+        )
+
+    async def update_message(
+        self,
+        *,
+        channel: str,
+        ts: str,
+        text: str,
+        blocks: list[dict[str, Any]],
+    ) -> None:
+        await asyncio.to_thread(
+            self._update_message_sync,
+            channel=channel,
+            ts=ts,
+            text=text,
+            blocks=blocks,
         )
 
     def _post_approval_sync(
@@ -150,7 +176,7 @@ class HTTPSlackMessageClient:
         action: str,
         context: dict[str, Any],
         public_url: str,
-    ) -> None:
+    ) -> dict[str, Any]:
         tenant = str(context.get("tenant", "unknown"))
         preview = str(context.get("output_preview", ""))[:240]
         body = {
@@ -209,6 +235,41 @@ class HTTPSlackMessageClient:
             raise SlackApprovalError(
                 f"Slack rejected approval message: {payload.get('error', 'unknown_error')}"
             )
+        return payload
+
+    def _update_message_sync(
+        self,
+        *,
+        channel: str,
+        ts: str,
+        text: str,
+        blocks: list[dict[str, Any]],
+    ) -> None:
+        body = {
+            "channel": channel,
+            "ts": ts,
+            "text": text,
+            "blocks": blocks,
+        }
+        data = json.dumps(body).encode("utf-8")
+        req = urllib.request.Request(
+            "https://slack.com/api/chat.update",
+            data=data,
+            headers={
+                "Authorization": f"Bearer {self.bot_token}",
+                "Content-Type": "application/json; charset=utf-8",
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                payload = json.loads(resp.read().decode("utf-8"))
+        except (urllib.error.URLError, TimeoutError) as exc:
+            raise SlackApprovalError(f"failed to update Slack approval: {exc}") from exc
+        if not payload.get("ok"):
+            raise SlackApprovalError(
+                f"Slack rejected approval update: {payload.get('error', 'unknown_error')}"
+            )
 
 
 class SlackHITLApprover:
@@ -230,18 +291,24 @@ class SlackHITLApprover:
         self.registry = registry or SlackApprovalRegistry()
         self.client = client or HTTPSlackMessageClient(bot_token)
         self.last_error: str = ""
+        self._message_refs: dict[str, tuple[str, str]] = {}
 
     async def __call__(self, action: str, context: dict[str, Any]) -> Optional[bool]:
         request = self.registry.create(action, context)
         try:
             try:
-                await self.client.post_approval(
+                posted = await self.client.post_approval(
                     channel=self.channel_id,
                     request_id=request.request_id,
                     action=action,
                     context=context,
                     public_url=self.public_url,
                 )
+                if isinstance(posted, dict) and posted.get("ts"):
+                    self._message_refs[request.request_id] = (
+                        str(posted.get("channel") or self.channel_id),
+                        str(posted["ts"]),
+                    )
             except SlackApprovalError as exc:
                 self.last_error = str(exc)
                 log.warning("Slack HITL approval post failed: %s", exc)
@@ -268,6 +335,88 @@ class SlackHITLApprover:
             raise SlackApprovalError(f"unknown Slack action: {action_id}")
         found = self.registry.decide(request_id, approved)
         return found, "approved" if approved else "denied"
+
+    async def update_original_message(self, payload: dict[str, Any], status: str, *, found: bool) -> None:
+        """Remove approval buttons from the original Slack message.
+
+        Returning ``replace_original`` is not reliable across all Slack clients
+        and Block Kit interaction paths. ``chat.update`` directly edits the
+        message that contained the clicked button.
+        """
+        response = slack_decision_response(status, found=found)
+        channel = (
+            (payload.get("channel") or {}).get("id")
+            or (payload.get("container") or {}).get("channel_id")
+        )
+        message_ts = (
+            ((payload.get("message") or {}).get("ts"))
+            or (payload.get("container") or {}).get("message_ts")
+        )
+        request_id = ((payload.get("actions") or [{}])[0] or {}).get("value")
+        if request_id and (not channel or not message_ts):
+            ref = self._message_refs.get(request_id)
+            if ref:
+                channel, message_ts = ref
+        if not channel or not message_ts:
+            self.last_error = "Slack action payload did not include channel/message timestamp"
+            log.warning(self.last_error)
+            return
+        update = getattr(self.client, "update_message", None)
+        if update is None:
+            self.last_error = "Slack client does not support message updates"
+            log.warning(self.last_error)
+            return
+        try:
+            await update(
+                channel=channel,
+                ts=message_ts,
+                text=response["text"],
+                blocks=response["blocks"],
+            )
+            if request_id:
+                self._message_refs.pop(request_id, None)
+            self.last_error = ""
+        except SlackApprovalError as exc:
+            self.last_error = str(exc)
+            log.warning("Slack HITL approval update failed: %s", exc)
+
+
+def slack_decision_response(status: str, *, found: bool = True) -> dict[str, Any]:
+    """Build a Slack interactive-response body that removes stale buttons.
+
+    Slack keeps interactive button blocks visible unless the callback returns a
+    replacement message or separately calls chat.update. Returning
+    replace_original is the fastest reliable acknowledgement path.
+    """
+    if not found:
+        return {
+            "replace_original": True,
+            "text": "Pramagent approval request expired.",
+            "blocks": [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": "*Pramagent approval expired*\nThis request is no longer pending.",
+                    },
+                }
+            ],
+        }
+
+    label = "Approved" if status == "approved" else "Denied"
+    return {
+        "replace_original": True,
+        "text": f"Pramagent request {status}.",
+        "blocks": [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*Pramagent request {label.lower()}*\nDecision recorded. Action: `{status}`.",
+                },
+            }
+        ],
+    }
 
 
 def verify_slack_signature(

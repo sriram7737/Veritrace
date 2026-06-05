@@ -4,6 +4,35 @@
 
 No unreleased changes yet.
 
+## v0.5.11 - 2026-06-05
+
+This patch release records the real workflow beta-validation pass and tightens
+Slack HITL behavior.
+
+### Added
+
+- Real OpenAI job-agent load evidence: 216 `gpt-4o-mini` calls across five
+  tenants with concurrency 10, per-request sessions, quota tracking, 18 real
+  read-only public-page fetches, and a valid audit chain.
+- Public cost evidence for that run: `$0.00674850` total, approximately
+  `$0.031` per 1,000 calls under the measured workload.
+- External security assessment scope in the hardening guide.
+
+### Changed
+
+- Slack HITL callbacks now replace the original approval message with the final
+  approve/deny status and remove action buttons after a decision.
+- OpenAI provider traces now preserve provider token counts for cost/usage
+  reporting.
+- The release docs now report the clean local result:
+  `405 passed, 0 warnings`.
+
+### Fixed
+
+- Slack callback tests no longer trigger `httpx` raw-body deprecation warnings.
+- Isolation/classifier coverage now catches admin/elevated-privilege authority
+  claim prompts requesting confidential data.
+
 ## v0.5.10 - 2026-06-04
 
 This patch release adds a deeper release harness and fixes a default API safety

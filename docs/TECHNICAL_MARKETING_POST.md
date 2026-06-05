@@ -245,9 +245,15 @@ Pramagent wraps model calls and agent workflows with:
 
 Release evidence:
 
-- 402 passing tests
+- 405 passing tests
 - Python 3.10, 3.11, 3.12, and 3.13 CI matrix
 - live OpenAI smoke test
+- real OpenAI job-agent stress run: 216 calls, five tenants, concurrency 10,
+  18 real read-only public-page fetches, 0 provider errors, 0 circuit-breaker
+  trips, 0 post-safety false positives, `$0.00674850` total model cost
+  (`~$0.031` per 1,000 calls under this workload)
+- real Slack HITL approve/deny clicks with trace hashes and hash-chain
+  verification
 - local Ollama smoke test
 - live Sepolia anchoring smoke test
 - S3 archive/restore smoke test

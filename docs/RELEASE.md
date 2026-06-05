@@ -27,7 +27,7 @@ python -m venv %TEMP%/pramagent-release-venv
 Optional extras install check:
 
 ```bash
-python -m pip install dist/pramagent-0.5.10-py3-none-any.whl[all]
+python -m pip install dist/pramagent-0.5.11-py3-none-any.whl[all]
 python - <<'PY'
 import anthropic, aiohttp, fastapi, uvicorn, jinja2, httpx, cryptography
 import opentelemetry, redis, psycopg2, web3, boto3
@@ -86,19 +86,21 @@ python -m twine check dist/*
 
 ```bash
 git status --short
-git tag -a v0.5.10 -m "v0.5.10"
+git tag -a v0.5.11 -m "v0.5.11"
 git push origin main
-git push origin v0.5.10
+git push origin v0.5.11
 ```
 
-Create a GitHub Release from tag `v0.5.10` and include:
+Create a GitHub Release from tag `v0.5.11` and include:
 
-- Test result: `402 passed, 2 warnings`
+- Test result: `405 passed, 0 warnings`
 - Test-agent v2 result: `57/57 passed`
 - Dynamic feed agent result: mock `8/8 passed`, Ollama `qwen2.5:1.5b` `8/8 passed`
 - Dynamic red-team result: `200/200 caught`, seed `999`
 - Live OpenAI payment-agent workflow result from `docs/LIVE_WORKFLOW_DEMO.md`
 - Real OpenAI + local Ollama smoke-test results from `docs/LIVE_TEST_RESULTS.md`
+- Real OpenAI job-agent load result: 216 calls, five tenants, concurrency 10,
+  18 real read-only fetches, `$0.031` per 1,000 calls under the measured workload
 - Live Sepolia transaction hash from `docs/LIVE_TEST_RESULTS.md`
 - S3 archive/restore smoke result from `docs/LIVE_TEST_RESULTS.md`
 - Links to `docs/IMPLEMENTATION_STATUS.md` and `docs/HARDENING_GUIDE.md`

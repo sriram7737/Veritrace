@@ -1,6 +1,6 @@
 # Pramagent — Current Implementation Status
 
-_Last updated after the v0.5.10 dynamic workflow and API safety release pass._
+_Last updated after the 2026-06-05 Slack HITL and real OpenAI workflow validation pass._
 
 This document is deliberately blunt. Pramagent is **strong trust middleware for
 AI agents** — deterministic guardrails, HITL, tool policy, and tamper-evident
@@ -13,7 +13,7 @@ exist.
 
 ## Test status
 
-`python -m pytest -q --tb=short` -> **402 passing, 2 warnings**. No skips or
+`python -m pytest -q --tb=no` -> **405 passing, 0 warnings**. No skips or
 expected failures hiding classifier misses in the bundled suite.
 
 Additional release harnesses:
@@ -25,6 +25,15 @@ Additional release harnesses:
   **8/8 dynamic feed cases passing**, hash chain valid.
 - `python examples/dynamic_feed_agent.py --provider ollama --ollama-model qwen2.5:1.5b --reset-db`
   -> **8/8 dynamic feed cases passing**, hash chain valid.
+- Real Slack HITL UI approve/deny against the job-agent integration -> **passed**.
+  Approve produced `hitl=approved` and a simulated email side effect; deny
+  produced `hitl=denied` and no side effect. Both traces preserved a valid
+  hash chain.
+- Real OpenAI job-agent stress harness with `gpt-4o-mini`, five tenants,
+  concurrency 10, per-request sessions, quota tracking, and real read-only
+  public-page fetches -> **216/216 completed**, 0 provider errors, 0 circuit
+  breaker trips, 0 post-safety false positives, 18 real fetches executed,
+  hash chain valid.
 
 The local pre-PyPI clean-environment check was run on Python 3.13.13. GitHub
 Actions is configured to run the same suite on Python 3.10, 3.11, 3.12, and
@@ -99,7 +108,36 @@ Actions is configured to run the same suite on Python 3.10, 3.11, 3.12, and
 - SSO/OIDC/RBAC dashboard auth
 - QuantumLayer (future research only; intentionally not built or exposed)
 - Real external penetration test (must be run by a third party)
+- 200-500 call run with full production side effects such as real email sends
+  or third-party scraper providers. Current heavy run executes real read-only
+  fetches only.
 - Pilot-user production deployments
+
+## Latest Workflow Evidence
+
+2026-06-05 job-agent stress harness with real OpenAI:
+
+- Model: `gpt-4o-mini`
+- Calls: 216 across five tenants, concurrency 10, per-request sessions
+- Real tools: 18 read-only `fetch_public_page` calls executed against
+  `https://example.com`; SSRF variants were blocked before any network call
+- Quotas: per-tenant call/cost tracking enabled; 0 quota blocks at the configured limits
+- Provider health: 0 provider errors, 0 circuit-breaker trips
+- Safety quality: 0 post-safety false positives, 0 sentinel outputs in non-blocked responses
+- Cost: `$0.00674850` total, approximately `$0.031` per 1,000 calls
+  under this workload, with 2,142 prompt tokens and 10,712 completion tokens
+- Latency: avg 1261.19 ms, p50 1180.77 ms, p95 3104.49 ms, p99 4207.98 ms, max 4293.46 ms
+- Audit: hash chain valid
+
+2026-06-05 real Slack HITL UI test:
+
+- Approve path: `hitl=approved`, simulated email side effect recorded, trace hash
+  `ff70c2adb3ed15b434bb6c63f8bb23b634b9840815d2b6e49e2bfa237681d08c`
+- Deny path: `hitl=denied`, no side effect executed, trace hash
+  `d9bd6d07070b6391401a0ac24dcd24cae760435a206d5b3425038ff37e395064`
+
+These runs are strong beta evidence for the middleware. They are still not a
+formal pen-test, a third-party red-team, or a production SLA/load guarantee.
 
 ## Honest one-line
 

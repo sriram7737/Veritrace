@@ -26,9 +26,15 @@ env/
 *.pem
 HANDOFF.md
 pramagent_config.py
+examples/job_search_agent.py
+examples/pramagent_guard.py
+examples/test_agent_db_threats.py
 
 # Local databases and logs
 *.db
+*.db-journal
+*.db-shm
+*.db-wal
 *.sqlite
 *.sqlite3
 *.log

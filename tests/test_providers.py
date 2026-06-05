@@ -48,6 +48,48 @@ async def test_openai_compatible_provider_parses_chat_completion(monkeypatch):
     assert seen["body"]["messages"][0]["content"] == "hi"
     assert result.text == "hello from local"
     assert result.model == "local-llama"
+    assert result.prompt_tokens == 3
+    assert result.completion_tokens == 4
+    assert result.cost_usd == 0.0
+
+
+@pytest.mark.asyncio
+async def test_openai_provider_records_usage_cost(monkeypatch):
+    def fake_urlopen(req, timeout):
+        return FakeHTTPResponse({
+            "model": "gpt-4o-mini-2024-07-18",
+            "choices": [{"message": {"content": "priced response"}}],
+            "usage": {"prompt_tokens": 1_000, "completion_tokens": 500},
+        })
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    provider = OpenAIProvider(model="gpt-4o-mini", api_key="sk-test")
+
+    result = await provider.complete("hi")
+
+    assert result.text == "priced response"
+    assert result.prompt_tokens == 1_000
+    assert result.completion_tokens == 500
+    assert result.cost_usd == pytest.approx(0.00045)
+
+
+@pytest.mark.asyncio
+async def test_openai_provider_records_gpt55_usage_cost(monkeypatch):
+    def fake_urlopen(req, timeout):
+        return FakeHTTPResponse({
+            "model": "gpt-5.5-2026-04-24",
+            "choices": [{"message": {"content": "priced response"}}],
+            "usage": {"prompt_tokens": 1_000, "completion_tokens": 500},
+        })
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    provider = OpenAIProvider(model="gpt-5.5", api_key="sk-test")
+
+    result = await provider.complete("hi")
+
+    assert result.prompt_tokens == 1_000
+    assert result.completion_tokens == 500
+    assert result.cost_usd == pytest.approx(0.02)
 
 
 @pytest.mark.asyncio

@@ -117,6 +117,44 @@ Next:
 - Use immutable external storage for audit exports where required.
 - Get an external pen test before claiming regulated production readiness.
 
+## External Security Assessment Scope
+
+Start this before GA. Typical scheduling lead time is measured in weeks, not
+days.
+
+Recommended scope:
+
+- FastAPI sidecar: auth, JWT/API-key handling, tenant isolation, retention,
+  GDPR erase, trace fetch, metrics, usage, and Slack callback routes.
+- Dashboard: login/logout, cache-control, tenant scoping, export endpoints,
+  rate limiting, and session invalidation.
+- ToolGuard: schema validation bypasses, tenant/action allow-list bypasses,
+  SSRF patterns, argument injection, output exfiltration, and dangerous-chain
+  detection.
+- HITL: Slack signature verification, replay resistance, approval evidence,
+  button replacement, timeout semantics, and approval queue behavior.
+- Audit: hash-chain tamper detection, trace canonicalization, Sepolia anchor
+  verification, S3 cold archive restore integrity, and erasure-with-chain
+  semantics.
+- Operations: Redis/Postgres failure behavior, quota fail-open/fail-closed
+  paths, provider timeout/circuit breaker behavior, and log/trace leakage of
+  secrets or PII.
+
+Evidence package to provide:
+
+- `docs/IMPLEMENTATION_STATUS.md`
+- `docs/LIVE_TEST_RESULTS.md`
+- `docs/REDTEAM_RESULTS.md`
+- `docs/COMPLIANCE_MAPPING.md`
+- latest pytest output
+- latest real workflow/load JSON reports
+- architecture/dataflow diagrams
+
+Claims blocked until this is complete:
+
+- bank-grade, healthcare-grade, SOC 2-ready, HIPAA-ready, prompt-injection
+  proof, or production-certified.
+
 ## Honest Positioning
 
 Use this:
