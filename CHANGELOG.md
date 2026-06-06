@@ -4,6 +4,18 @@
 
 No unreleased changes.
 
+## v0.5.14 - 2026-06-05
+
+### Fixed
+
+- Package `deploy.dashboard` and its Jinja templates in the PyPI distribution so
+  the signup and forgot-password dashboard pages are available from installed
+  artifacts, not only from a git checkout.
+
+### Verified
+
+- `python -m pytest -q --tb=short` -> `420 passed`.
+
 ## v0.5.13 - 2026-06-05
 
 ### Added
