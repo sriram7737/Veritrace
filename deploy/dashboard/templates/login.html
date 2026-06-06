@@ -99,8 +99,8 @@
   {% if signup_enabled or password_reset_enabled %}
   <div class="note">
     {% if signup_enabled %}<a href="/signup">Create account</a>{% endif %}
-    {% if signup_enabled and password_reset_enabled %} · {% endif %}
-    {% if password_reset_enabled %}<a href="/forgot-password">Forgot password?</a>{% endif %}
+    {% if signup_enabled and password_reset_enabled %} / {% endif %}
+    {% if password_reset_enabled %}<a href="/forgot-password">Forgot key?</a>{% endif %}
   </div>
   {% endif %}
   <div class="note">Sessions are tenant-scoped and protected with no-store browser cache headers.</div>

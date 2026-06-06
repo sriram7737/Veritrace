@@ -5,6 +5,7 @@ include test_agent_v2.py
 include examples/demo.py
 include examples/dynamic_feed_agent.py
 include examples/live_payment_agent.py
+include deploy/dashboard/Dockerfile
 include docs/COMPLIANCE_MAPPING.md
 include docs/DEMO_SCRIPT.md
 include docs/DEPLOYMENT.md

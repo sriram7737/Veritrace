@@ -4,6 +4,23 @@
 
 No unreleased changes.
 
+## v0.5.16 - 2026-06-06
+
+### Fixed
+
+- Fixed the dashboard Docker image after generated-key auth by copying the
+  `pramagent` package into the image and installing auth-store dependencies.
+- Updated the login-page recovery link from "Forgot password?" to "Forgot key?"
+  to match generated dashboard-key authentication.
+- Verified the live Docker dashboard exposes `/signup` and `/forgot-password`
+  on port `8501`.
+
+### Verified
+
+- `python -m pytest tests\test_dashboard_security.py -q --tb=short` -> `21 passed`.
+- `python -m compileall -q pramagent deploy\dashboard` -> passed.
+- Live Docker dashboard: `/login`, `/signup`, and `/forgot-password` returned `200`.
+
 ## v0.5.15 - 2026-06-06
 
 ### Changed

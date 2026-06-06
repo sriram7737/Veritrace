@@ -97,21 +97,21 @@ Notes:
 Result: **passed**
 
 ```text
-python -m venv %TEMP%/pramagent-0515-wheel-smoke
-%TEMP%/pramagent-0515-wheel-smoke/Scripts/python -m pip install dist/pramagent-0.5.15-py3-none-any.whl
-%TEMP%/pramagent-0515-wheel-smoke/Scripts/python -c "import pramagent; print(pramagent.__version__)"
+python -m venv %TEMP%/pramagent-0516-wheel-smoke
+%TEMP%/pramagent-0516-wheel-smoke/Scripts/python -m pip install dist/pramagent-0.5.16-py3-none-any.whl
+%TEMP%/pramagent-0516-wheel-smoke/Scripts/python -c "import pramagent; print(pramagent.__version__)"
 ```
 
 ```text
-0.5.15
+0.5.16
 ```
 
 Dashboard-extra smoke:
 
 ```text
-python -m venv %TEMP%/pramagent-0515-dashboard-smoke
-%TEMP%/pramagent-0515-dashboard-smoke/Scripts/python -m pip install "dist/pramagent-0.5.15-py3-none-any.whl[dashboard]"
-%TEMP%/pramagent-0515-dashboard-smoke/Scripts/python -c "from pramagent.dashboard_auth import SQLiteDashboardUserStore; ..."
+python -m venv %TEMP%/pramagent-0516-dashboard-smoke
+%TEMP%/pramagent-0516-dashboard-smoke/Scripts/python -m pip install "dist/pramagent-0.5.16-py3-none-any.whl[dashboard]"
+%TEMP%/pramagent-0516-dashboard-smoke/Scripts/python -c "from pramagent.dashboard_auth import SQLiteDashboardUserStore; ..."
 ```
 
 ```text
@@ -161,7 +161,7 @@ This checks that benign non-blocked responses are not silently replaced with
 Optional extras install check:
 
 ```text
-python -m pip install "dist/pramagent-0.5.15-py3-none-any.whl[all]"
+python -m pip install "dist/pramagent-0.5.16-py3-none-any.whl[all]"
 ```
 
 Result: **passed**. Import smoke covered Anthropic, Ollama/aiohttp, FastAPI,
