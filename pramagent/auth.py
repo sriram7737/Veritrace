@@ -89,17 +89,99 @@ class JWTError(ValueError):
 
 
 class JWTManager:
-    """Small HS256 JWT issuer/verifier for tenant-scoped API tokens."""
+    """Small HS256 JWT issuer/verifier for tenant-scoped API tokens.
 
-    def __init__(self, secret: str, *, issuer: str = "pramagent") -> None:
-        if not secret:
-            raise ValueError("JWT secret must not be empty")
-        self.secret = secret.encode("utf-8")
+    Supports ``kid``-based key rotation while retaining the original single
+    secret constructor. New tokens include the active ``kid`` in the header;
+    verification accepts tokens signed by any registered, non-retired key.
+    """
+
+    def __init__(
+        self,
+        secret: str | dict[str, str],
+        *,
+        issuer: str = "pramagent",
+        active_kid: str | None = None,
+    ) -> None:
         self.issuer = issuer
+        if isinstance(secret, dict):
+            if not secret:
+                raise ValueError("JWT secret registry must not be empty")
+            self._secrets = {
+                str(kid): value.encode("utf-8")
+                for kid, value in secret.items()
+                if kid and value
+            }
+            if not self._secrets:
+                raise ValueError("JWT secret registry must contain non-empty keys")
+            self.active_kid = active_kid or next(iter(self._secrets))
+            if self.active_kid not in self._secrets:
+                raise ValueError("active_kid must exist in JWT secret registry")
+            self.secret = self._secrets[self.active_kid]
+        else:
+            if not secret:
+                raise ValueError("JWT secret must not be empty")
+            self.active_kid = active_kid or "default"
+            self.secret = secret.encode("utf-8")
+            self._secrets = {self.active_kid: self.secret}
+
+    @classmethod
+    def from_env(
+        cls,
+        *,
+        env_var: str = "PRAMAGENT_JWT_SECRETS",
+        fallback_secret: str = "",
+        issuer: str = "pramagent",
+    ) -> "JWTManager":
+        """Build from env.
+
+        ``PRAMAGENT_JWT_SECRETS`` format:
+            ``kid1:secret1,kid2:secret2``
+
+        ``PRAMAGENT_JWT_ACTIVE_KID`` chooses the signing key. If unset, the
+        first listed key signs new tokens. ``fallback_secret`` preserves the
+        existing single-secret deployment path.
+        """
+        raw = os.environ.get(env_var, "").strip()
+        if raw:
+            secrets_by_kid: dict[str, str] = {}
+            for pair in raw.split(","):
+                if ":" not in pair:
+                    continue
+                kid, value = pair.split(":", 1)
+                kid = kid.strip()
+                value = value.strip()
+                if kid and value:
+                    secrets_by_kid[kid] = value
+            if secrets_by_kid:
+                return cls(
+                    secrets_by_kid,
+                    issuer=issuer,
+                    active_kid=os.environ.get("PRAMAGENT_JWT_ACTIVE_KID") or None,
+                )
+        return cls(fallback_secret, issuer=issuer)
+
+    def rotate(self, kid: str, secret: str, *, activate: bool = True) -> None:
+        """Register a new signing secret and optionally make it active."""
+        if not kid or not secret:
+            raise ValueError("kid and secret must be non-empty")
+        self._secrets[kid] = secret.encode("utf-8")
+        if activate:
+            self.active_kid = kid
+            self.secret = self._secrets[kid]
+
+    def retire(self, kid: str) -> bool:
+        """Stop accepting tokens signed by ``kid``.
+
+        The active signing key cannot be retired without rotating first.
+        """
+        if kid == self.active_kid:
+            raise ValueError("cannot retire active JWT key")
+        return self._secrets.pop(kid, None) is not None
 
     def issue(self, tenant_id: str, *, ttl_s: int = 900) -> str:
         now = int(time.time())
-        header = {"alg": "HS256", "typ": "JWT"}
+        header = {"alg": "HS256", "typ": "JWT", "kid": self.active_kid}
         payload = {
             "iss": self.issuer,
             "sub": tenant_id,
@@ -127,8 +209,23 @@ class JWTManager:
         if len(parts) != 3:
             raise JWTError("malformed token")
         signing_input = f"{parts[0]}.{parts[1]}"
+        try:
+            header = json.loads(_b64url_decode(parts[0]))
+        except Exception as exc:
+            raise JWTError("malformed header") from exc
+        if header.get("alg") != "HS256" or header.get("typ") != "JWT":
+            raise JWTError("unsupported token header")
+        kid = header.get("kid")
+        if kid is not None:
+            if not isinstance(kid, str):
+                raise JWTError("invalid key id")
+            secret = self.secret if kid == self.active_kid else self._secrets.get(kid)
+            if secret is None:
+                raise JWTError("unknown key id")
+        else:
+            secret = self.secret
         expected = hmac.new(
-            self.secret, signing_input.encode("ascii"), hashlib.sha256
+            secret, signing_input.encode("ascii"), hashlib.sha256
         ).digest()
         try:
             supplied = _b64url_decode(parts[2])
@@ -138,12 +235,9 @@ class JWTManager:
             raise JWTError("invalid signature")
 
         try:
-            header = json.loads(_b64url_decode(parts[0]))
             payload = json.loads(_b64url_decode(parts[1]))
         except Exception as exc:
             raise JWTError("malformed payload") from exc
-        if header.get("alg") != "HS256" or header.get("typ") != "JWT":
-            raise JWTError("unsupported token header")
         if payload.get("iss") != self.issuer:
             raise JWTError("invalid issuer")
         exp = payload.get("exp")

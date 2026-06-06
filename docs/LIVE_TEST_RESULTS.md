@@ -63,7 +63,7 @@ python -m pytest -q --tb=no
 Result:
 
 ```text
-405 passed, 0 warnings
+412 passed
 ```
 
 ## Clean Environment Checks
@@ -79,7 +79,7 @@ python -m pytest -q --tb=no
 ```
 
 ```text
-405 passed, 1 warning
+412 passed, 1 warning
 ```
 
 Notes:
@@ -97,14 +97,14 @@ Notes:
 Result: **passed**
 
 ```text
-python -m venv %TEMP%/pramagent-0511-wheel-smoke
-%TEMP%/pramagent-0511-wheel-smoke/Scripts/python -m pip install dist/pramagent-0.5.11-py3-none-any.whl
-%TEMP%/pramagent-0511-wheel-smoke/Scripts/python -c "import pramagent; print(pramagent.__version__)"
-%TEMP%/pramagent-0511-wheel-smoke/Scripts/pramagent.exe redteam --json --dynamic --attacks 50 --seed 999
+python -m venv %TEMP%/pramagent-0512-wheel-smoke
+%TEMP%/pramagent-0512-wheel-smoke/Scripts/python -m pip install dist/pramagent-0.5.12-py3-none-any.whl
+%TEMP%/pramagent-0512-wheel-smoke/Scripts/python -c "import pramagent; print(pramagent.__version__)"
+%TEMP%/pramagent-0512-wheel-smoke/Scripts/pramagent.exe redteam --json --dynamic --attacks 50 --seed 999
 ```
 
 ```text
-0.5.11
+0.5.12
 50/50 caught, 0 false positives
 ```
 
@@ -151,7 +151,7 @@ This checks that benign non-blocked responses are not silently replaced with
 Optional extras install check:
 
 ```text
-python -m pip install "dist/pramagent-0.5.11-py3-none-any.whl[all]"
+python -m pip install "dist/pramagent-0.5.12-py3-none-any.whl[all]"
 ```
 
 Result: **passed**. Import smoke covered Anthropic, Ollama/aiohttp, FastAPI,

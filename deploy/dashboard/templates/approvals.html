@@ -21,10 +21,12 @@
         <td style="display:flex;gap:0.5rem">
           <button class="btn btn-approve"
             hx-post="/approvals/{{ a.request_id }}/approve"
+            hx-headers='{"X-CSRF-Token":"{{ csrf_token }}"}'
             hx-target="#approval-{{ a.request_id }}"
             hx-swap="outerHTML">Approve</button>
           <button class="btn btn-deny"
             hx-post="/approvals/{{ a.request_id }}/deny"
+            hx-headers='{"X-CSRF-Token":"{{ csrf_token }}"}'
             hx-target="#approval-{{ a.request_id }}"
             hx-swap="outerHTML">Deny</button>
         </td>

@@ -213,6 +213,7 @@
       <div class="actions">
         <a class="btn btn-secondary" href="/export/traces.csv">Export CSV</a>
         <form method="post" action="/logout">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <button class="btn btn-primary" type="submit">Sign out</button>
         </form>
       </div>

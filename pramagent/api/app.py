@@ -280,7 +280,7 @@ def create_app(armor: Optional[Pramagent] = None,
 
     app = FastAPI(
         title="Pramagent",
-        version="0.5.11",
+        version="0.5.12",
         description="Trust middleware for AI agents: deterministic guardrails, HITL, tool policy, tamper-evident traces.",
     )
     if os.environ.get("PRAMAGENT_OTEL_ENDPOINT") or os.environ.get("PRAMAGENT_OTEL_CONSOLE") == "1":
@@ -338,8 +338,8 @@ def create_app(armor: Optional[Pramagent] = None,
     app.state.slack_hitl = getattr(app.state.armor.hitl, "approver", None)
     app.state.tool_guard = tool_guard or build_default_tool_guard()
     app.state.usage = usage_tracker or UsageTracker.from_env()
-    app.state.jwt = JWTManager(
-        os.environ.get("PRAMAGENT_JWT_SECRET") or secrets.token_urlsafe(32)
+    app.state.jwt = JWTManager.from_env(
+        fallback_secret=os.environ.get("PRAMAGENT_JWT_SECRET") or secrets.token_urlsafe(32)
     )
     # Rate limit: capacity tokens per key, refill rate per second.
     # Defaults: 60 requests burst, 1 req/sec sustained per tenant/IP.

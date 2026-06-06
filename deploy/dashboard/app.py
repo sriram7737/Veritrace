@@ -25,6 +25,7 @@ import hmac
 import json
 import logging
 import os
+import secrets
 import time
 import uuid
 from pathlib import Path
@@ -133,9 +134,11 @@ def _verify(token: str, *, check_revocation: bool = True) -> Optional[dict]:
 # ── auth dependency ───────────────────────────────────────────────────────────
 
 class AuthContext:
-    def __init__(self, username: str, tenant: str):
+    def __init__(self, username: str, tenant: str, *, csrf_token: str = "", auth_method: str = "cookie"):
         self.username = username
         self.tenant   = tenant          # "*" = all tenants
+        self.csrf_token = csrf_token
+        self.auth_method = auth_method
     def scope(self, tenant_id: str) -> bool:
         return self.tenant == "*" or self.tenant == tenant_id
 
@@ -144,14 +147,19 @@ def _get_auth(request: Request) -> Optional[AuthContext]:
     # 1. X-API-Key header (CLI / curl usage)
     key = request.headers.get("X-API-Key", "")
     if key and PRAMAGENT_DASHBOARD_KEY and hmac.compare_digest(key, PRAMAGENT_DASHBOARD_KEY):
-        return AuthContext("api_key_user", PRAMAGENT_DASHBOARD_TENANT)
+        return AuthContext("api_key_user", PRAMAGENT_DASHBOARD_TENANT, auth_method="api_key")
 
     # 2. Cookie session JWT
     token = request.cookies.get("pramagent_session", "")
     if token:
         payload = _verify(token)
         if payload:
-            return AuthContext(payload.get("sub", ""), payload.get("tenant", "*"))
+            return AuthContext(
+                payload.get("sub", ""),
+                payload.get("tenant", "*"),
+                csrf_token=payload.get("csrf", ""),
+                auth_method="cookie",
+            )
 
     return None
 
@@ -161,6 +169,27 @@ def require_auth(request: Request) -> AuthContext:
     if ctx is None:
         raise HTTPException(status_code=302, headers={"Location": "/login"})
     return ctx
+
+
+def _template_context(ctx: AuthContext, **values):
+    base = {
+        "user": ctx.username,
+        "tenant": ctx.tenant,
+        "csrf_token": ctx.csrf_token,
+    }
+    base.update(values)
+    return base
+
+
+def require_csrf(request: Request, ctx: AuthContext, supplied: str = "") -> None:
+    """Require a session-bound CSRF token for cookie-authenticated POSTs."""
+    if ctx.auth_method != "cookie":
+        return
+    token = supplied or request.headers.get("X-CSRF-Token", "")
+    if not token:
+        token = request.query_params.get("csrf_token", "")
+    if not token or not ctx.csrf_token or not hmac.compare_digest(token, ctx.csrf_token):
+        raise HTTPException(status_code=403, detail="CSRF token missing or invalid")
 
 
 # ── rate limit (Redis-backed when configured, in-process fallback) ────────────
@@ -342,6 +371,7 @@ async def login(request: Request, username: str = Form(...), password: str = For
         "sub": username,
         "tenant": PRAMAGENT_DASHBOARD_TENANT,
         "jti": str(uuid.uuid4()),
+        "csrf": secrets.token_urlsafe(32),
         "iat": int(time.time()),
         "exp": int(time.time()) + SESSION_TTL_S,
     }
@@ -381,12 +411,12 @@ def _logout_response(request: Request) -> RedirectResponse:
 
 
 @app.post("/logout")
-async def logout(request: Request):
-    return _logout_response(request)
-
-
-@app.get("/logout")
-async def logout_get(request: Request):
+async def logout(
+    request: Request,
+    csrf_token: str = Form(""),
+    ctx: AuthContext = Depends(require_auth),
+):
+    require_csrf(request, ctx, supplied=csrf_token)
     return _logout_response(request)
 
 
@@ -407,13 +437,12 @@ async def overview(
     except Exception:
         traces = []
     items = traces if isinstance(traces, list) else traces.get("items", [])
-    return templates.TemplateResponse(request, "overview.html", {
-        "metrics": metrics,
-        "recent_traces": _filter_by_tenant(items, ctx),
-        "api_url": PRAMAGENT_API_URL,
-        "user": ctx.username,
-        "tenant": ctx.tenant,
-    })
+    return templates.TemplateResponse(request, "overview.html", _template_context(
+        ctx,
+        metrics=metrics,
+        recent_traces=_filter_by_tenant(items, ctx),
+        api_url=PRAMAGENT_API_URL,
+    ))
 
 
 # ── traces ────────────────────────────────────────────────────────────────────
@@ -442,14 +471,13 @@ async def trace_browser(
     except Exception as exc:
         data = {"items": [], "error": str(exc)}
     traces = data if isinstance(data, list) else data.get("items", [])
-    return templates.TemplateResponse(request, "traces.html", {
-        "traces": _filter_by_tenant(traces, ctx),
-        "tenant_id": effective_tenant,
-        "session_id": session_id,
-        "blocked": blocked,
-        "user": ctx.username,
-        "tenant": ctx.tenant,
-    })
+    return templates.TemplateResponse(request, "traces.html", _template_context(
+        ctx,
+        traces=_filter_by_tenant(traces, ctx),
+        tenant_id=effective_tenant,
+        session_id=session_id,
+        blocked=blocked,
+    ))
 
 
 @app.get("/traces/{trace_id}", response_class=HTMLResponse)
@@ -466,9 +494,7 @@ async def trace_detail(
     # Tenant scope check
     if not ctx.scope(trace.get("tenant_id", "")):
         raise HTTPException(status_code=403, detail="Access denied")
-    return templates.TemplateResponse(request, "trace_detail.html", {
-        "trace": trace, "user": ctx.username, "tenant": ctx.tenant,
-    })
+    return templates.TemplateResponse(request, "trace_detail.html", _template_context(ctx, trace=trace))
 
 
 # ── approvals ─────────────────────────────────────────────────────────────────
@@ -484,11 +510,10 @@ async def approvals(
     except Exception as exc:
         data = {"items": [], "error": str(exc)}
     items = data if isinstance(data, list) else data.get("items", [])
-    return templates.TemplateResponse(request, "approvals.html", {
-        "approvals": _filter_by_tenant(items, ctx),
-        "user": ctx.username,
-        "tenant": ctx.tenant,
-    })
+    return templates.TemplateResponse(request, "approvals.html", _template_context(
+        ctx,
+        approvals=_filter_by_tenant(items, ctx),
+    ))
 
 
 @app.post("/approvals/{request_id}/approve", response_class=HTMLResponse)
@@ -497,6 +522,7 @@ async def approve(
     request_id: str,
     ctx: AuthContext = Depends(require_auth),
 ):
+    require_csrf(request, ctx)
     try:
         await _require_pending_approval_scope(request_id, ctx)
         await _post(f"/hitl/{request_id}/decide", {"approved": True})
@@ -512,6 +538,7 @@ async def deny(
     request_id: str,
     ctx: AuthContext = Depends(require_auth),
 ):
+    require_csrf(request, ctx)
     try:
         await _require_pending_approval_scope(request_id, ctx)
         await _post(f"/hitl/{request_id}/decide", {"approved": False})
@@ -533,9 +560,7 @@ async def metrics_page(
         data = await _get("/metrics")
     except Exception as exc:
         data = {"error": str(exc)}
-    return templates.TemplateResponse(request, "metrics.html", {
-        "metrics": data, "user": ctx.username, "tenant": ctx.tenant,
-    })
+    return templates.TemplateResponse(request, "metrics.html", _template_context(ctx, metrics=data))
 
 
 @app.get("/usage", response_class=HTMLResponse)
@@ -556,13 +581,12 @@ async def usage_page(
         metrics = await _get("/metrics")
     except Exception:
         metrics = {}
-    return templates.TemplateResponse(request, "usage.html", {
-        "usage": usage,
-        "metrics": metrics,
-        "tenant_id": effective_tenant,
-        "user": ctx.username,
-        "tenant": ctx.tenant,
-    })
+    return templates.TemplateResponse(request, "usage.html", _template_context(
+        ctx,
+        usage=usage,
+        metrics=metrics,
+        tenant_id=effective_tenant,
+    ))
 
 
 @app.get("/metrics/fragment", response_class=HTMLResponse)
@@ -574,9 +598,7 @@ async def metrics_fragment(
         data = await _get("/metrics")
     except Exception as exc:
         data = {"error": str(exc)}
-    return templates.TemplateResponse(request, "metrics_fragment.html", {
-        "metrics": data,
-    })
+    return templates.TemplateResponse(request, "metrics_fragment.html", _template_context(ctx, metrics=data))
 
 
 # ── export ────────────────────────────────────────────────────────────────────

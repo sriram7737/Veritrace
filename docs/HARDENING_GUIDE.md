@@ -10,6 +10,10 @@ controls, and third-party validation.
 - `/v1/usage/ledger` API endpoint for tenant-scoped ledger inspection.
 - Explicit fail-open/fail-closed behavior for usage event sinks.
 - ServiceNow notify-only HITL adapter for ITSM/on-call escalation.
+- JWT `kid` support for signing-key rotation through
+  `PRAMAGENT_JWT_SECRETS` and `PRAMAGENT_JWT_ACTIVE_KID`.
+- Dashboard CSRF protection for cookie-authenticated logout and approval
+  decisions, while keeping API-key automation usable.
 - Updated docs that distinguish MVP evidence from billing-grade or
   compliance-grade guarantees.
 
@@ -75,6 +79,8 @@ Current state:
 - Slack can collect decisions.
 - ServiceNow, PagerDuty, email, and webhooks can notify humans.
 - Quorum/escalation primitives exist.
+- Dashboard approval actions require session-bound CSRF tokens for browser
+  cookie sessions.
 
 Next:
 
@@ -91,10 +97,13 @@ Current state:
 - Per-layer OpenTelemetry spans exist.
 - Docker Compose, Redis, Postgres, and basic Grafana config exist.
 - Load-test runbook exists.
+- JWT signing keys can be rotated with `kid` headers, but this is still not a
+  full enterprise identity plane.
 
 Next:
 
 - Publish repeatable 10-minute and 60-minute load results.
+- Add SSO/OIDC/RBAC and persistent API-key/session administration.
 - Add alert thresholds for block-rate spikes, HITL timeout spikes, quota-store
   failures, provider fallback rate, and audit anchoring failures.
 - Add chaos tests for Redis/Postgres outages and provider timeouts.

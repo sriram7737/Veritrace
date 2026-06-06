@@ -6,6 +6,24 @@ from fastapi.testclient import TestClient  # noqa: E402
 from starlette.requests import Request  # noqa: E402
 
 
+def _login_dashboard(monkeypatch, tenant: str = "tenant_a"):
+    monkeypatch.setattr(dashboard, "PRAMAGENT_DASHBOARD_KEY", "secret")
+    monkeypatch.setattr(dashboard, "PRAMAGENT_DASHBOARD_TENANT", tenant)
+    monkeypatch.setattr(dashboard, "PRAMAGENT_DASHBOARD_SECURE_COOKIE", False)
+    dashboard._revoked_sessions.clear()
+    client = TestClient(dashboard.app)
+    login = client.post(
+        "/login",
+        data={"username": "alice", "password": "secret"},
+        follow_redirects=False,
+    )
+    assert login.status_code == 302
+    token = login.cookies["pramagent_session"]
+    payload = dashboard._verify(token)
+    assert payload is not None
+    return client, payload["csrf"]
+
+
 @pytest.mark.asyncio
 async def test_dashboard_approval_scope_allows_same_tenant(monkeypatch):
     async def fake_get(path, params=None):
@@ -163,24 +181,13 @@ def test_dashboard_logout_revokes_session_and_protected_pages_are_no_store(monke
 
     monkeypatch.setattr(dashboard, "_get", fake_get)
     monkeypatch.setattr(dashboard, "_rate_limit", lambda request: None)
-    monkeypatch.setattr(dashboard, "PRAMAGENT_DASHBOARD_KEY", "secret")
-    monkeypatch.setattr(dashboard, "PRAMAGENT_DASHBOARD_TENANT", "tenant_a")
-    monkeypatch.setattr(dashboard, "PRAMAGENT_DASHBOARD_SECURE_COOKIE", False)
-    dashboard._revoked_sessions.clear()
-    client = TestClient(dashboard.app)
-
-    login = client.post(
-        "/login",
-        data={"username": "alice", "password": "secret"},
-        follow_redirects=False,
-    )
-    assert login.status_code == 302
+    client, csrf = _login_dashboard(monkeypatch)
 
     usage = client.get("/usage")
     assert usage.status_code == 200
     assert "no-store" in usage.headers["cache-control"]
 
-    logout = client.post("/logout", follow_redirects=False)
+    logout = client.post("/logout", data={"csrf_token": csrf}, follow_redirects=False)
     assert logout.status_code == 303
     assert "pramagent_session=" in logout.headers["set-cookie"]
     assert "Max-Age=0" in logout.headers["set-cookie"]
@@ -188,6 +195,95 @@ def test_dashboard_logout_revokes_session_and_protected_pages_are_no_store(monke
     protected = client.get("/usage", follow_redirects=False)
     assert protected.status_code == 302
     assert protected.headers["location"] == "/login"
+
+
+def test_dashboard_logout_requires_csrf_for_cookie_sessions(monkeypatch):
+    async def fake_get(path, params=None):
+        if path == "/usage":
+            return {"tenant_id": "tenant_a", "calls": 1, "limits": {}, "remaining": {}}
+        if path == "/metrics":
+            return {}
+        raise AssertionError(path)
+
+    monkeypatch.setattr(dashboard, "_get", fake_get)
+    monkeypatch.setattr(dashboard, "_rate_limit", lambda request: None)
+    client, _ = _login_dashboard(monkeypatch)
+
+    denied = client.post("/logout", follow_redirects=False)
+
+    assert denied.status_code == 403
+    assert client.get("/usage").status_code == 200
+
+
+def test_dashboard_logout_does_not_allow_get(monkeypatch):
+    client, _ = _login_dashboard(monkeypatch)
+
+    response = client.get("/logout", follow_redirects=False)
+
+    assert response.status_code == 405
+
+
+def test_dashboard_approval_posts_require_csrf_for_cookie_sessions(monkeypatch):
+    async def fake_get(path, params=None):
+        assert path == "/hitl/pending"
+        return {"items": [{"request_id": "req-1", "tenant_id": "tenant_a"}]}
+
+    async def fake_post(path, json_body):
+        raise AssertionError("approval should not reach upstream without CSRF")
+
+    monkeypatch.setattr(dashboard, "_get", fake_get)
+    monkeypatch.setattr(dashboard, "_post", fake_post)
+    client, _ = _login_dashboard(monkeypatch)
+
+    response = client.post("/approvals/req-1/approve")
+
+    assert response.status_code == 403
+
+
+def test_dashboard_approval_posts_accept_csrf_header(monkeypatch):
+    calls = []
+
+    async def fake_get(path, params=None):
+        assert path == "/hitl/pending"
+        return {"items": [{"request_id": "req-1", "tenant_id": "tenant_a"}]}
+
+    async def fake_post(path, json_body):
+        calls.append((path, json_body))
+        return {"ok": True}
+
+    monkeypatch.setattr(dashboard, "_get", fake_get)
+    monkeypatch.setattr(dashboard, "_post", fake_post)
+    client, csrf = _login_dashboard(monkeypatch)
+
+    response = client.post("/approvals/req-1/approve", headers={"X-CSRF-Token": csrf})
+
+    assert response.status_code == 200
+    assert "Approved" in response.text
+    assert calls == [("/hitl/req-1/decide", {"approved": True})]
+
+
+def test_dashboard_api_key_approval_skips_csrf_for_automation(monkeypatch):
+    calls = []
+
+    async def fake_get(path, params=None):
+        assert path == "/hitl/pending"
+        return {"items": [{"request_id": "req-1", "tenant_id": "tenant_a"}]}
+
+    async def fake_post(path, json_body):
+        calls.append((path, json_body))
+        return {"ok": True}
+
+    monkeypatch.setattr(dashboard, "_get", fake_get)
+    monkeypatch.setattr(dashboard, "_post", fake_post)
+    monkeypatch.setattr(dashboard, "PRAMAGENT_DASHBOARD_KEY", "secret")
+    monkeypatch.setattr(dashboard, "PRAMAGENT_DASHBOARD_TENANT", "tenant_a")
+    client = TestClient(dashboard.app)
+
+    response = client.post("/approvals/req-1/deny", headers={"X-API-Key": "secret"})
+
+    assert response.status_code == 200
+    assert "Denied" in response.text
+    assert calls == [("/hitl/req-1/decide", {"approved": False})]
 
 
 def test_dashboard_csv_export_is_tenant_scoped_and_downloadable(monkeypatch):

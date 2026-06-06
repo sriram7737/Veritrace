@@ -13,7 +13,7 @@ exist.
 
 ## Test status
 
-`python -m pytest -q --tb=no` -> **405 passing, 0 warnings**. No skips or
+`python -m pytest -q --tb=no` -> **412 passing**. No skips or
 expected failures hiding classifier misses in the bundled suite.
 
 Additional release harnesses:
@@ -58,6 +58,8 @@ Actions is configured to run the same suite on Python 3.10, 3.11, 3.12, and
 - RCA: replay, causality, counterfactual **+ tool-call graphs, multi-rule
   counterfactuals, critical-path** for complex agents
 - JWT / API-key auth, per-tenant rate limiting, usage quotas, cross-tenant trace guard
+- JWT `kid`-based signing-key rotation (`PRAMAGENT_JWT_SECRETS` +
+  `PRAMAGENT_JWT_ACTIVE_KID`) with legacy single-secret compatibility
 - Usage-event hooks for billing/analytics (in-memory hash-chain usage ledger,
   in-memory sink, fail-open webhook, fail-closed mode when explicitly enabled)
 - SQLite + encrypted SQLite; **Postgres** store; **Redis** distributed backend
@@ -72,7 +74,9 @@ Actions is configured to run the same suite on Python 3.10, 3.11, 3.12, and
 - FastAPI sidecar (auth, CORS, security headers, structured logging, RCA +
   retention + GDPR-erasure endpoints, `/v1/usage` quota snapshots, and
   `/v1/usage/ledger` ledger evidence)
-- Dashboard usage page + Redis-backed dashboard rate limiting with local fallback
+- Dashboard usage page, Redis-backed dashboard rate limiting with local
+  fallback, no-store security headers, session revocation, and CSRF protection
+  for cookie-authenticated state-changing actions
 - Built-in red-team benchmark CLI with static and dynamic mutation modes
   (`pramagent redteam --json --dynamic --attacks 200 --seed 999`)
 - Public red-team result/methodology doc and load-test runbook
@@ -88,8 +92,9 @@ Actions is configured to run the same suite on Python 3.10, 3.11, 3.12, and
 - S3 cold archive: live AWS S3 archive/restore smoke test passed; needs real
   lifecycle policies, KMS/envelope encryption, and restore runbooks before
   compliance use
-- Dashboard auth: tenant-scoped config, secure-cookie support, Redis-backed
-  throttling, and explicit all-tenant opt-in exist; still not SSO/OIDC/RBAC-grade
+- Dashboard auth: tenant-scoped config, secure-cookie support, CSRF protection,
+  Redis-backed throttling, and explicit all-tenant opt-in exist; still not
+  SSO/OIDC/RBAC-grade
 - HITL adapters: Slack collects approve/deny decisions. ServiceNow,
   PagerDuty, email, and generic webhooks are notification/escalation adapters;
   broader enterprise approval workflows are not complete.
@@ -104,7 +109,7 @@ Actions is configured to run the same suite on Python 3.10, 3.11, 3.12, and
 - RCA for complex branching agents — graph support added; heuristic, not a solver
 - OTel tracing — spans emitted; Grafana dashboards are provided as config, not battle-tested
 
-### Not implemented / out of scope for v0.4
+### Not implemented / out of scope for the current alpha
 - SSO/OIDC/RBAC dashboard auth
 - QuantumLayer (future research only; intentionally not built or exposed)
 - Real external penetration test (must be run by a third party)

@@ -5,13 +5,15 @@ The critical security test here is `test_cross_tenant_trace_access_blocked`: it
 proves a holder of tenant-A's key cannot fetch tenant-B's trace by call_id.
 That was the actual bug reported in the analysis.
 """
+import json
+
 import pytest
 
 fastapi = pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
 
 from pramagent.api.app import create_app  # noqa: E402
-from pramagent.auth import APIKeyRegistry  # noqa: E402
+from pramagent.auth import APIKeyRegistry, JWTError, JWTManager, _b64url_decode  # noqa: E402
 
 
 # ── unauthenticated mode (empty registry) ──────────────────────────────
@@ -175,3 +177,31 @@ def test_revoke_key_removes_access():
     assert reg.tenant_for_key(key) == "tenant_x"
     assert reg.revoke_key(key) is True
     assert reg.tenant_for_key(key) is None
+
+
+def test_jwt_manager_supports_kid_rotation_and_retirement():
+    mgr = JWTManager({"old": "old-secret"}, active_kid="old")
+    old_token = mgr.issue("tenant_a", ttl_s=120)
+
+    mgr.rotate("new", "new-secret", activate=True)
+    new_token = mgr.issue("tenant_a", ttl_s=120)
+
+    assert mgr.tenant_for_token(old_token) == "tenant_a"
+    assert mgr.tenant_for_token(new_token) == "tenant_a"
+
+    assert mgr.retire("old") is True
+    with pytest.raises(JWTError):
+        mgr.verify(old_token)
+    assert mgr.tenant_for_token(new_token) == "tenant_a"
+
+
+def test_jwt_manager_loads_key_registry_from_env(monkeypatch):
+    monkeypatch.setenv("PRAMAGENT_JWT_SECRETS", "old:old-secret,new:new-secret")
+    monkeypatch.setenv("PRAMAGENT_JWT_ACTIVE_KID", "new")
+
+    mgr = JWTManager.from_env(fallback_secret="fallback-secret")
+    token = mgr.issue("tenant_env", ttl_s=120)
+    header = json.loads(_b64url_decode(token.split(".")[0]))
+
+    assert header["kid"] == "new"
+    assert mgr.tenant_for_token(token) == "tenant_env"

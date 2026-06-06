@@ -4,6 +4,31 @@
 
 No unreleased changes yet.
 
+## v0.5.12 - 2026-06-05
+
+This patch release hardens dashboard session security and JWT operations.
+
+### Added
+
+- JWT `kid`-based signing-key rotation through `PRAMAGENT_JWT_SECRETS` and
+  `PRAMAGENT_JWT_ACTIVE_KID`, while preserving the existing single-secret path.
+- Dashboard CSRF protection for cookie-authenticated logout and approval/deny
+  actions.
+- Regression coverage for JWT rotation/retirement, CSRF logout, CSRF approval
+  decisions, and API-key automation paths.
+
+### Changed
+
+- Dashboard logout is now POST-only and requires a session-bound CSRF token.
+- Dashboard templates now pass CSRF tokens to logout and HTMX approval buttons.
+- Implementation and hardening docs now call out the new controls and keep
+  SSO/OIDC/RBAC, persistent HITL queues, billing ledgers, and external
+  assessment as alpha roadmap items.
+
+### Verified
+
+- `python -m pytest -q --tb=no` -> `412 passed`.
+
 ## v0.5.11 - 2026-06-05
 
 This patch release records the real workflow beta-validation pass and tightens
