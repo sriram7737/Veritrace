@@ -72,7 +72,7 @@ PRAMAGENT_DASHBOARD_REDIS_URL = os.environ.get(
     os.environ.get("PRAMAGENT_REDIS_URL", ""),
 )
 PRAMAGENT_DASHBOARD_SIGNUP_ENABLED = os.environ.get(
-    "PRAMAGENT_DASHBOARD_SIGNUP_ENABLED", "false"
+    "PRAMAGENT_DASHBOARD_SIGNUP_ENABLED", "true"
 ).lower() in {"1", "true", "yes", "on"}
 PRAMAGENT_DASHBOARD_PASSWORD_RESET_ENABLED = os.environ.get(
     "PRAMAGENT_DASHBOARD_PASSWORD_RESET_ENABLED", "true"
@@ -98,7 +98,18 @@ log = logging.getLogger("pramagent.dashboard")
 
 def _build_user_store() -> DashboardUserStore | None:
     try:
-        return build_dashboard_user_store_from_env()
+        store = build_dashboard_user_store_from_env()
+        if store is not None:
+            return store
+        default_path = os.environ.get(
+            "PRAMAGENT_DASHBOARD_LOCAL_USERS_PATH",
+            ".pramagent/dashboard-users.db",
+        )
+        if default_path:
+            from pramagent.dashboard_auth import SQLiteDashboardUserStore
+
+            return SQLiteDashboardUserStore(default_path)
+        return None
     except Exception as exc:
         log.warning("dashboard user store unavailable; shared-key auth remains active: %s", exc)
         return None
@@ -487,25 +498,30 @@ async def signup_page(request: Request, error: str = ""):
 @app.post("/signup")
 async def signup(
     request: Request,
-    username: str = Form(...),
-    email: str = Form(...),
-    password: str = Form(...),
+    email: str = Form(""),
+    phone: str = Form(""),
     _rl=Depends(_rate_limit),
 ):
     if not PRAMAGENT_DASHBOARD_SIGNUP_ENABLED:
         raise HTTPException(status_code=404, detail="Signup is disabled")
     store = _require_user_store()
     try:
-        user = store.create_user(
-            username=username,
+        issue = store.create_user_with_key(
             email=email,
-            password=password,
+            phone=phone,
             tenant_id=PRAMAGENT_DASHBOARD_SIGNUP_TENANT,
             role=PRAMAGENT_DASHBOARD_DEFAULT_ROLE,
         )
     except DashboardAuthError as exc:
         return RedirectResponse(f"/signup?error={quote_plus(str(exc))}", status_code=302)
-    return _session_response(user)
+    return templates.TemplateResponse(request, "key_issued.html", {
+        "title": "Dashboard key generated",
+        "message": "Save this key now. Pramagent stores only a bcrypt hash and cannot show it again.",
+        "dashboard_key": issue.key,
+        "identity": issue.user.email or issue.user.phone,
+        "tenant": issue.user.tenant_id,
+        "login_url": "/login",
+    })
 
 
 @app.get("/forgot-password", response_class=HTMLResponse)
@@ -523,16 +539,16 @@ async def forgot_password_page(request: Request, message: str = "", error: str =
 @app.post("/forgot-password", response_class=HTMLResponse)
 async def forgot_password(
     request: Request,
-    email: str = Form(...),
+    identity: str = Form(...),
     _rl=Depends(_rate_limit),
 ):
     if not PRAMAGENT_DASHBOARD_PASSWORD_RESET_ENABLED:
         raise HTTPException(status_code=404, detail="Password reset is disabled")
     store = _require_user_store()
-    token = store.create_reset_token(email, ttl_s=PRAMAGENT_DASHBOARD_RESET_TOKEN_TTL_S)
+    token = store.create_reset_token(identity, ttl_s=PRAMAGENT_DASHBOARD_RESET_TOKEN_TTL_S)
     reset_link = f"/reset-password?token={token}" if token and PRAMAGENT_DASHBOARD_RESET_SHOW_TOKEN else ""
     return templates.TemplateResponse(request, "forgot_password.html", {
-        "message": "If that account exists, a reset link has been prepared.",
+        "message": "If that account exists, a verification link has been prepared.",
         "error": "",
         "reset_link": reset_link,
     })
@@ -554,30 +570,25 @@ async def reset_password_page(request: Request, token: str = "", error: str = ""
 async def reset_password(
     request: Request,
     token: str = Form(...),
-    password: str = Form(...),
     _rl=Depends(_rate_limit),
 ):
     if not PRAMAGENT_DASHBOARD_PASSWORD_RESET_ENABLED:
         raise HTTPException(status_code=404, detail="Password reset is disabled")
     store = _require_user_store()
-    try:
-        ok = store.reset_password(token, password)
-    except DashboardAuthError as exc:
+    issue = store.regenerate_key(token)
+    if not issue:
         return templates.TemplateResponse(request, "reset_password.html", {
             "token": token,
-            "error": str(exc),
+            "error": "Verification token is invalid or expired",
             "message": "",
         })
-    if not ok:
-        return templates.TemplateResponse(request, "reset_password.html", {
-            "token": token,
-            "error": "Reset token is invalid or expired",
-            "message": "",
-        })
-    return templates.TemplateResponse(request, "reset_password.html", {
-        "token": "",
-        "error": "",
-        "message": "Password updated. You can sign in now.",
+    return templates.TemplateResponse(request, "key_issued.html", {
+        "title": "New dashboard key generated",
+        "message": "Your old key has been replaced. Save this new key now.",
+        "dashboard_key": issue.key,
+        "identity": issue.user.email or issue.user.phone,
+        "tenant": issue.user.tenant_id,
+        "login_url": "/login",
     })
 
 

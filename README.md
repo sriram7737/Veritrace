@@ -109,7 +109,7 @@ pramagent redteam --json --attacks 100
 pramagent redteam --json --dynamic --attacks 200 --seed 999
 ```
 
-Current local result: `420 passed`.
+Current local result: `421 passed`.
 
 ## ToolGuard Example
 
@@ -195,7 +195,8 @@ asyncio.run(main())
 - You need proven jailbreak resistance against a serious red team; the bundled
   benchmark is only a deterministic smoke test, not third-party assurance.
 - You need mature enterprise dashboard auth such as SSO/OIDC/RBAC. Optional
-  SQL users/password reset exist, but this is not an enterprise IAM plane yet.
+  generated dashboard keys and SQL users exist, but this is not an enterprise
+  IAM plane yet.
 - You need production-grade scale evidence, chaos engineering, or SLA-backed
   capacity numbers beyond the published local Docker Compose load run.
 - You need billing-grade Stripe/Chargebee metering rather than the local usage
@@ -211,7 +212,7 @@ asyncio.run(main())
 | Audit trail | Strong MVP | SHA-256 hash chain; optional real Sepolia anchoring |
 | PII redaction | Strong MVP | Context-aware patterns for common regulated data |
 | Auth/rate limits/quotas | Beta | JWT/API keys, token buckets, per-tenant quotas |
-| Dashboard | Prototype | Shared-key fallback, optional SQL users/password reset, tenant scoping, traces, approvals, metrics, usage page |
+| Dashboard | Prototype | Shared-key fallback, optional SQL users with generated keys, tenant scoping, traces, approvals, metrics, usage page |
 | Redis/Postgres backends | Beta | Wired and tested locally; needs scale/load testing |
 | OpenTelemetry | Partial | Per-layer spans exist; dashboards and alerting need hardening |
 | Red-team benchmark | MVP | Static and dynamic mutation modes with bypass/false-positive rates |
@@ -228,7 +229,8 @@ asyncio.run(main())
   PagerDuty, email, and generic webhooks are useful notification/escalation
   adapters, but broader enterprise approval workflows are still in development.
 - Dashboard auth has tenant-scoped shared-key fallback plus optional SQL-backed
-  users and password reset. It is still not SSO/OIDC/RBAC-grade.
+  users with generated dashboard keys and key regeneration. It is still not
+  SSO/OIDC/RBAC-grade.
 - Ethereum anchoring is Sepolia/testnet-oriented; no mainnet runbook, verifier
   contract, HSM/KMS key-management story, or enterprise anchoring operating
   model is included yet.

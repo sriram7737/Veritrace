@@ -33,22 +33,21 @@
     <div class="brand-mark">P</div>
     <div>
       <h1>Create account</h1>
-      <div class="sub">Pramagent dashboard access</div>
+      <div class="sub">Generate a Pramagent dashboard key</div>
     </div>
   </div>
   {% if error %}
   <div class="error">{{ error }}</div>
   {% endif %}
   <form method="post" action="/signup" autocomplete="on">
-    <label for="username">Username</label>
-    <input id="username" name="username" type="text" autocomplete="username" required>
     <label for="email">Email</label>
-    <input id="email" name="email" type="email" autocomplete="email" required>
-    <label for="password">Password</label>
-    <input id="password" name="password" type="password" autocomplete="new-password" minlength="8" required>
-    <button type="submit">Create account</button>
+    <input id="email" name="email" type="email" autocomplete="email" placeholder="you@example.com">
+    <label for="phone">Phone</label>
+    <input id="phone" name="phone" type="tel" autocomplete="tel" placeholder="+15551234567">
+    <button type="submit">Generate dashboard key</button>
   </form>
-  <div class="note">New accounts are scoped to tenant <code>{{ tenant }}</code>. Self-signup is disabled unless the operator explicitly enables it.</div>
+  <div class="note">Enter an email or phone. Pramagent generates the key; users do not choose passwords.</div>
+  <div class="note">New accounts are scoped to tenant <code>{{ tenant }}</code>. Disable public signup in production unless this dashboard is behind a trusted boundary.</div>
   <div class="note"><a href="/login">Back to sign in</a></div>
 </div>
 </body>

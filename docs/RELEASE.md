@@ -27,7 +27,7 @@ python -m venv %TEMP%/pramagent-release-venv
 Optional extras install check:
 
 ```bash
-python -m pip install dist/pramagent-0.5.14-py3-none-any.whl[all]
+python -m pip install dist/pramagent-0.5.15-py3-none-any.whl[all]
 python - <<'PY'
 import anthropic, aiohttp, fastapi, uvicorn, jinja2, httpx, cryptography
 import opentelemetry, redis, psycopg2, web3, boto3
@@ -86,14 +86,14 @@ python -m twine check dist/*
 
 ```bash
 git status --short
-git tag -a v0.5.14 -m "v0.5.14"
+git tag -a v0.5.15 -m "v0.5.15"
 git push origin main
-git push origin v0.5.14
+git push origin v0.5.15
 ```
 
-Create a GitHub Release from tag `v0.5.14` and include:
+Create a GitHub Release from tag `v0.5.15` and include:
 
-- Test result: `420 passed`
+- Test result: `421 passed`
 - Test-agent v2 result: `57/57 passed`
 - Dynamic feed agent result: mock `8/8 passed`, Ollama `qwen2.5:1.5b` `8/8 passed`
 - Dynamic red-team result: `200/200 caught`, seed `999`

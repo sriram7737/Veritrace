@@ -13,7 +13,7 @@ exist.
 
 ## Test status
 
-`python -m pytest -q --tb=no` -> **420 passing**. No skips or
+`python -m pytest -q --tb=no` -> **421 passing**. No skips or
 expected failures hiding classifier misses in the bundled suite.
 
 Additional release harnesses:
@@ -60,8 +60,8 @@ Actions is configured to run the same suite on Python 3.10, 3.11, 3.12, and
 - RCA: replay, causality, counterfactual **+ tool-call graphs, multi-rule
   counterfactuals, critical-path** for complex agents
 - JWT / API-key auth, Postgres-backed persistent API-key registry, optional
-  SQL-backed dashboard users/password reset, per-tenant rate limiting, usage
-  quotas, cross-tenant trace guard
+  SQL-backed dashboard users with generated keys/key regeneration, per-tenant
+  rate limiting, usage quotas, cross-tenant trace guard
 - JWT `kid`-based signing-key rotation (`PRAMAGENT_JWT_SECRETS` +
   `PRAMAGENT_JWT_ACTIVE_KID`) with legacy single-secret compatibility
 - Usage-event hooks for billing/analytics (in-memory hash-chain usage ledger,
@@ -81,8 +81,9 @@ Actions is configured to run the same suite on Python 3.10, 3.11, 3.12, and
   `/v1/usage/ledger` ledger evidence)
 - Dashboard usage page, Redis-backed dashboard rate limiting with local
   fallback, no-store security headers, session revocation, optional SQL users
-  with bcrypt password hashes and hashed reset tokens, and CSRF protection for
-  cookie-authenticated state-changing actions
+  with generated high-entropy dashboard keys, bcrypt key hashes, phone/email
+  identities, hashed reset tokens, and CSRF protection for cookie-authenticated
+  state-changing actions
 - Built-in red-team benchmark CLI with static and dynamic mutation modes
   (`pramagent redteam --json --dynamic --attacks 200 --seed 999`)
 - Public red-team result/methodology doc and load-test runbook
@@ -99,10 +100,10 @@ Actions is configured to run the same suite on Python 3.10, 3.11, 3.12, and
   lifecycle policies, KMS/envelope encryption, and restore runbooks before
   compliance use
 - Dashboard auth: tenant-scoped config, shared-key fallback, optional
-  SQLite/Postgres users, bcrypt password hashes, password reset tokens,
-  secure-cookie support, CSRF protection, Redis-backed throttling, and explicit
-  all-tenant opt-in exist; still not SSO/OIDC/RBAC-grade and no email
-  verification provider is wired yet
+  SQLite/Postgres users, generated dashboard keys, bcrypt key hashes, key
+  regeneration tokens, secure-cookie support, CSRF protection, Redis-backed
+  throttling, and explicit all-tenant opt-in exist; still not SSO/OIDC/RBAC-grade
+  and no email/SMS delivery provider is wired yet
 - HITL adapters: Slack collects approve/deny decisions. ServiceNow,
   PagerDuty, email, and generic webhooks are notification/escalation adapters;
   broader enterprise approval workflows are not complete.

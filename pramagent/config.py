@@ -54,7 +54,8 @@ PRAMAGENT_DASHBOARD_TENANT       default     tenant scope for dashboard sessions
 PRAMAGENT_DASHBOARD_ALLOW_SUPER_ADMIN false  required before tenant "*" is honored
 PRAMAGENT_DASHBOARD_USER_DSN     optional Postgres-backed dashboard users
 PRAMAGENT_DASHBOARD_USERS_SQLITE optional SQLite dashboard users for dev/tests
-PRAMAGENT_DASHBOARD_SIGNUP_ENABLED false     opt-in self-signup page
+PRAMAGENT_DASHBOARD_LOCAL_USERS_PATH .pramagent/dashboard-users.db
+PRAMAGENT_DASHBOARD_SIGNUP_ENABLED true      disable for public deployments
 PRAMAGENT_DASHBOARD_PASSWORD_RESET_ENABLED true
 """
 from __future__ import annotations

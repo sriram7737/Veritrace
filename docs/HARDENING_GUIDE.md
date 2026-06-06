@@ -14,8 +14,9 @@ controls, and third-party validation.
   `PRAMAGENT_JWT_SECRETS` and `PRAMAGENT_JWT_ACTIVE_KID`.
 - Dashboard CSRF protection for cookie-authenticated logout and approval
   decisions, while keeping API-key automation usable.
-- Optional dashboard SQL users with bcrypt password hashes, tenant-scoped
-  roles, signup routes, and one-time password reset tokens stored as hashes.
+- Optional dashboard SQL users with generated high-entropy dashboard keys,
+  bcrypt key hashes, tenant-scoped roles, signup routes, and one-time key
+  regeneration tokens stored as hashes.
 - Postgres-backed persistent API-key registry via `PRAMAGENT_API_KEY_DSN`.
 - Redis/back-end-backed ToolGuard side-effect history and per-session tool call
   counters for multi-worker dangerous-chain detection.
@@ -90,8 +91,8 @@ Current state:
 - Quorum/escalation primitives exist.
 - Dashboard approval actions require session-bound CSRF tokens for browser
   cookie sessions.
-- Dashboard users can be stored in SQLite/Postgres with bcrypt password hashes,
-  but the enterprise identity target remains SSO/OIDC/RBAC.
+- Dashboard users can be stored in SQLite/Postgres with generated keys and
+  bcrypt key hashes, but the enterprise identity target remains SSO/OIDC/RBAC.
 
 Next:
 
@@ -100,7 +101,7 @@ Next:
 - Add approval evidence exports: who approved, when, context hash, and final
   action.
 - Add SSO/OIDC/RBAC for dashboard and approval admin workflows.
-- Add verified email delivery for account activation and password resets.
+- Add verified email/SMS delivery for account activation and key regeneration.
 
 ## Observability And Operations
 

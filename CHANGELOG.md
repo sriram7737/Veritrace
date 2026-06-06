@@ -4,6 +4,30 @@
 
 No unreleased changes.
 
+## v0.5.15 - 2026-06-06
+
+### Changed
+
+- Dashboard signup now asks for email and/or phone, then generates a
+  high-entropy `pga-...` dashboard key instead of asking users to choose a
+  password.
+- Forgot-password flow is now a key-regeneration flow: after verification token
+  validation, Pramagent invalidates the old key hash and shows a new key once.
+- Dashboard login copy now says "Dashboard key" and accepts email, phone, or
+  the legacy shared-key username path.
+- Dashboard user storage now defaults to local SQLite
+  `.pramagent/dashboard-users.db` when no Postgres/SQLite user store is
+  configured, so signup/reset pages are visible in the local UX without CSV.
+
+### Added
+
+- Phone identity support for dashboard users.
+- One-time generated-key display page with no-store cache headers.
+
+### Verified
+
+- `python -m pytest -q --tb=short` -> `421 passed`.
+
 ## v0.5.14 - 2026-06-05
 
 ### Fixed

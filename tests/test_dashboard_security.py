@@ -3,7 +3,10 @@ import pytest
 dashboard = pytest.importorskip("deploy.dashboard.app")
 from fastapi import HTTPException  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
-from pramagent.dashboard_auth import SQLiteDashboardUserStore  # noqa: E402
+from pramagent.dashboard_auth import (  # noqa: E402
+    SQLiteDashboardUserStore,
+    generate_dashboard_key,
+)
 from starlette.requests import Request  # noqa: E402
 
 
@@ -334,26 +337,28 @@ def test_dashboard_csv_export_is_tenant_scoped_and_downloadable(monkeypatch):
     assert "blocked-by-scope" not in response.text
 
 
-def test_dashboard_user_store_hashes_passwords_and_resets_once(tmp_path):
+def test_dashboard_user_store_hashes_generated_keys_and_regenerates_once(tmp_path):
     store = SQLiteDashboardUserStore(tmp_path / "dashboard-users.db")
-    user = store.create_user(
-        username="alice",
+    issued = store.create_user_with_key(
         email="alice@example.com",
-        password="old-password",
         tenant_id="tenant_a",
         role="viewer",
     )
 
+    user = issued.user
     assert user.tenant_id == "tenant_a"
-    assert store.authenticate("alice", "wrong-password") is None
-    assert store.authenticate("alice@example.com", "old-password").username == "alice"
+    assert issued.key.startswith("pga-")
+    assert store.authenticate("alice@example.com", "wrong-key") is None
+    assert store.authenticate("alice@example.com", issued.key).username == "alice@example.com"
 
     token = store.create_reset_token("alice@example.com", ttl_s=300)
     assert token
-    assert store.reset_password(token, "new-password") is True
-    assert store.reset_password(token, "another-password") is False
-    assert store.authenticate("alice", "old-password") is None
-    assert store.authenticate("alice", "new-password").tenant_id == "tenant_a"
+    regenerated = store.regenerate_key(token)
+    assert regenerated is not None
+    assert regenerated.key.startswith("pga-")
+    assert store.regenerate_key(token) is None
+    assert store.authenticate("alice@example.com", issued.key) is None
+    assert store.authenticate("alice@example.com", regenerated.key).tenant_id == "tenant_a"
 
 
 def test_dashboard_signup_creates_user_session_when_enabled(tmp_path, monkeypatch):
@@ -369,28 +374,26 @@ def test_dashboard_signup_creates_user_session_when_enabled(tmp_path, monkeypatc
     response = client.post(
         "/signup",
         data={
-            "username": "newuser",
             "email": "newuser@example.com",
-            "password": "strong-password",
+            "phone": "",
         },
         follow_redirects=False,
     )
 
-    assert response.status_code == 302
-    token = response.cookies["pramagent_session"]
-    payload = dashboard._verify(token)
-    assert payload["sub"] == "newuser"
-    assert payload["tenant"] == "tenant_signup"
-    assert payload["role"] == "viewer"
-    assert store.authenticate("newuser", "strong-password") is not None
+    assert response.status_code == 200
+    assert "Dashboard key generated" in response.text
+    marker = "pga-"
+    assert marker in response.text
+    key = marker + response.text.split(marker, 1)[1].split("<", 1)[0].strip()
+    assert store.authenticate("newuser@example.com", key) is not None
 
 
 def test_dashboard_sql_user_login_takes_precedence_over_shared_key(tmp_path, monkeypatch):
     store = SQLiteDashboardUserStore(tmp_path / "dashboard-users.db")
+    key = generate_dashboard_key()
     store.create_user(
-        username="alice",
         email="alice@example.com",
-        password="user-password",
+        password=key,
         tenant_id="tenant_sql",
         role="auditor",
     )
@@ -402,7 +405,7 @@ def test_dashboard_sql_user_login_takes_precedence_over_shared_key(tmp_path, mon
 
     response = client.post(
         "/login",
-        data={"username": "alice", "password": "user-password"},
+        data={"username": "alice@example.com", "password": key},
         follow_redirects=False,
     )
 
@@ -412,12 +415,28 @@ def test_dashboard_sql_user_login_takes_precedence_over_shared_key(tmp_path, mon
     assert payload["role"] == "auditor"
 
 
-def test_dashboard_forgot_password_flow_changes_sql_user_password(tmp_path, monkeypatch):
+def test_dashboard_signup_accepts_phone_only_identity(tmp_path, monkeypatch):
     store = SQLiteDashboardUserStore(tmp_path / "dashboard-users.db")
-    store.create_user(
-        username="alice",
+    monkeypatch.setattr(dashboard, "_user_store", store)
+    monkeypatch.setattr(dashboard, "PRAMAGENT_DASHBOARD_SIGNUP_ENABLED", True)
+    monkeypatch.setattr(dashboard, "PRAMAGENT_DASHBOARD_SIGNUP_TENANT", "tenant_phone")
+    monkeypatch.setattr(dashboard, "_rate_limit", lambda request: None)
+    client = TestClient(dashboard.app)
+
+    response = client.post(
+        "/signup",
+        data={"email": "", "phone": "+1 555 123 4567"},
+    )
+
+    assert response.status_code == 200
+    key = "pga-" + response.text.split("pga-", 1)[1].split("<", 1)[0].strip()
+    assert store.authenticate("+15551234567", key).tenant_id == "tenant_phone"
+
+
+def test_dashboard_forgot_key_flow_regenerates_sql_user_key(tmp_path, monkeypatch):
+    store = SQLiteDashboardUserStore(tmp_path / "dashboard-users.db")
+    issued = store.create_user_with_key(
         email="alice@example.com",
-        password="old-password",
         tenant_id="tenant_a",
     )
     monkeypatch.setattr(dashboard, "_user_store", store)
@@ -428,7 +447,7 @@ def test_dashboard_forgot_password_flow_changes_sql_user_password(tmp_path, monk
 
     requested = client.post(
         "/forgot-password",
-        data={"email": "alice@example.com"},
+        data={"identity": "alice@example.com"},
     )
 
     assert requested.status_code == 200
@@ -438,10 +457,11 @@ def test_dashboard_forgot_password_flow_changes_sql_user_password(tmp_path, monk
 
     changed = client.post(
         "/reset-password",
-        data={"token": token, "password": "new-password"},
+        data={"token": token},
     )
 
     assert changed.status_code == 200
-    assert "Password updated" in changed.text
-    assert store.authenticate("alice", "old-password") is None
-    assert store.authenticate("alice", "new-password") is not None
+    assert "New dashboard key generated" in changed.text
+    new_key = "pga-" + changed.text.split("pga-", 1)[1].split("<", 1)[0].strip()
+    assert store.authenticate("alice@example.com", issued.key) is None
+    assert store.authenticate("alice@example.com", new_key) is not None

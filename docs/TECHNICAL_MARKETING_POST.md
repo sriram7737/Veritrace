@@ -245,7 +245,7 @@ Pramagent wraps model calls and agent workflows with:
 
 Release evidence:
 
-- 420 passing tests
+- 421 passing tests
 - Python 3.10, 3.11, 3.12, and 3.13 CI matrix
 - live OpenAI smoke test
 - real OpenAI job-agent stress run: 216 calls, five tenants, concurrency 10,
