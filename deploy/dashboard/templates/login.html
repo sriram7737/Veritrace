@@ -92,10 +92,17 @@
   <form method="post" action="/login" autocomplete="on">
     <label for="username">Username</label>
     <input id="username" name="username" type="text" autocomplete="username" required>
-    <label for="password">Dashboard key</label>
+    <label for="password">Password or dashboard key</label>
     <input id="password" name="password" type="password" autocomplete="current-password" required>
     <button type="submit">Sign in</button>
   </form>
+  {% if signup_enabled or password_reset_enabled %}
+  <div class="note">
+    {% if signup_enabled %}<a href="/signup">Create account</a>{% endif %}
+    {% if signup_enabled and password_reset_enabled %} · {% endif %}
+    {% if password_reset_enabled %}<a href="/forgot-password">Forgot password?</a>{% endif %}
+  </div>
+  {% endif %}
   <div class="note">Sessions are tenant-scoped and protected with no-store browser cache headers.</div>
 </div>
 </body>

@@ -26,7 +26,7 @@ from .providers import (AnthropicProvider, BaseProvider, FallbackProvider,
                         GeminiProvider, MockProvider, OllamaProvider,
                         OpenAICompatibleProvider, OpenAIProvider)
 from .store import MemoryStore, SQLiteStore
-from .auth import APIKeyRegistry, JWTManager
+from .auth import APIKeyRegistry, JWTManager, PostgresAPIKeyRegistry
 from .otel import OpenTelemetryExporter, OpenTelemetryNotInstalled
 from .anchoring import EthereumAnchor, EthereumAnchorReceipt
 from .redteam import RedTeamReport, run_injection_benchmark
@@ -44,7 +44,7 @@ from .usage import (
     WebhookUsageSink,
 )
 
-__version__ = "0.5.12"
+__version__ = "0.5.13"
 __all__ = [
     "Pramagent",
     "AgentResponse",
@@ -64,6 +64,7 @@ __all__ = [
     "MemoryStore",
     "SQLiteStore",
     "APIKeyRegistry",
+    "PostgresAPIKeyRegistry",
     "JWTManager",
     "UsageTracker",
     "UsageLimits",

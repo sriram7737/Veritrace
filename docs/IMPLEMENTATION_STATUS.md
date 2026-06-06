@@ -13,7 +13,7 @@ exist.
 
 ## Test status
 
-`python -m pytest -q --tb=no` -> **412 passing**. No skips or
+`python -m pytest -q --tb=no` -> **420 passing**. No skips or
 expected failures hiding classifier misses in the bundled suite.
 
 Additional release harnesses:
@@ -46,9 +46,11 @@ Actions is configured to run the same suite on Python 3.10, 3.11, 3.12, and
 - PII scrubbing (context-guarded patterns)
 - Deterministic safety rule engine (pre/post, precedence veto)
 - Isolation heuristics + size caps + tenant/session-scoped memory
-- **ToolGuardLayer** — full JSON-Schema validation, arg-injection scan, output
-  exfil scan, side-effect taxonomy, dangerous-chain detection, per-tenant/action
-  allow-lists, decision recorded in the trace, **LLM-as-judge** tightening hook
+- **ToolGuardLayer** — Draft 2020-12 JSON Schema validation via `jsonschema`,
+  arg-injection scan, output exfil scan, side-effect taxonomy, dangerous-chain
+  detection, Redis/back-end-backed side-effect history and session call counters,
+  per-tenant/action allow-lists, decision recorded in the trace,
+  **LLM-as-judge** tightening hook
 - Slack HITL (approve/deny, signed callbacks) **+ persistent queue, escalation
   chains, N-of-M quorum, full approval audit log, ServiceNow/PagerDuty/email/webhook adapters**
 - Tamper-evident hash chain (SHA-256), optional real Ethereum/Sepolia anchoring
@@ -57,12 +59,15 @@ Actions is configured to run the same suite on Python 3.10, 3.11, 3.12, and
   `0x8d0d7bd15c377224acee00f397272bab1007c757080f19523cfc66c8461b5d99`.
 - RCA: replay, causality, counterfactual **+ tool-call graphs, multi-rule
   counterfactuals, critical-path** for complex agents
-- JWT / API-key auth, per-tenant rate limiting, usage quotas, cross-tenant trace guard
+- JWT / API-key auth, Postgres-backed persistent API-key registry, optional
+  SQL-backed dashboard users/password reset, per-tenant rate limiting, usage
+  quotas, cross-tenant trace guard
 - JWT `kid`-based signing-key rotation (`PRAMAGENT_JWT_SECRETS` +
   `PRAMAGENT_JWT_ACTIVE_KID`) with legacy single-secret compatibility
 - Usage-event hooks for billing/analytics (in-memory hash-chain usage ledger,
   in-memory sink, fail-open webhook, fail-closed mode when explicitly enabled)
 - SQLite + encrypted SQLite; **Postgres** store; **Redis** distributed backend
+  for rate limits, memory, HITL signals, and ToolGuard side-effect history
 - S3 cold archive wrapper for pruned/erased traces (gzip + encrypted JSON,
   metadata sink hook for Postgres/compliance tables). Live AWS S3
   archive/restore validation passed with a tiny fake trace.
@@ -75,8 +80,9 @@ Actions is configured to run the same suite on Python 3.10, 3.11, 3.12, and
   retention + GDPR-erasure endpoints, `/v1/usage` quota snapshots, and
   `/v1/usage/ledger` ledger evidence)
 - Dashboard usage page, Redis-backed dashboard rate limiting with local
-  fallback, no-store security headers, session revocation, and CSRF protection
-  for cookie-authenticated state-changing actions
+  fallback, no-store security headers, session revocation, optional SQL users
+  with bcrypt password hashes and hashed reset tokens, and CSRF protection for
+  cookie-authenticated state-changing actions
 - Built-in red-team benchmark CLI with static and dynamic mutation modes
   (`pramagent redteam --json --dynamic --attacks 200 --seed 999`)
 - Public red-team result/methodology doc and load-test runbook
@@ -92,9 +98,11 @@ Actions is configured to run the same suite on Python 3.10, 3.11, 3.12, and
 - S3 cold archive: live AWS S3 archive/restore smoke test passed; needs real
   lifecycle policies, KMS/envelope encryption, and restore runbooks before
   compliance use
-- Dashboard auth: tenant-scoped config, secure-cookie support, CSRF protection,
-  Redis-backed throttling, and explicit all-tenant opt-in exist; still not
-  SSO/OIDC/RBAC-grade
+- Dashboard auth: tenant-scoped config, shared-key fallback, optional
+  SQLite/Postgres users, bcrypt password hashes, password reset tokens,
+  secure-cookie support, CSRF protection, Redis-backed throttling, and explicit
+  all-tenant opt-in exist; still not SSO/OIDC/RBAC-grade and no email
+  verification provider is wired yet
 - HITL adapters: Slack collects approve/deny decisions. ServiceNow,
   PagerDuty, email, and generic webhooks are notification/escalation adapters;
   broader enterprise approval workflows are not complete.
@@ -102,7 +110,9 @@ Actions is configured to run the same suite on Python 3.10, 3.11, 3.12, and
   seeded dynamic mutation smoke tests; embedding classifier is optional (needs
   `sentence-transformers`); third-party and novel red-team sets are still
   required before high-stakes claims
-- Multi-process scaling — Redis backend exists; not yet load-tested at scale
+- Multi-process scaling — Redis backend exists and ToolGuard chain state can be
+  shared across workers; still not load-tested at 50+ tenant / 10k+ daily-call
+  scale
 - Load testing — authenticated local Docker Compose/Postgres/Redis 10-minute
   run passed with 12,000 requests, 0 errors, 0 HTTP 5xx; still not chaos/SLA
   testing
@@ -110,7 +120,7 @@ Actions is configured to run the same suite on Python 3.10, 3.11, 3.12, and
 - OTel tracing — spans emitted; Grafana dashboards are provided as config, not battle-tested
 
 ### Not implemented / out of scope for the current alpha
-- SSO/OIDC/RBAC dashboard auth
+- SSO/OIDC/RBAC dashboard auth and email-verification delivery
 - QuantumLayer (future research only; intentionally not built or exposed)
 - Real external penetration test (must be run by a third party)
 - 200-500 call run with full production side effects such as real email sends

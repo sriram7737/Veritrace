@@ -1,4 +1,4 @@
-﻿# Technical Marketing Post Drafts
+# Technical Marketing Post Drafts
 
 Use these drafts for Medium, dev.to, LinkedIn, GitHub Discussions, Hacker News,
 Reddit, launch emails, and recruiter outreach. The tone is technical and
@@ -245,7 +245,7 @@ Pramagent wraps model calls and agent workflows with:
 
 Release evidence:
 
-- 412 passing tests
+- 420 passing tests
 - Python 3.10, 3.11, 3.12, and 3.13 CI matrix
 - live OpenAI smoke test
 - real OpenAI job-agent stress run: 216 calls, five tenants, concurrency 10,

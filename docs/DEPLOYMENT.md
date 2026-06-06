@@ -12,7 +12,7 @@ pramagent validate       # checks config + Redis/Postgres connectivity
 ## Local without Docker (dev)
 ```bash
 pip install -e ".[dev,api,redis,postgres,otel,encrypted]"
-python -m pytest -q  # 363 passing
+python -m pytest -q  # 420 passing
 uvicorn pramagent.api.app:app --port 8080
 ```
 
@@ -70,6 +70,46 @@ PRAMAGENT_DASHBOARD_SECURE_COOKIE=true     # set true behind TLS
 
 All-tenant dashboard access is ignored unless both `PRAMAGENT_DASHBOARD_TENANT=*` and
 `PRAMAGENT_DASHBOARD_ALLOW_SUPER_ADMIN=true` are set.
+
+## Dashboard users and password reset
+The shared dashboard key remains the simplest alpha/pilot mode. For team deployments, enable SQL-backed users instead of storing auth state in CSV files:
+
+```bash
+# Production Postgres users
+PRAMAGENT_DASHBOARD_USER_DSN=postgresql://pramagent:secret@postgres:5432/pramagent
+
+# Optional local/dev SQLite users
+PRAMAGENT_DASHBOARD_USERS_SQLITE=.pramagent/dashboard-users.db
+
+# Signup is intentionally opt-in
+PRAMAGENT_DASHBOARD_SIGNUP_ENABLED=false
+PRAMAGENT_DASHBOARD_SIGNUP_TENANT=tenant_a
+PRAMAGENT_DASHBOARD_DEFAULT_ROLE=viewer
+
+# Password reset stores only hashed one-time tokens
+PRAMAGENT_DASHBOARD_PASSWORD_RESET_ENABLED=true
+PRAMAGENT_DASHBOARD_RESET_TOKEN_TTL_S=900
+```
+
+The tables are created automatically:
+
+- `pramagent_dashboard_users`
+- `pramagent_password_reset_tokens`
+
+Passwords are bcrypt-hashed. Reset tokens are stored as SHA-256 hashes. Email delivery for verification/reset links is not wired yet; use an external mailer before enabling this for real customers.
+## Persistent API keys and distributed ToolGuard state
+Use Postgres for issued API keys when you need keys to survive sidecar restarts:
+
+```bash
+PRAMAGENT_API_KEY_DSN=postgresql://pramagent:secret@postgres:5432/pramagent
+```
+
+Use Redis for ToolGuard side-effect history and per-session call counters across multiple workers:
+
+```bash
+PRAMAGENT_TOOL_GUARD_REDIS_URL=redis://:password@redis:6379/2
+PRAMAGENT_TOOL_GUARD_TTL_S=300
+```
 
 ## Dashboard rate limiting and usage page
 The dashboard uses Redis-backed per-IP rate limiting when
@@ -165,7 +205,7 @@ kubectl create secret generic pramagent-secrets \
   --from-literal=PRAMAGENT_API_KEY=... --from-literal=PRAMAGENT_JWT_SECRET=... \
   --from-literal=PRAMAGENT_REDIS_URL=redis://... --from-literal=PRAMAGENT_POSTGRES_DSN=postgresql://...
 helm install pramagent deploy/helm/pramagent \
-  --set image.tag=0.5.12 --set otel.endpoint=http://otel-collector:4317
+  --set image.tag=0.5.13 --set otel.endpoint=http://otel-collector:4317
 ```
 Includes readiness/liveness probes, HorizontalPodAutoscaler (3–10 replicas), and
 secret-based config. Point `otel.endpoint` at any OTLP collector (Jaeger,

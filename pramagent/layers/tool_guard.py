@@ -44,12 +44,21 @@ All decisions recorded in an append-only audit log (per-instance).
 """
 from __future__ import annotations
 
+import hashlib
 import re
 import time
 import uuid
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any, Optional
+
+try:
+    from jsonschema import Draft202012Validator, FormatChecker
+    from jsonschema.exceptions import SchemaError
+except ImportError:  # pragma: no cover - dependency is declared, fallback is legacy
+    Draft202012Validator = None
+    FormatChecker = None
+    SchemaError = Exception
 
 from ..types import Verdict
 
@@ -326,18 +335,33 @@ def validate_schema(
     path: str = "$",
     defs: Optional[dict[str, Any]] = None,
 ) -> tuple[bool, str]:
-    """Full JSON Schema validator.
+    """Validate with JSON Schema Draft 2020-12.
 
-    Supported keywords
-    ------------------
-    Core:        type, enum, const
-    Objects:     properties, required, additionalProperties, minProperties, maxProperties
-    Arrays:      items, prefixItems, minItems, maxItems, uniqueItems, contains
-    Strings:     minLength, maxLength, pattern, format
-    Numbers:     minimum, maximum, exclusiveMinimum, exclusiveMaximum, multipleOf
-    Composition: oneOf, anyOf, allOf, not, if/then/else
-    References:  $ref, $defs / definitions
+    Returns the historical ``(ok, reason)`` tuple so ToolGuard callers do not
+    need to know which validation engine is underneath. If jsonschema is not
+    importable, the legacy in-module validator below is used as a fallback.
     """
+    if Draft202012Validator is not None:
+        try:
+            Draft202012Validator.check_schema(schema)
+            validator = Draft202012Validator(
+                schema,
+                format_checker=FormatChecker() if FormatChecker else None,
+            )
+            errors = sorted(validator.iter_errors(value), key=lambda e: list(e.absolute_path))
+        except SchemaError as exc:
+            message = getattr(exc, "message", str(exc))
+            return False, f"{path}: invalid schema: {message}"
+        except Exception as exc:
+            return False, f"{path}: schema validation error: {exc}"
+        if not errors:
+            return True, ""
+        err = errors[0]
+        location = "$"
+        for part in err.absolute_path:
+            location += f"[{part}]" if isinstance(part, int) else f".{part}"
+        return False, f"{location}: {err.message}"
+
     # resolve $defs from root schema if not passed in
     if defs is None:
         defs = schema.get("$defs") or schema.get("definitions") or {}
@@ -569,10 +593,14 @@ class ToolGuardLayer:
         default_verdict: Verdict = Verdict.BLOCK,
         chain_window: int = 10,
         judge: Optional[Any] = None,
+        backend: Optional[Any] = None,
+        chain_ttl_s: int = 300,
     ) -> None:
         self.policies: dict[str, ToolPolicy] = {p.name: p for p in (policies or [])}
         self.default_verdict = default_verdict
         self.chain_window = chain_window
+        self.chain_ttl_s = chain_ttl_s
+        self._backend = backend
         # (tenant_id, session_id) -> list of side_effects (bounded to chain_window)
         self._side_effect_history: dict[tuple[str, str], list[str]] = defaultdict(list)
         # per-(tenant, session, tool) call counter
@@ -588,6 +616,51 @@ class ToolGuardLayer:
     def register(self, policy: ToolPolicy) -> None:
         """Register a new tool policy at runtime."""
         self.policies[policy.name] = policy
+
+    @staticmethod
+    def _scope_digest(*parts: str) -> str:
+        blob = "\0".join(str(part) for part in parts).encode("utf-8")
+        return hashlib.sha256(blob).hexdigest()
+
+    def _backend_key(self, kind: str, *parts: str) -> str:
+        return f"pramagent:toolguard:{kind}:{self._scope_digest(*parts)}"
+
+    def _session_call_count(self, tenant_id: str, session_id: str, tool_name: str) -> int:
+        key = (tenant_id, session_id, tool_name)
+        if self._backend is not None:
+            try:
+                return int(self._backend.increment(
+                    self._backend_key("calls", tenant_id, session_id, tool_name),
+                    ttl_s=self.chain_ttl_s,
+                ))
+            except Exception:
+                pass
+        self._call_counts[key] += 1
+        return self._call_counts[key]
+
+    def _load_side_effect_history(self, tenant_id: str, session_id: str) -> list[str]:
+        if self._backend is not None:
+            try:
+                raw = self._backend.get(self._backend_key("history", tenant_id, session_id))
+                if isinstance(raw, list):
+                    return [str(item) for item in raw][-self.chain_window:]
+            except Exception:
+                pass
+        return list(self._side_effect_history[(tenant_id, session_id)])
+
+    def _store_side_effect_history(self, tenant_id: str, session_id: str, history: list[str]) -> None:
+        history = list(history)[-self.chain_window:]
+        if self._backend is not None:
+            try:
+                self._backend.set(
+                    self._backend_key("history", tenant_id, session_id),
+                    history,
+                    ttl_s=self.chain_ttl_s,
+                )
+                return
+            except Exception:
+                pass
+        self._side_effect_history[(tenant_id, session_id)] = history
 
     def _record(self, decision: ToolDecision) -> ToolDecision:
         self.audit_log.append(decision)
@@ -665,9 +738,8 @@ class ToolGuardLayer:
 
         # 6. Per-session call limit
         if policy.max_calls_per_session is not None:
-            count_key = (tenant_id, session_id, tool_name)
-            self._call_counts[count_key] += 1
-            if self._call_counts[count_key] > policy.max_calls_per_session:
+            count = self._session_call_count(tenant_id, session_id, tool_name)
+            if count > policy.max_calls_per_session:
                 return self._block(tool_name, tenant_id, session_id, action_label,
                                    f"session call limit ({policy.max_calls_per_session}) exceeded",
                                    side_effect=policy.side_effect)
@@ -682,12 +754,12 @@ class ToolGuardLayer:
                                   side_effect=policy.side_effect)
 
         # 8. Tool-chain detection
-        hist_key = (tenant_id, session_id)
-        history = self._side_effect_history[hist_key]
+        history = self._load_side_effect_history(tenant_id, session_id)
         # record this call's side-effect first, then check
         history.append(policy.side_effect)
         if len(history) > self.chain_window:
-            history.pop(0)
+            history = history[-self.chain_window:]
+        self._store_side_effect_history(tenant_id, session_id, history)
 
         chain_verdict, chain_reason, chain_ctx = detect_dangerous_chain(history)
         if chain_verdict == Verdict.ESCALATE:

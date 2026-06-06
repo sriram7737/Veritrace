@@ -222,7 +222,29 @@ def build_slack_approver_from_env() -> Optional[SlackHITLApprover]:
     )
 
 
-def build_default_tool_guard() -> ToolGuardLayer:
+def build_tool_guard_backend_from_env():
+    """Use Redis for ToolGuard distributed history when configured."""
+    url = (
+        os.environ.get("PRAMAGENT_TOOL_GUARD_REDIS_URL")
+        or os.environ.get("PRAMAGENT_REDIS_URL")
+        or ""
+    ).strip()
+    if not url:
+        return None
+    try:
+        from ..backends import RedisBackend
+        return RedisBackend.from_url(
+            url,
+            max_connections=int(os.environ.get("PRAMAGENT_REDIS_MAX_CONNECTIONS", "10")),
+            breaker_threshold=int(os.environ.get("PRAMAGENT_BACKEND_BREAKER_THRESHOLD", "5")),
+            breaker_cooldown_s=float(os.environ.get("PRAMAGENT_BACKEND_BREAKER_COOLDOWN_S", "30")),
+        )
+    except Exception as exc:
+        log.warning("ToolGuard Redis backend unavailable; using local history: %s", exc)
+        return None
+
+
+def build_default_tool_guard(backend=None) -> ToolGuardLayer:
     """Demo-safe policies. Real deployments should register their own tools."""
     return ToolGuardLayer(policies=[
         ToolPolicy(
@@ -258,7 +280,7 @@ def build_default_tool_guard() -> ToolGuardLayer:
             },
             detail="payment tools require human approval",
         ),
-    ])
+    ], backend=backend, chain_ttl_s=int(os.environ.get("PRAMAGENT_TOOL_GUARD_TTL_S", "300")))
 
 
 # ───────────────────────────────── app factory ─────────────────────────────
@@ -280,7 +302,7 @@ def create_app(armor: Optional[Pramagent] = None,
 
     app = FastAPI(
         title="Pramagent",
-        version="0.5.12",
+        version="0.5.13",
         description="Trust middleware for AI agents: deterministic guardrails, HITL, tool policy, tamper-evident traces.",
     )
     if os.environ.get("PRAMAGENT_OTEL_ENDPOINT") or os.environ.get("PRAMAGENT_OTEL_CONSOLE") == "1":
@@ -336,7 +358,10 @@ def create_app(armor: Optional[Pramagent] = None,
     app.state.armor = armor or build_default_armor()
     app.state.registry = registry if registry is not None else load_registry_from_env()
     app.state.slack_hitl = getattr(app.state.armor.hitl, "approver", None)
-    app.state.tool_guard = tool_guard or build_default_tool_guard()
+    app.state.tool_guard_backend = build_tool_guard_backend_from_env()
+    app.state.tool_guard = tool_guard or build_default_tool_guard(
+        backend=app.state.tool_guard_backend
+    )
     app.state.usage = usage_tracker or UsageTracker.from_env()
     app.state.jwt = JWTManager.from_env(
         fallback_secret=os.environ.get("PRAMAGENT_JWT_SECRET") or secrets.token_urlsafe(32)
@@ -435,6 +460,7 @@ def create_app(armor: Optional[Pramagent] = None,
             "slack_last_error": getattr(slack, "last_error", "") if slack else "",
             "usage_quota_enabled": app.state.usage.enabled,
             "usage_event_sinks": len(getattr(app.state.usage, "event_sinks", [])),
+            "tool_guard_distributed": app.state.tool_guard_backend is not None,
         }
 
     @app.post("/v1/run", response_model=RunResponse)

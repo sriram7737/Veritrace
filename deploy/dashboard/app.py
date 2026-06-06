@@ -30,11 +30,18 @@ import time
 import uuid
 from pathlib import Path
 from typing import Optional
+from urllib.parse import quote_plus
 
 import httpx
 from fastapi import Cookie, Depends, FastAPI, Form, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from pramagent.dashboard_auth import (
+    DashboardAuthError,
+    DashboardUser,
+    DashboardUserStore,
+    build_dashboard_user_store_from_env,
+)
 
 
 def _normalize_dashboard_tenant(raw_tenant: str, allow_super_admin: bool) -> str:
@@ -64,10 +71,40 @@ PRAMAGENT_DASHBOARD_REDIS_URL = os.environ.get(
     "PRAMAGENT_DASHBOARD_REDIS_URL",
     os.environ.get("PRAMAGENT_REDIS_URL", ""),
 )
+PRAMAGENT_DASHBOARD_SIGNUP_ENABLED = os.environ.get(
+    "PRAMAGENT_DASHBOARD_SIGNUP_ENABLED", "false"
+).lower() in {"1", "true", "yes", "on"}
+PRAMAGENT_DASHBOARD_PASSWORD_RESET_ENABLED = os.environ.get(
+    "PRAMAGENT_DASHBOARD_PASSWORD_RESET_ENABLED", "true"
+).lower() in {"1", "true", "yes", "on"}
+PRAMAGENT_DASHBOARD_RESET_SHOW_TOKEN = os.environ.get(
+    "PRAMAGENT_DASHBOARD_RESET_SHOW_TOKEN", "false"
+).lower() in {"1", "true", "yes", "on"}
+PRAMAGENT_DASHBOARD_RESET_TOKEN_TTL_S = int(os.environ.get(
+    "PRAMAGENT_DASHBOARD_RESET_TOKEN_TTL_S", "900"
+))
+PRAMAGENT_DASHBOARD_DEFAULT_ROLE = os.environ.get(
+    "PRAMAGENT_DASHBOARD_DEFAULT_ROLE", "viewer"
+)
+PRAMAGENT_DASHBOARD_SIGNUP_TENANT = _normalize_dashboard_tenant(
+    os.environ.get("PRAMAGENT_DASHBOARD_SIGNUP_TENANT", PRAMAGENT_DASHBOARD_TENANT),
+    False,
+)
 
 app = FastAPI(title="Pramagent Dashboard", docs_url=None, redoc_url=None)
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 log = logging.getLogger("pramagent.dashboard")
+
+
+def _build_user_store() -> DashboardUserStore | None:
+    try:
+        return build_dashboard_user_store_from_env()
+    except Exception as exc:
+        log.warning("dashboard user store unavailable; shared-key auth remains active: %s", exc)
+        return None
+
+
+_user_store = _build_user_store()
 
 _NO_STORE_HEADERS = {
     "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0, private",
@@ -134,11 +171,22 @@ def _verify(token: str, *, check_revocation: bool = True) -> Optional[dict]:
 # ── auth dependency ───────────────────────────────────────────────────────────
 
 class AuthContext:
-    def __init__(self, username: str, tenant: str, *, csrf_token: str = "", auth_method: str = "cookie"):
+    def __init__(
+        self,
+        username: str,
+        tenant: str,
+        *,
+        csrf_token: str = "",
+        auth_method: str = "cookie",
+        role: str = "admin",
+        user_id: str = "",
+    ):
         self.username = username
         self.tenant   = tenant          # "*" = all tenants
         self.csrf_token = csrf_token
         self.auth_method = auth_method
+        self.role = role
+        self.user_id = user_id
     def scope(self, tenant_id: str) -> bool:
         return self.tenant == "*" or self.tenant == tenant_id
 
@@ -159,6 +207,8 @@ def _get_auth(request: Request) -> Optional[AuthContext]:
                 payload.get("tenant", "*"),
                 csrf_token=payload.get("csrf", ""),
                 auth_method="cookie",
+                role=payload.get("role", "admin"),
+                user_id=payload.get("uid", ""),
             )
 
     return None
@@ -175,6 +225,7 @@ def _template_context(ctx: AuthContext, **values):
     base = {
         "user": ctx.username,
         "tenant": ctx.tenant,
+        "role": ctx.role,
         "csrf_token": ctx.csrf_token,
     }
     base.update(values)
@@ -353,23 +404,30 @@ async def health():
 
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request, error: str = ""):
-    return templates.TemplateResponse(request, "login.html", {"error": error})
+    return templates.TemplateResponse(request, "login.html", {
+        "error": error,
+        "signup_enabled": PRAMAGENT_DASHBOARD_SIGNUP_ENABLED and _user_store is not None,
+        "password_reset_enabled": PRAMAGENT_DASHBOARD_PASSWORD_RESET_ENABLED and _user_store is not None,
+    })
 
 
-@app.post("/login")
-async def login(request: Request, username: str = Form(...), password: str = Form(...)):
-    # Password == PRAMAGENT_DASHBOARD_KEY (hashed compare).
-    # In production replace with LDAP / OAuth / SSO lookup.
-    if not PRAMAGENT_DASHBOARD_KEY or not hmac.compare_digest(
-        hashlib.sha256(password.encode()).hexdigest(),
-        hashlib.sha256(PRAMAGENT_DASHBOARD_KEY.encode()).hexdigest(),
-    ):
-        return RedirectResponse("/login?error=Invalid+credentials", status_code=302)
+def _session_response(user: DashboardUser | None, username: str = "") -> RedirectResponse:
+    if user is not None:
+        subject = user.username
+        tenant = user.tenant_id
+        role = user.role
+        user_id = user.id
+    else:
+        subject = username
+        tenant = PRAMAGENT_DASHBOARD_TENANT
+        role = "admin"
+        user_id = ""
 
-    # Scope the session from config. Use "*" only for a deliberate super-admin.
     payload = {
-        "sub": username,
-        "tenant": PRAMAGENT_DASHBOARD_TENANT,
+        "sub": subject,
+        "tenant": tenant,
+        "role": role,
+        "uid": user_id,
         "jti": str(uuid.uuid4()),
         "csrf": secrets.token_urlsafe(32),
         "iat": int(time.time()),
@@ -383,6 +441,144 @@ async def login(request: Request, username: str = Form(...), password: str = For
         max_age=SESSION_TTL_S,
     )
     return resp
+
+
+@app.post("/login")
+async def login(
+    request: Request,
+    username: str = Form(...),
+    password: str = Form(...),
+    _rl=Depends(_rate_limit),
+):
+    if _user_store is not None:
+        user = _user_store.authenticate(username, password)
+        if user is not None:
+            return _session_response(user)
+
+    # Fallback: password == PRAMAGENT_DASHBOARD_KEY (hashed compare).
+    # This remains useful for single-team alpha pilots.
+    if not PRAMAGENT_DASHBOARD_KEY or not hmac.compare_digest(
+        hashlib.sha256(password.encode()).hexdigest(),
+        hashlib.sha256(PRAMAGENT_DASHBOARD_KEY.encode()).hexdigest(),
+    ):
+        return RedirectResponse("/login?error=Invalid+credentials", status_code=302)
+
+    # Scope the session from config. Use "*" only for a deliberate super-admin.
+    return _session_response(None, username=username)
+
+
+def _require_user_store() -> DashboardUserStore:
+    if _user_store is None:
+        raise HTTPException(status_code=404, detail="Dashboard user store is not configured")
+    return _user_store
+
+
+@app.get("/signup", response_class=HTMLResponse)
+async def signup_page(request: Request, error: str = ""):
+    if not PRAMAGENT_DASHBOARD_SIGNUP_ENABLED:
+        raise HTTPException(status_code=404, detail="Signup is disabled")
+    _require_user_store()
+    return templates.TemplateResponse(request, "signup.html", {
+        "error": error,
+        "tenant": PRAMAGENT_DASHBOARD_SIGNUP_TENANT,
+    })
+
+
+@app.post("/signup")
+async def signup(
+    request: Request,
+    username: str = Form(...),
+    email: str = Form(...),
+    password: str = Form(...),
+    _rl=Depends(_rate_limit),
+):
+    if not PRAMAGENT_DASHBOARD_SIGNUP_ENABLED:
+        raise HTTPException(status_code=404, detail="Signup is disabled")
+    store = _require_user_store()
+    try:
+        user = store.create_user(
+            username=username,
+            email=email,
+            password=password,
+            tenant_id=PRAMAGENT_DASHBOARD_SIGNUP_TENANT,
+            role=PRAMAGENT_DASHBOARD_DEFAULT_ROLE,
+        )
+    except DashboardAuthError as exc:
+        return RedirectResponse(f"/signup?error={quote_plus(str(exc))}", status_code=302)
+    return _session_response(user)
+
+
+@app.get("/forgot-password", response_class=HTMLResponse)
+async def forgot_password_page(request: Request, message: str = "", error: str = ""):
+    if not PRAMAGENT_DASHBOARD_PASSWORD_RESET_ENABLED:
+        raise HTTPException(status_code=404, detail="Password reset is disabled")
+    _require_user_store()
+    return templates.TemplateResponse(request, "forgot_password.html", {
+        "message": message,
+        "error": error,
+        "reset_link": "",
+    })
+
+
+@app.post("/forgot-password", response_class=HTMLResponse)
+async def forgot_password(
+    request: Request,
+    email: str = Form(...),
+    _rl=Depends(_rate_limit),
+):
+    if not PRAMAGENT_DASHBOARD_PASSWORD_RESET_ENABLED:
+        raise HTTPException(status_code=404, detail="Password reset is disabled")
+    store = _require_user_store()
+    token = store.create_reset_token(email, ttl_s=PRAMAGENT_DASHBOARD_RESET_TOKEN_TTL_S)
+    reset_link = f"/reset-password?token={token}" if token and PRAMAGENT_DASHBOARD_RESET_SHOW_TOKEN else ""
+    return templates.TemplateResponse(request, "forgot_password.html", {
+        "message": "If that account exists, a reset link has been prepared.",
+        "error": "",
+        "reset_link": reset_link,
+    })
+
+
+@app.get("/reset-password", response_class=HTMLResponse)
+async def reset_password_page(request: Request, token: str = "", error: str = ""):
+    if not PRAMAGENT_DASHBOARD_PASSWORD_RESET_ENABLED:
+        raise HTTPException(status_code=404, detail="Password reset is disabled")
+    _require_user_store()
+    return templates.TemplateResponse(request, "reset_password.html", {
+        "token": token,
+        "error": error,
+        "message": "",
+    })
+
+
+@app.post("/reset-password", response_class=HTMLResponse)
+async def reset_password(
+    request: Request,
+    token: str = Form(...),
+    password: str = Form(...),
+    _rl=Depends(_rate_limit),
+):
+    if not PRAMAGENT_DASHBOARD_PASSWORD_RESET_ENABLED:
+        raise HTTPException(status_code=404, detail="Password reset is disabled")
+    store = _require_user_store()
+    try:
+        ok = store.reset_password(token, password)
+    except DashboardAuthError as exc:
+        return templates.TemplateResponse(request, "reset_password.html", {
+            "token": token,
+            "error": str(exc),
+            "message": "",
+        })
+    if not ok:
+        return templates.TemplateResponse(request, "reset_password.html", {
+            "token": token,
+            "error": "Reset token is invalid or expired",
+            "message": "",
+        })
+    return templates.TemplateResponse(request, "reset_password.html", {
+        "token": "",
+        "error": "",
+        "message": "Password updated. You can sign in now.",
+    })
 
 
 def _expire_session_cookie(resp: Response) -> Response:

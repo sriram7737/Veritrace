@@ -2,7 +2,36 @@
 
 ## Unreleased
 
-No unreleased changes yet.
+No unreleased changes.
+
+## v0.5.13 - 2026-06-05
+
+### Added
+
+- Optional SQL-backed dashboard user auth with bcrypt password hashes,
+  tenant-scoped roles, signup routes, and one-time password reset tokens stored
+  as SHA-256 hashes.
+- SQLite dashboard user store for local development/tests and Postgres
+  dashboard user store for team deployments. CSV is intentionally not used for
+  auth state.
+- Postgres-backed `PostgresAPIKeyRegistry` with persistent hashed API keys,
+  created timestamps, and revocation timestamps behind the existing registry
+  interface.
+- Redis/back-end-backed ToolGuard side-effect history and per-session tool call
+  counters for multi-worker dangerous-chain detection.
+- Draft 2020-12 JSON Schema validation through `jsonschema`, preserving the
+  existing `(ok, reason)` ToolGuard validation contract.
+
+### Changed
+
+- API defaults use Redis-backed ToolGuard state when
+  `PRAMAGENT_TOOL_GUARD_REDIS_URL` or `PRAMAGENT_REDIS_URL` is configured.
+- Dashboard login now prefers SQL user authentication when configured while
+  retaining the shared dashboard key as the alpha fallback.
+
+### Verified
+
+- `python -m pytest -q --tb=short` -> `420 passed`.
 
 ## v0.5.12 - 2026-06-05
 

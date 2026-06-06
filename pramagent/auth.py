@@ -84,6 +84,140 @@ class APIKeyRegistry:
         return len(self._keys)
 
 
+class PostgresAPIKeyRegistry(APIKeyRegistry):
+    """Postgres-backed API-key registry with the same interface as
+    ``APIKeyRegistry``.
+
+    Schema:
+
+    ``pramagent_api_keys(hashed_key, tenant_id, created_at, revoked_at)``
+
+    The plain API key is still returned only once from ``issue_key``. Postgres
+    stores only the SHA-256 hash, tenant, creation timestamp, and revocation
+    timestamp.
+    """
+
+    _DDL = """
+    CREATE TABLE IF NOT EXISTS pramagent_api_keys (
+        hashed_key TEXT PRIMARY KEY,
+        tenant_id  TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        revoked_at TIMESTAMPTZ NULL
+    );
+    CREATE INDEX IF NOT EXISTS pramagent_api_keys_tenant
+        ON pramagent_api_keys(tenant_id);
+    CREATE INDEX IF NOT EXISTS pramagent_api_keys_active
+        ON pramagent_api_keys(revoked_at)
+        WHERE revoked_at IS NULL;
+    """
+
+    def __init__(self, dsn: str, *, connect=None) -> None:
+        if not dsn:
+            raise ValueError("Postgres API key DSN must not be empty")
+        self._dsn = dsn
+        self._connect = connect
+        self._init_schema()
+
+    @classmethod
+    def from_dsn(cls, dsn: str) -> "PostgresAPIKeyRegistry":
+        return cls(dsn)
+
+    def _connection(self):
+        if self._connect is not None:
+            return self._connect(self._dsn)
+        try:
+            import psycopg2  # type: ignore
+        except ImportError as exc:
+            raise RuntimeError(
+                "psycopg2 is required for PostgresAPIKeyRegistry; "
+                "install pramagent[postgres]"
+            ) from exc
+        return psycopg2.connect(self._dsn)
+
+    def _run(self, fn):
+        conn = self._connection()
+        try:
+            with conn:
+                with conn.cursor() as cur:
+                    return fn(cur)
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+    def _init_schema(self) -> None:
+        self._run(lambda cur: cur.execute(self._DDL))
+
+    def add_key(self, tenant_id: str, key: str) -> None:
+        hashed = _hash_key(key)
+
+        def _fn(cur):
+            cur.execute(
+                """
+                INSERT INTO pramagent_api_keys (hashed_key, tenant_id)
+                VALUES (%s, %s)
+                ON CONFLICT (hashed_key) DO UPDATE
+                SET tenant_id = EXCLUDED.tenant_id,
+                    revoked_at = NULL
+                """,
+                (hashed, tenant_id),
+            )
+
+        self._run(_fn)
+
+    def issue_key(self, tenant_id: str) -> str:
+        key = "pramagent_" + secrets.token_urlsafe(32)
+        self.add_key(tenant_id, key)
+        return key
+
+    def revoke_key(self, key: str) -> bool:
+        hashed = _hash_key(key)
+
+        def _fn(cur):
+            cur.execute(
+                """
+                UPDATE pramagent_api_keys
+                SET revoked_at = now()
+                WHERE hashed_key = %s AND revoked_at IS NULL
+                """,
+                (hashed,),
+            )
+            return cur.rowcount > 0
+
+        return bool(self._run(_fn))
+
+    def tenant_for_key(self, presented: str) -> Optional[str]:
+        if not presented:
+            return None
+        hashed = _hash_key(presented)
+
+        def _fn(cur):
+            cur.execute(
+                """
+                SELECT tenant_id
+                FROM pramagent_api_keys
+                WHERE hashed_key = %s AND revoked_at IS NULL
+                """,
+                (hashed,),
+            )
+            row = cur.fetchone()
+            return row[0] if row else None
+
+        tenant = self._run(_fn)
+        return tenant if isinstance(tenant, str) and tenant else None
+
+    def __len__(self) -> int:
+        def _fn(cur):
+            cur.execute(
+                "SELECT COUNT(*) FROM pramagent_api_keys WHERE revoked_at IS NULL"
+            )
+            row = cur.fetchone()
+            return int(row[0]) if row else 0
+
+        return self._run(_fn)
+
+
 class JWTError(ValueError):
     pass
 
@@ -256,7 +390,12 @@ def load_registry_from_env(
     Returns an empty registry if the variable is unset. Useful for the demo
     server; real deployments load keys from a secret manager.
     """
-    reg = APIKeyRegistry()
+    dsn = os.environ.get("PRAMAGENT_API_KEY_DSN", "").strip()
+    reg: APIKeyRegistry
+    if dsn:
+        reg = PostgresAPIKeyRegistry.from_dsn(dsn)
+    else:
+        reg = APIKeyRegistry()
     raw = os.environ.get(env_var, "").strip()
     if not raw:
         return reg

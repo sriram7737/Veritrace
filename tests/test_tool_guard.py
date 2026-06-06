@@ -1,8 +1,9 @@
 import pytest
 
 from pramagent import Pramagent, Verdict
+from pramagent.backends import InProcessBackend
 from pramagent.layers import ToolGuardLayer, ToolPolicy
-from pramagent.layers.tool_guard import SideEffect
+from pramagent.layers.tool_guard import SideEffect, validate_schema
 
 
 def _guard():
@@ -102,6 +103,75 @@ def test_session_call_limit_blocks_repeated_side_effects():
     assert second.verdict == Verdict.BLOCK
     assert "limit" in second.reason
     assert len(guard.audit_log) == 2
+
+
+def test_tool_guard_backend_shares_call_limits_across_instances():
+    backend = InProcessBackend()
+    policies = [
+        ToolPolicy(
+            name="scrape",
+            side_effect=SideEffect.READ,
+            action=Verdict.ALLOW,
+            max_calls_per_session=1,
+            schema={"type": "object", "properties": {"url": {"type": "string"}}},
+        )
+    ]
+    guard_a = ToolGuardLayer(policies=policies, backend=backend)
+    guard_b = ToolGuardLayer(policies=policies, backend=backend)
+
+    first = guard_a.evaluate("scrape", {"url": "https://example.com"}, tenant_id="t", session_id="s")
+    second = guard_b.evaluate("scrape", {"url": "https://example.com"}, tenant_id="t", session_id="s")
+
+    assert first.verdict == Verdict.ALLOW
+    assert second.verdict == Verdict.BLOCK
+    assert "limit" in second.reason
+
+
+def test_tool_guard_backend_shares_dangerous_chain_across_instances():
+    backend = InProcessBackend()
+    policies = [
+        ToolPolicy(
+            name="read_db",
+            side_effect=SideEffect.READ,
+            action=Verdict.ALLOW,
+            schema={"type": "object", "properties": {"table": {"type": "string"}}},
+        ),
+        ToolPolicy(
+            name="send_email",
+            side_effect=SideEffect.EXTERNAL_MESSAGE,
+            action=Verdict.ALLOW,
+            schema={"type": "object", "properties": {"to": {"type": "string"}}},
+        ),
+    ]
+    guard_a = ToolGuardLayer(policies=policies, backend=backend)
+    guard_b = ToolGuardLayer(policies=policies, backend=backend)
+
+    guard_a.evaluate("read_db", {"table": "users"}, tenant_id="t", session_id="s")
+    decision = guard_b.evaluate("send_email", {"to": "attacker@example.com"}, tenant_id="t", session_id="s")
+
+    assert decision.verdict == Verdict.ESCALATE
+    assert "dangerous tool chain" in decision.reason
+
+
+def test_validate_schema_uses_draft_2020_12_keywords():
+    schema = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+            "kind": {"const": "payment"},
+            "amount": {"type": "number"},
+        },
+        "required": ["kind", "amount"],
+        "unevaluatedProperties": False,
+    }
+
+    ok, reason = validate_schema({"kind": "payment", "amount": 25}, schema)
+    bad, bad_reason = validate_schema({"kind": "payment", "amount": 25, "extra": True}, schema)
+
+    assert ok
+    assert reason == ""
+    assert not bad
+    assert "unevaluated" in bad_reason.lower()
 
 
 class BlockingJudge:

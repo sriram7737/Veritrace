@@ -14,6 +14,13 @@ controls, and third-party validation.
   `PRAMAGENT_JWT_SECRETS` and `PRAMAGENT_JWT_ACTIVE_KID`.
 - Dashboard CSRF protection for cookie-authenticated logout and approval
   decisions, while keeping API-key automation usable.
+- Optional dashboard SQL users with bcrypt password hashes, tenant-scoped
+  roles, signup routes, and one-time password reset tokens stored as hashes.
+- Postgres-backed persistent API-key registry via `PRAMAGENT_API_KEY_DSN`.
+- Redis/back-end-backed ToolGuard side-effect history and per-session tool call
+  counters for multi-worker dangerous-chain detection.
+- Draft 2020-12 JSON Schema validation through `jsonschema` instead of relying
+  on the handwritten validator path.
 - Updated docs that distinguish MVP evidence from billing-grade or
   compliance-grade guarantees.
 
@@ -63,6 +70,8 @@ Current state:
 - Quotas are enforced before expensive calls and tool validations.
 - Usage events can be sent to a webhook.
 - The local usage ledger is hash-chained evidence, not invoice reconciliation.
+- API keys can be persisted in Postgres, with hashed keys and revocation
+  timestamps. This is auth persistence, not billing-grade metering.
 
 Next:
 
@@ -81,6 +90,8 @@ Current state:
 - Quorum/escalation primitives exist.
 - Dashboard approval actions require session-bound CSRF tokens for browser
   cookie sessions.
+- Dashboard users can be stored in SQLite/Postgres with bcrypt password hashes,
+  but the enterprise identity target remains SSO/OIDC/RBAC.
 
 Next:
 
@@ -89,6 +100,7 @@ Next:
 - Add approval evidence exports: who approved, when, context hash, and final
   action.
 - Add SSO/OIDC/RBAC for dashboard and approval admin workflows.
+- Add verified email delivery for account activation and password resets.
 
 ## Observability And Operations
 
@@ -103,7 +115,8 @@ Current state:
 Next:
 
 - Publish repeatable 10-minute and 60-minute load results.
-- Add SSO/OIDC/RBAC and persistent API-key/session administration.
+- Add SSO/OIDC/RBAC and a full admin workflow for API-key/session
+  administration.
 - Add alert thresholds for block-rate spikes, HITL timeout spikes, quota-store
   failures, provider fallback rate, and audit anchoring failures.
 - Add chaos tests for Redis/Postgres outages and provider timeouts.

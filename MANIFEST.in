@@ -2,10 +2,19 @@ include README.md
 include CHANGELOG.md
 include test_agent.py
 include test_agent_v2.py
-recursive-include examples *.py
-exclude examples/job_search_agent.py
-exclude examples/pramagent_guard.py
-exclude examples/test_agent_db_threats.py
-recursive-include docs *.md
-exclude docs/JOB_AGENT_RCA_2026-06-05.md
+include examples/demo.py
+include examples/dynamic_feed_agent.py
+include examples/live_payment_agent.py
+include docs/COMPLIANCE_MAPPING.md
+include docs/DEMO_SCRIPT.md
+include docs/DEPLOYMENT.md
+include docs/HARDENING_GUIDE.md
+include docs/IMPLEMENTATION_STATUS.md
+include docs/LIVE_TEST_RESULTS.md
+include docs/LIVE_WORKFLOW_DEMO.md
+include docs/LOAD_TEST.md
+include docs/LOAD_TEST_RESULTS.md
+include docs/REDTEAM_RESULTS.md
+include docs/RELEASE.md
+include docs/TECHNICAL_MARKETING_POST.md
 recursive-include docs *.png

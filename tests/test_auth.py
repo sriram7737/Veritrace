@@ -13,7 +13,13 @@ fastapi = pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
 
 from pramagent.api.app import create_app  # noqa: E402
-from pramagent.auth import APIKeyRegistry, JWTError, JWTManager, _b64url_decode  # noqa: E402
+from pramagent.auth import (  # noqa: E402
+    APIKeyRegistry,
+    JWTError,
+    JWTManager,
+    PostgresAPIKeyRegistry,
+    _b64url_decode,
+)
 
 
 # ── unauthenticated mode (empty registry) ──────────────────────────────
@@ -205,3 +211,83 @@ def test_jwt_manager_loads_key_registry_from_env(monkeypatch):
 
     assert header["kid"] == "new"
     assert mgr.tenant_for_token(token) == "tenant_env"
+
+
+class _FakePostgresCursor:
+    def __init__(self, db):
+        self.db = db
+        self.rowcount = 0
+        self._row = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def execute(self, sql, params=None):
+        sql_norm = " ".join(sql.lower().split())
+        params = params or ()
+        if "create table" in sql_norm or "create index" in sql_norm:
+            return
+        if "insert into pramagent_api_keys" in sql_norm:
+            hashed, tenant = params
+            self.db[hashed] = {"tenant_id": tenant, "revoked": False}
+            self.rowcount = 1
+            return
+        if "update pramagent_api_keys" in sql_norm:
+            hashed = params[0]
+            entry = self.db.get(hashed)
+            if entry and not entry["revoked"]:
+                entry["revoked"] = True
+                self.rowcount = 1
+            else:
+                self.rowcount = 0
+            return
+        if "select tenant_id" in sql_norm:
+            hashed = params[0]
+            entry = self.db.get(hashed)
+            self._row = (entry["tenant_id"],) if entry and not entry["revoked"] else None
+            return
+        if "select count" in sql_norm:
+            self._row = (sum(1 for entry in self.db.values() if not entry["revoked"]),)
+            return
+        raise AssertionError(f"unexpected SQL: {sql}")
+
+    def fetchone(self):
+        return self._row
+
+
+class _FakePostgresConnection:
+    def __init__(self, db):
+        self.db = db
+        self.closed = False
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def cursor(self):
+        return _FakePostgresCursor(self.db)
+
+    def close(self):
+        self.closed = True
+
+
+def test_postgres_api_key_registry_matches_registry_contract():
+    db = {}
+
+    def connect(_dsn):
+        return _FakePostgresConnection(db)
+
+    reg = PostgresAPIKeyRegistry("postgresql://unit-test", connect=connect)
+    key = reg.issue_key("tenant_pg")
+
+    assert len(reg) == 1
+    assert reg.tenant_for_key(key) == "tenant_pg"
+    assert key not in db
+    assert reg.revoke_key(key) is True
+    assert reg.tenant_for_key(key) is None
+    assert len(reg) == 0

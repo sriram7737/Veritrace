@@ -63,7 +63,7 @@ python -m pytest -q --tb=no
 Result:
 
 ```text
-412 passed
+420 passed
 ```
 
 ## Clean Environment Checks
@@ -97,15 +97,25 @@ Notes:
 Result: **passed**
 
 ```text
-python -m venv %TEMP%/pramagent-0512-wheel-smoke
-%TEMP%/pramagent-0512-wheel-smoke/Scripts/python -m pip install dist/pramagent-0.5.12-py3-none-any.whl
-%TEMP%/pramagent-0512-wheel-smoke/Scripts/python -c "import pramagent; print(pramagent.__version__)"
-%TEMP%/pramagent-0512-wheel-smoke/Scripts/pramagent.exe redteam --json --dynamic --attacks 50 --seed 999
+python -m venv %TEMP%/pramagent-0513-wheel-smoke
+%TEMP%/pramagent-0513-wheel-smoke/Scripts/python -m pip install dist/pramagent-0.5.13-py3-none-any.whl
+%TEMP%/pramagent-0513-wheel-smoke/Scripts/python -c "import pramagent; print(pramagent.__version__)"
 ```
 
 ```text
-0.5.12
-50/50 caught, 0 false positives
+0.5.13
+```
+
+Dashboard-extra smoke:
+
+```text
+python -m venv %TEMP%/pramagent-0513-dashboard-smoke
+%TEMP%/pramagent-0513-dashboard-smoke/Scripts/python -m pip install "dist/pramagent-0.5.13-py3-none-any.whl[dashboard]"
+%TEMP%/pramagent-0513-dashboard-smoke/Scripts/python -c "from pramagent.dashboard_auth import SQLiteDashboardUserStore; ..."
+```
+
+```text
+tenant
 ```
 
 ## Generated Test-Agent Regression Loop
@@ -151,7 +161,7 @@ This checks that benign non-blocked responses are not silently replaced with
 Optional extras install check:
 
 ```text
-python -m pip install "dist/pramagent-0.5.12-py3-none-any.whl[all]"
+python -m pip install "dist/pramagent-0.5.13-py3-none-any.whl[all]"
 ```
 
 Result: **passed**. Import smoke covered Anthropic, Ollama/aiohttp, FastAPI,

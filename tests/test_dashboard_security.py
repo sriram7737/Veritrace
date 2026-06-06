@@ -3,6 +3,7 @@ import pytest
 dashboard = pytest.importorskip("deploy.dashboard.app")
 from fastapi import HTTPException  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
+from pramagent.dashboard_auth import SQLiteDashboardUserStore  # noqa: E402
 from starlette.requests import Request  # noqa: E402
 
 
@@ -331,3 +332,116 @@ def test_dashboard_csv_export_is_tenant_scoped_and_downloadable(monkeypatch):
     assert "call_id" in response.text
     assert "call-1" in response.text
     assert "blocked-by-scope" not in response.text
+
+
+def test_dashboard_user_store_hashes_passwords_and_resets_once(tmp_path):
+    store = SQLiteDashboardUserStore(tmp_path / "dashboard-users.db")
+    user = store.create_user(
+        username="alice",
+        email="alice@example.com",
+        password="old-password",
+        tenant_id="tenant_a",
+        role="viewer",
+    )
+
+    assert user.tenant_id == "tenant_a"
+    assert store.authenticate("alice", "wrong-password") is None
+    assert store.authenticate("alice@example.com", "old-password").username == "alice"
+
+    token = store.create_reset_token("alice@example.com", ttl_s=300)
+    assert token
+    assert store.reset_password(token, "new-password") is True
+    assert store.reset_password(token, "another-password") is False
+    assert store.authenticate("alice", "old-password") is None
+    assert store.authenticate("alice", "new-password").tenant_id == "tenant_a"
+
+
+def test_dashboard_signup_creates_user_session_when_enabled(tmp_path, monkeypatch):
+    store = SQLiteDashboardUserStore(tmp_path / "dashboard-users.db")
+    monkeypatch.setattr(dashboard, "_user_store", store)
+    monkeypatch.setattr(dashboard, "PRAMAGENT_DASHBOARD_SIGNUP_ENABLED", True)
+    monkeypatch.setattr(dashboard, "PRAMAGENT_DASHBOARD_SIGNUP_TENANT", "tenant_signup")
+    monkeypatch.setattr(dashboard, "PRAMAGENT_DASHBOARD_DEFAULT_ROLE", "viewer")
+    monkeypatch.setattr(dashboard, "PRAMAGENT_DASHBOARD_SECURE_COOKIE", False)
+    monkeypatch.setattr(dashboard, "_rate_limit", lambda request: None)
+    client = TestClient(dashboard.app)
+
+    response = client.post(
+        "/signup",
+        data={
+            "username": "newuser",
+            "email": "newuser@example.com",
+            "password": "strong-password",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    token = response.cookies["pramagent_session"]
+    payload = dashboard._verify(token)
+    assert payload["sub"] == "newuser"
+    assert payload["tenant"] == "tenant_signup"
+    assert payload["role"] == "viewer"
+    assert store.authenticate("newuser", "strong-password") is not None
+
+
+def test_dashboard_sql_user_login_takes_precedence_over_shared_key(tmp_path, monkeypatch):
+    store = SQLiteDashboardUserStore(tmp_path / "dashboard-users.db")
+    store.create_user(
+        username="alice",
+        email="alice@example.com",
+        password="user-password",
+        tenant_id="tenant_sql",
+        role="auditor",
+    )
+    monkeypatch.setattr(dashboard, "_user_store", store)
+    monkeypatch.setattr(dashboard, "PRAMAGENT_DASHBOARD_KEY", "")
+    monkeypatch.setattr(dashboard, "PRAMAGENT_DASHBOARD_SECURE_COOKIE", False)
+    monkeypatch.setattr(dashboard, "_rate_limit", lambda request: None)
+    client = TestClient(dashboard.app)
+
+    response = client.post(
+        "/login",
+        data={"username": "alice", "password": "user-password"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    payload = dashboard._verify(response.cookies["pramagent_session"])
+    assert payload["tenant"] == "tenant_sql"
+    assert payload["role"] == "auditor"
+
+
+def test_dashboard_forgot_password_flow_changes_sql_user_password(tmp_path, monkeypatch):
+    store = SQLiteDashboardUserStore(tmp_path / "dashboard-users.db")
+    store.create_user(
+        username="alice",
+        email="alice@example.com",
+        password="old-password",
+        tenant_id="tenant_a",
+    )
+    monkeypatch.setattr(dashboard, "_user_store", store)
+    monkeypatch.setattr(dashboard, "PRAMAGENT_DASHBOARD_PASSWORD_RESET_ENABLED", True)
+    monkeypatch.setattr(dashboard, "PRAMAGENT_DASHBOARD_RESET_SHOW_TOKEN", True)
+    monkeypatch.setattr(dashboard, "_rate_limit", lambda request: None)
+    client = TestClient(dashboard.app)
+
+    requested = client.post(
+        "/forgot-password",
+        data={"email": "alice@example.com"},
+    )
+
+    assert requested.status_code == 200
+    marker = "/reset-password?token="
+    assert marker in requested.text
+    token = requested.text.split(marker, 1)[1].split('"', 1)[0]
+
+    changed = client.post(
+        "/reset-password",
+        data={"token": token, "password": "new-password"},
+    )
+
+    assert changed.status_code == 200
+    assert "Password updated" in changed.text
+    assert store.authenticate("alice", "old-password") is None
+    assert store.authenticate("alice", "new-password") is not None

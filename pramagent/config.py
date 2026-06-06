@@ -39,6 +39,7 @@ PRAMAGENT_BREAKER_COOLDOWN_S     30.0
 PRAMAGENT_POOL_MAX_CONNECTIONS   10
 PRAMAGENT_LOG_LEVEL              info
 PRAMAGENT_API_KEY                (required in production)
+PRAMAGENT_API_KEY_DSN            optional Postgres-backed API key registry
 PRAMAGENT_SIGNING_KEY            (required in production)
 PRAMAGENT_JWT_SECRET             change-me-in-production
 PRAMAGENT_OTEL_ENDPOINT          (optional OTLP gRPC endpoint)
@@ -47,8 +48,14 @@ PRAMAGENT_HITL_SLACK_TOKEN       (optional)
 PRAMAGENT_HITL_SLACK_CHANNEL     (optional)
 PRAMAGENT_HITL_TIMEOUT_S         300
 PRAMAGENT_CHAIN_WINDOW           10
+PRAMAGENT_TOOL_GUARD_REDIS_URL   optional Redis override for ToolGuard state
+PRAMAGENT_TOOL_GUARD_TTL_S       300
 PRAMAGENT_DASHBOARD_TENANT       default     tenant scope for dashboard sessions
 PRAMAGENT_DASHBOARD_ALLOW_SUPER_ADMIN false  required before tenant "*" is honored
+PRAMAGENT_DASHBOARD_USER_DSN     optional Postgres-backed dashboard users
+PRAMAGENT_DASHBOARD_USERS_SQLITE optional SQLite dashboard users for dev/tests
+PRAMAGENT_DASHBOARD_SIGNUP_ENABLED false     opt-in self-signup page
+PRAMAGENT_DASHBOARD_PASSWORD_RESET_ENABLED true
 """
 from __future__ import annotations
 
