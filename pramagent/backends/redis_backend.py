@@ -235,7 +235,8 @@ def _retry_sync(fn, *, max_attempts: int = 3, base_delay_s: float = 0.1,
         except exceptions as exc:
             if attempt == max_attempts - 1:
                 raise
-            delay = min(base_delay_s * (2 ** attempt) + random.uniform(0, 0.05), max_delay_s)
+            # Retry jitter does not require cryptographic randomness.
+            delay = min(base_delay_s * (2 ** attempt) + random.uniform(0, 0.05), max_delay_s)  # nosec B311
             log.warning("backend retry %d/%d after %.2fs: %s", attempt + 1, max_attempts, delay, exc)
             time.sleep(delay)
 

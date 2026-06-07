@@ -11,6 +11,7 @@ tests so nobody is tempted to use CSV files for access-control state.
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 import re
 import secrets
@@ -22,6 +23,8 @@ from pathlib import Path
 from typing import Optional
 
 import bcrypt
+
+log = logging.getLogger(__name__)
 
 
 _USERNAME_RE = re.compile(r"^[A-Za-z0-9_.@-]{3,80}$")
@@ -460,8 +463,8 @@ class PostgresDashboardUserStore(DashboardUserStore):
         finally:
             try:
                 conn.close()
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("failed to close dashboard user store connection: %s", exc)
 
     def _init_schema(self) -> None:
         def _fn(cur):

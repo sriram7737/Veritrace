@@ -150,6 +150,7 @@ class Settings:
         # ── auth / security ───────────────────────────────────────────────────
         self.api_key:      str = _env("PRAMAGENT_API_KEY")
         self.signing_key:  str = _env("PRAMAGENT_SIGNING_KEY")
+        # Sentinel default is detected and warned by validate().
         self.jwt_secret:   str = _env("PRAMAGENT_JWT_SECRET", "change-me-in-production")
         self.session_ttl:  int = _env_int("PRAMAGENT_SESSION_TTL_S", 3600)
 
@@ -160,14 +161,14 @@ class Settings:
 
     def is_production(self) -> bool:
         """True when critical secrets are set (not defaults)."""
-        return bool(self.api_key) and self.jwt_secret != "change-me-in-production"
+        return bool(self.api_key) and self.jwt_secret != "change-me-in-production"  # nosec B105
 
     def validate(self) -> list[str]:
         """Return list of configuration warnings. Empty = all good."""
         warnings = []
         if not self.api_key:
             warnings.append("PRAMAGENT_API_KEY is not set — API is unauthenticated")
-        if self.jwt_secret == "change-me-in-production":
+        if self.jwt_secret == "change-me-in-production":  # nosec B105
             warnings.append("PRAMAGENT_JWT_SECRET is using the default value — insecure in production")
         if not self.signing_key:
             warnings.append("PRAMAGENT_SIGNING_KEY is not set — audit chain cannot be verified")

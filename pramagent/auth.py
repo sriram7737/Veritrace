@@ -28,10 +28,13 @@ import base64
 import json
 import hashlib
 import hmac
+import logging
 import os
 import secrets
 import time
 from typing import Optional
+
+log = logging.getLogger(__name__)
 
 
 def _hash_key(key: str) -> str:
@@ -144,7 +147,7 @@ class PostgresAPIKeyRegistry(APIKeyRegistry):
             try:
                 conn.close()
             except Exception:
-                pass
+                log.warning("failed to close registry connection")
 
     def _init_schema(self) -> None:
         self._run(lambda cur: cur.execute(self._DDL))

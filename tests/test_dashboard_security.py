@@ -451,7 +451,7 @@ def test_dashboard_forgot_key_flow_regenerates_sql_user_key(tmp_path, monkeypatc
     )
 
     assert requested.status_code == 200
-    marker = "/reset-password?token="
+    marker = 'name="token" value="'
     assert marker in requested.text
     token = requested.text.split(marker, 1)[1].split('"', 1)[0]
 

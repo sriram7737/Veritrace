@@ -119,11 +119,11 @@ class MigrationRunner:
                     continue
                 try:
                     cur.execute(mig.up_sql)
-                    cur.execute(
-                        f"INSERT INTO schema_migrations (version, name) "
-                        f"VALUES ({self._param}, {self._param})",
-                        (mig.version, mig.name),
-                    )
+                    if self._param == "%s":
+                        insert_sql = "INSERT INTO schema_migrations (version, name) VALUES (%s, %s)"
+                    else:
+                        insert_sql = "INSERT INTO schema_migrations (version, name) VALUES (?, ?)"
+                    cur.execute(insert_sql, (mig.version, mig.name))
                     conn.commit()
                     applied_now.append(mig.version)
                     log.info("applied migration %d: %s", mig.version, mig.name)

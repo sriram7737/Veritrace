@@ -302,7 +302,7 @@ def create_app(armor: Optional[Pramagent] = None,
 
     app = FastAPI(
         title="Pramagent",
-        version="0.5.16",
+        version="0.5.17",
         description="Trust middleware for AI agents: deterministic guardrails, HITL, tool policy, tamper-evident traces.",
     )
     if os.environ.get("PRAMAGENT_OTEL_ENDPOINT") or os.environ.get("PRAMAGENT_OTEL_CONSOLE") == "1":
@@ -316,11 +316,13 @@ def create_app(armor: Optional[Pramagent] = None,
         o.strip()
         for o in os.environ.get("PRAMAGENT_CORS_ORIGINS", "").split(",")
         if o.strip()
-    ] or ["*"]
+    ]
+    if "*" in allowed_origins:
+        log.warning("PRAMAGENT_CORS_ORIGINS contains '*'; use explicit origins outside local development")
     app.add_middleware(
         CORSMiddleware,
         allow_origins=allowed_origins,
-        allow_credentials=True,
+        allow_credentials="*" not in allowed_origins,
         allow_methods=["GET", "POST", "DELETE"],
         allow_headers=["Authorization", "Content-Type", "X-Request-Id"],
         expose_headers=["X-Request-Id", "Retry-After"],
@@ -349,6 +351,7 @@ def create_app(armor: Optional[Pramagent] = None,
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["Cache-Control"] = "no-store"
+        response.headers["Cross-Origin-Resource-Policy"] = "same-origin"
         if request.url.scheme == "https":
             response.headers["Strict-Transport-Security"] = (
                 "max-age=63072000; includeSubDomains"

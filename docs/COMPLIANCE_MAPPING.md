@@ -31,6 +31,19 @@ a certification. Independent audit is required for any compliance claim.
 | C1 (Confidentiality) | PII scrubbing, output exfiltration scanning, encrypted store |
 | P-series (Privacy) | Consent registry, purpose limitation, retention policy, GDPR erasure endpoint |
 
+## NIST AI RMF 1.0 self-assessment
+
+This is a self-assessment against the NIST AI Risk Management Framework
+functions. It is not a certification, and it does not replace external
+red-team or penetration-test evidence.
+
+| Function | Intent | Pramagent control | Evidence / gap |
+|---|---|---|---|
+| GOVERN | Establish AI risk policies, accountability, and oversight | Alpha status, hardening guide, implementation-status matrix, explicit "not production certified" language, approval roles for HITL/dashboard | Evidence exists in docs; enterprise SSO/RBAC and external policy review remain gaps |
+| MAP | Identify context, stakeholders, data flows, and risk surfaces | Tenant IDs, session IDs, ToolGuard side-effect taxonomy, provider adapters, trace/RCA data model | Data-flow diagrams and live workflow docs exist; customer-specific risk assessments still required |
+| MEASURE | Analyze, test, and monitor AI risks | Red-team benchmark, dynamic prompt tests, load tests, ZAP/Bandit/Semgrep scans, OTel metrics, audit verification | Security scans now run locally and are wired in CI; third-party red-team and pen-test still required |
+| MANAGE | Prioritize, respond to, and monitor mitigations | Deterministic ToolGuard policy, isolation layer, HITL escalation, rate limits, quotas, circuit breakers, retention/erasure endpoints | Controls are implemented for developer beta; enterprise runbooks, SSO, persistent billing ledger, and formal incident process remain roadmap |
+
 ## Auditor-facing artifacts
 - `ComplianceReporter.to_pdf()/.to_json()` — point-in-time attestation
 - `GET /v1/audit/verify` — live hash-chain validity

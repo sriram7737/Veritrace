@@ -26,6 +26,8 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Optional, Protocol
 
+from ..security import validate_http_url
+
 
 log = logging.getLogger(__name__)
 
@@ -217,8 +219,9 @@ class HTTPSlackMessageClient:
             ],
         }
         data = json.dumps(body).encode("utf-8")
+        url = validate_http_url("https://slack.com/api/chat.postMessage", context="Slack API URL")
         req = urllib.request.Request(
-            "https://slack.com/api/chat.postMessage",
+            url,
             data=data,
             headers={
                 "Authorization": f"Bearer {self.bot_token}",
@@ -227,7 +230,9 @@ class HTTPSlackMessageClient:
             method="POST",
         )
         try:
-            with urllib.request.urlopen(req, timeout=10) as resp:
+            # Slack API URL is validated immediately above.
+            # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
+            with urllib.request.urlopen(req, timeout=10) as resp:  # nosec B310
                 payload = json.loads(resp.read().decode("utf-8"))
         except (urllib.error.URLError, TimeoutError) as exc:
             raise SlackApprovalError(f"failed to post Slack approval: {exc}") from exc
@@ -252,8 +257,9 @@ class HTTPSlackMessageClient:
             "blocks": blocks,
         }
         data = json.dumps(body).encode("utf-8")
+        url = validate_http_url("https://slack.com/api/chat.update", context="Slack API URL")
         req = urllib.request.Request(
-            "https://slack.com/api/chat.update",
+            url,
             data=data,
             headers={
                 "Authorization": f"Bearer {self.bot_token}",
@@ -262,7 +268,9 @@ class HTTPSlackMessageClient:
             method="POST",
         )
         try:
-            with urllib.request.urlopen(req, timeout=10) as resp:
+            # Slack API URL is validated immediately above.
+            # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
+            with urllib.request.urlopen(req, timeout=10) as resp:  # nosec B310
                 payload = json.loads(resp.read().decode("utf-8"))
         except (urllib.error.URLError, TimeoutError) as exc:
             raise SlackApprovalError(f"failed to update Slack approval: {exc}") from exc

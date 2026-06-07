@@ -520,7 +520,6 @@ async def signup(
         "dashboard_key": issue.key,
         "identity": issue.user.email or issue.user.phone,
         "tenant": issue.user.tenant_id,
-        "login_url": "/login",
     })
 
 
@@ -532,7 +531,6 @@ async def forgot_password_page(request: Request, message: str = "", error: str =
     return templates.TemplateResponse(request, "forgot_password.html", {
         "message": message,
         "error": error,
-        "reset_link": "",
     })
 
 
@@ -546,12 +544,13 @@ async def forgot_password(
         raise HTTPException(status_code=404, detail="Password reset is disabled")
     store = _require_user_store()
     token = store.create_reset_token(identity, ttl_s=PRAMAGENT_DASHBOARD_RESET_TOKEN_TTL_S)
-    reset_link = f"/reset-password?token={token}" if token and PRAMAGENT_DASHBOARD_RESET_SHOW_TOKEN else ""
-    return templates.TemplateResponse(request, "forgot_password.html", {
+    context = {
         "message": "If that account exists, a verification link has been prepared.",
         "error": "",
-        "reset_link": reset_link,
-    })
+    }
+    if token and PRAMAGENT_DASHBOARD_RESET_SHOW_TOKEN:
+        context["reset_token"] = token
+    return templates.TemplateResponse(request, "forgot_password.html", context)
 
 
 @app.get("/reset-password", response_class=HTMLResponse)
@@ -588,7 +587,6 @@ async def reset_password(
         "dashboard_key": issue.key,
         "identity": issue.user.email or issue.user.phone,
         "tenant": issue.user.tenant_id,
-        "login_url": "/login",
     })
 
 

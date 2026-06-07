@@ -18,6 +18,8 @@ from typing import Any, Optional
 import urllib.error
 import urllib.request
 
+from ..security import validate_http_url, validate_urllib_request
+
 
 @dataclass
 class ProviderResult:
@@ -114,7 +116,11 @@ class OpenAICompatibleProvider(BaseProvider):
         headers: Optional[dict[str, str]] = None,
     ):
         self.model = model
-        self.base_url = base_url.rstrip("/")
+        self.base_url = validate_http_url(
+            base_url.rstrip("/"),
+            allow_http_localhost=True,
+            context="OpenAI-compatible base URL",
+        )
         self.api_key = api_key
         self.timeout_s = timeout_s
         self.max_tokens = max_tokens
@@ -238,7 +244,11 @@ class GeminiProvider(BaseProvider):
     ):
         self.model = model
         self.api_key = api_key or os.environ.get("GEMINI_API_KEY")
-        self.base_url = base_url.rstrip("/")
+        self.base_url = validate_http_url(
+            base_url.rstrip("/"),
+            allow_http_localhost=True,
+            context="Gemini base URL",
+        )
         self.max_tokens = max_tokens
         self.temperature = temperature
         self.timeout_s = timeout_s
@@ -300,8 +310,15 @@ class OllamaProvider(BaseProvider):
 
 
 def _json_request(req: urllib.request.Request, *, timeout: float) -> dict[str, Any]:
+    validate_urllib_request(
+        req,
+        allow_http_localhost=True,
+        context="provider request URL",
+    )
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        # Provider URL is validated before the request is sent.
+        # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
+        with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec B310
             raw = resp.read().decode("utf-8")
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
@@ -393,7 +410,8 @@ class FallbackProvider(BaseProvider):
     name = "fallback"
 
     def __init__(self, providers: list[BaseProvider]):
-        assert providers, "FallbackProvider needs at least one provider"
+        if not providers:
+            raise ValueError("FallbackProvider needs at least one provider")
         self.providers = providers
 
     async def complete(self, prompt: str, **kwargs) -> ProviderResult:

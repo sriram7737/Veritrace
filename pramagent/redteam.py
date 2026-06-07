@@ -268,7 +268,8 @@ def generate_dynamic_attacks(
         raise ValueError("count must be >= 1")
 
     used_seed = seed if seed is not None else random.SystemRandom().randrange(1, 2**32)
-    rng = random.Random(used_seed)
+    # Deterministic red-team mutation, not secret generation.
+    rng = random.Random(used_seed)  # nosec B311
     seeds = base_attacks or EXTENDED_ATTACKS
     prompts: list[str] = []
     seen: set[str] = set()

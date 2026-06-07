@@ -1,0 +1,99 @@
+name: security
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "23 6 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  bandit:
+    name: Bandit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Bandit
+        run: |
+          python -m pip install -U pip setuptools wheel
+          python -m pip install bandit
+      - name: Full Bandit report
+        run: |
+          mkdir -p security-artifacts
+          bandit -r pramagent deploy/dashboard -f json -o security-artifacts/bandit.json || true
+          bandit -r pramagent deploy/dashboard -f txt -o security-artifacts/bandit.txt || true
+      - name: Gate on Bandit findings
+        run: bandit -r pramagent deploy/dashboard
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bandit-security-report
+          path: security-artifacts/bandit.*
+
+  semgrep:
+    name: Semgrep
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Full Semgrep report
+        run: |
+          mkdir -p security-artifacts
+          docker run --rm -v "$PWD:/src" -w /src semgrep/semgrep:latest \
+            semgrep scan --metrics=off --config p/security-audit --config p/python \
+            --json --output security-artifacts/semgrep.json pramagent deploy/dashboard || true
+          docker run --rm -v "$PWD:/src" -w /src semgrep/semgrep:latest \
+            semgrep scan --metrics=off --config p/security-audit --config p/python \
+            --text --output security-artifacts/semgrep.txt pramagent deploy/dashboard || true
+      - name: Gate on Semgrep findings
+        run: |
+          docker run --rm -v "$PWD:/src" -w /src semgrep/semgrep:latest \
+            semgrep scan --metrics=off --config p/security-audit --config p/python \
+            --error pramagent deploy/dashboard
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: semgrep-security-report
+          path: security-artifacts/semgrep.*
+
+  zap:
+    name: OWASP ZAP OpenAPI Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install API sidecar
+        run: |
+          python -m pip install -U pip setuptools wheel
+          python -m pip install -e ".[api]"
+      - name: Start sidecar and run ZAP OpenAPI report
+        env:
+          PRAMAGENT_API_KEY: ci-test-key
+          PRAMAGENT_API_KEYS: default:ci-test-key
+          PRAMAGENT_JWT_SECRET: ci-jwt-secret-change-me
+          PRAMAGENT_SIGNING_KEY: ci-signing-key-change-me
+        run: |
+          mkdir -p security-artifacts
+          python -m uvicorn pramagent.api.app:app --host 0.0.0.0 --port 8080 &
+          api_pid=$!
+          trap "kill $api_pid || true" EXIT
+          for i in {1..30}; do
+            curl -fsS http://127.0.0.1:8080/health && break
+            sleep 2
+          done
+          curl -fsS http://127.0.0.1:8080/health
+          docker run --rm --network host -v "$PWD/security-artifacts:/zap/wrk/:rw" \
+            ghcr.io/zaproxy/zaproxy:stable zap-api-scan.py \
+            -t http://127.0.0.1:8080/openapi.json -f openapi \
+            -J zap_api.json -r zap_api.html -w zap_api.md -I
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: zap-security-report
+          path: security-artifacts/zap_api.*

@@ -21,6 +21,8 @@ from dataclasses import dataclass, field
 from threading import Lock
 from typing import Any, Callable, Optional
 
+from .security import validate_http_url
+
 
 log = logging.getLogger(__name__)
 
@@ -281,7 +283,11 @@ class WebhookUsageSink(UsageEventSink):
         secret: str = "",
         timeout_s: float = 2.0,
     ) -> None:
-        self.url = url
+        self.url = validate_http_url(
+            url,
+            allow_http_localhost=True,
+            context="billing webhook URL",
+        )
         self.secret = secret
         self.timeout_s = timeout_s
 
@@ -297,7 +303,9 @@ class WebhookUsageSink(UsageEventSink):
             method="POST",
         )
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout_s) as resp:
+            # Billing webhook URL is validated in __init__.
+            # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
+            with urllib.request.urlopen(req, timeout=self.timeout_s) as resp:  # nosec B310
                 if resp.status >= 400:
                     log.warning("billing webhook returned HTTP %s", resp.status)
         except (urllib.error.URLError, TimeoutError) as exc:

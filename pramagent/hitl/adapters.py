@@ -44,6 +44,8 @@ from dataclasses import dataclass, field
 from email.message import EmailMessage
 from typing import Any, Awaitable, Callable, Optional
 
+from ..security import validate_http_url
+
 log = logging.getLogger(__name__)
 
 ApproverCallable = Callable[[str, dict], Awaitable[Optional[bool]]]
@@ -89,18 +91,32 @@ class WebhookApprover:
         self.last_error: str = ""
 
     def _post(self, url: str, payload: dict) -> dict:
+        url = validate_http_url(
+            url,
+            allow_http_localhost=True,
+            context="WebhookApprover URL",
+        )
         data = json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(
             url, data=data, method="POST",
             headers={"Content-Type": "application/json", **self.headers},
         )
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        # Webhook URL is validated immediately above.
+        # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
+        with urllib.request.urlopen(req, timeout=10) as resp:  # nosec B310
             body = resp.read().decode("utf-8")
         return json.loads(body) if body.strip() else {}
 
     def _get(self, url: str) -> dict:
+        url = validate_http_url(
+            url,
+            allow_http_localhost=True,
+            context="WebhookApprover decision URL",
+        )
         req = urllib.request.Request(url, method="GET", headers=self.headers)
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        # Webhook URL is validated immediately above.
+        # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
+        with urllib.request.urlopen(req, timeout=10) as resp:  # nosec B310
             body = resp.read().decode("utf-8")
         return json.loads(body) if body.strip() else {}
 
@@ -217,11 +233,14 @@ class PagerDutyNotifier:
             },
         }
         data = json.dumps(payload).encode("utf-8")
+        url = validate_http_url(self._EVENTS_URL, context="PagerDuty Events URL")
         req = urllib.request.Request(
-            self._EVENTS_URL, data=data, method="POST",
+            url, data=data, method="POST",
             headers={"Content-Type": "application/json"},
         )
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        # PagerDuty URL is validated immediately above.
+        # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
+        with urllib.request.urlopen(req, timeout=10) as resp:  # nosec B310
             resp.read()
 
     async def __call__(self, action: str, context: dict) -> Optional[bool]:
@@ -315,13 +334,16 @@ class ServiceNowNotifier:
 
     def _create_record(self, action: str, context: dict) -> dict:
         data = json.dumps(self._payload(action, context)).encode("utf-8")
+        endpoint = validate_http_url(self.endpoint, context="ServiceNow endpoint")
         req = urllib.request.Request(
-            self.endpoint,
+            endpoint,
             data=data,
             method="POST",
             headers=self._headers(),
         )
-        with urllib.request.urlopen(req, timeout=self.timeout_s) as resp:
+        # ServiceNow URL is validated immediately above.
+        # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
+        with urllib.request.urlopen(req, timeout=self.timeout_s) as resp:  # nosec B310
             body = resp.read().decode("utf-8")
             if getattr(resp, "status", 200) >= 400:
                 raise AdapterError(f"ServiceNow returned HTTP {resp.status}")

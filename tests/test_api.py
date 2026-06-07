@@ -24,6 +24,15 @@ def test_health(client):
     assert r.status_code == 200 and r.json()["status"] == "ok"
 
 
+def test_api_security_headers_and_default_cors(client):
+    r = client.get("/health", headers={"Origin": "https://evil.example"})
+
+    assert r.headers["X-Content-Type-Options"] == "nosniff"
+    assert r.headers["X-Frame-Options"] == "DENY"
+    assert r.headers["Cross-Origin-Resource-Policy"] == "same-origin"
+    assert "access-control-allow-origin" not in r.headers
+
+
 def test_ready_reports_chain_valid(client):
     r = client.get("/health/ready")
     assert r.status_code == 200 and r.json()["chain_valid"] is True

@@ -60,7 +60,8 @@ def _retry(fn, *, max_attempts: int = 3, base_delay_s: float = 0.1,
             _is_transient = _transient(exc)
             if attempt == max_attempts - 1 or not _is_transient:
                 raise
-            delay = min(base_delay_s * (2 ** attempt) + random.uniform(0, 0.05), max_delay_s)
+            # Retry jitter does not require cryptographic randomness.
+            delay = min(base_delay_s * (2 ** attempt) + random.uniform(0, 0.05), max_delay_s)  # nosec B311
             log.warning("postgres retry %d/%d in %.2fs: %s", attempt + 1, max_attempts, delay, exc)
             time.sleep(delay)
 
@@ -142,8 +143,8 @@ class _ThreadLocalPool:
                 # lightweight liveness check — no round-trip
                 if conn.closed == 0:
                     return conn
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("failed to inspect cached Postgres connection: %s", exc)
             # stale connection: evict and reopen
             with self._count_lock:
                 self._open_count -= 1
@@ -174,8 +175,8 @@ class _ThreadLocalPool:
         if conn is not None:
             try:
                 conn.close()
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("failed to close Postgres connection: %s", exc)
             self._local.conn = None
             with self._count_lock:
                 self._open_count -= 1

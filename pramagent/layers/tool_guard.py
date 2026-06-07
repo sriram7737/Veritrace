@@ -45,6 +45,7 @@ All decisions recorded in an append-only audit log (per-instance).
 from __future__ import annotations
 
 import hashlib
+import logging
 import re
 import time
 import uuid
@@ -61,6 +62,8 @@ except ImportError:  # pragma: no cover - dependency is declared, fallback is le
     SchemaError = Exception
 
 from ..types import Verdict
+
+log = logging.getLogger(__name__)
 
 
 class ToolGuardError(ValueError):
@@ -633,8 +636,8 @@ class ToolGuardLayer:
                     self._backend_key("calls", tenant_id, session_id, tool_name),
                     ttl_s=self.chain_ttl_s,
                 ))
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("ToolGuard backend call count unavailable; falling back to memory: %s", exc)
         self._call_counts[key] += 1
         return self._call_counts[key]
 
@@ -644,8 +647,8 @@ class ToolGuardLayer:
                 raw = self._backend.get(self._backend_key("history", tenant_id, session_id))
                 if isinstance(raw, list):
                     return [str(item) for item in raw][-self.chain_window:]
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("ToolGuard backend side-effect history unavailable; falling back to memory: %s", exc)
         return list(self._side_effect_history[(tenant_id, session_id)])
 
     def _store_side_effect_history(self, tenant_id: str, session_id: str, history: list[str]) -> None:
@@ -658,8 +661,8 @@ class ToolGuardLayer:
                     ttl_s=self.chain_ttl_s,
                 )
                 return
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("ToolGuard backend side-effect history write failed; falling back to memory: %s", exc)
         self._side_effect_history[(tenant_id, session_id)] = history
 
     def _record(self, decision: ToolDecision) -> ToolDecision:
