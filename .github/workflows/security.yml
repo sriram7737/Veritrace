@@ -88,7 +88,8 @@ jobs:
             sleep 2
           done
           curl -fsS http://127.0.0.1:8080/health
-          docker run --rm --network host -v "$PWD/security-artifacts:/zap/wrk/:rw" \
+          chmod 777 security-artifacts
+          docker run --rm --user root --network host -v "$PWD/security-artifacts:/zap/wrk/:rw" \
             ghcr.io/zaproxy/zaproxy:stable zap-api-scan.py \
             -t http://127.0.0.1:8080/openapi.json -f openapi \
             -J zap_api.json -r zap_api.html -w zap_api.md -I
