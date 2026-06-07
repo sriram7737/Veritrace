@@ -4,6 +4,21 @@
 
 No unreleased changes.
 
+## v0.5.18 - 2026-06-07
+
+### Added
+
+- Added signed, expiring double-submit CSRF tokens to the pre-auth dashboard
+  forms for login, signup, forgot-key, and reset-key flows.
+- Added authenticated OWASP ZAP OpenAPI scanning in CI by injecting a CI bearer
+  token through ZAP's replacer configuration.
+
+### Verified
+
+- `python -m pytest -q --tb=short` -> `431 passed`.
+- Bandit and Semgrep -> `0 findings`.
+- Local authenticated ZAP OpenAPI scan -> `0 fail-level findings`.
+
 ## v0.5.16 - 2026-06-06
 
 ### Fixed
