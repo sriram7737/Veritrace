@@ -83,6 +83,9 @@ PRAMAGENT_DASHBOARD_RESET_SHOW_TOKEN = os.environ.get(
 PRAMAGENT_DASHBOARD_RESET_TOKEN_TTL_S = int(os.environ.get(
     "PRAMAGENT_DASHBOARD_RESET_TOKEN_TTL_S", "900"
 ))
+PRAMAGENT_DASHBOARD_CSRF_TTL_S = int(os.environ.get(
+    "PRAMAGENT_DASHBOARD_CSRF_TTL_S", "3600"
+))
 PRAMAGENT_DASHBOARD_DEFAULT_ROLE = os.environ.get(
     "PRAMAGENT_DASHBOARD_DEFAULT_ROLE", "viewer"
 )
@@ -125,6 +128,7 @@ _NO_STORE_HEADERS = {
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "same-origin",
 }
+_PREAUTH_CSRF_COOKIE = "pramagent_csrf"
 
 
 def _apply_security_headers(response: Response) -> Response:
@@ -241,6 +245,75 @@ def _template_context(ctx: AuthContext, **values):
     }
     base.update(values)
     return base
+
+
+def _sign_csrf_body(body: str) -> str:
+    return hmac.new(PRAMAGENT_JWT_SECRET.encode(), body.encode(), hashlib.sha256).hexdigest()
+
+
+def _new_preauth_csrf() -> str:
+    body = f"{int(time.time())}.{secrets.token_urlsafe(32)}"
+    return f"{body}.{_sign_csrf_body(body)}"
+
+
+def _valid_preauth_csrf(token: str) -> bool:
+    try:
+        ts, nonce, sig = token.split(".", 2)
+        body = f"{ts}.{nonce}"
+        if not hmac.compare_digest(_sign_csrf_body(body), sig):
+            return False
+        issued_at = int(ts)
+    except Exception:
+        return False
+    return 0 <= time.time() - issued_at <= PRAMAGENT_DASHBOARD_CSRF_TTL_S
+
+
+def _set_preauth_csrf_cookie(response: Response, token: str) -> Response:
+    response.set_cookie(
+        _PREAUTH_CSRF_COOKIE,
+        token,
+        httponly=True,
+        samesite="lax",
+        secure=PRAMAGENT_DASHBOARD_SECURE_COOKIE,
+        max_age=PRAMAGENT_DASHBOARD_CSRF_TTL_S,
+        path="/",
+    )
+    return response
+
+
+def _expire_preauth_csrf_cookie(response: Response) -> Response:
+    response.set_cookie(
+        _PREAUTH_CSRF_COOKIE,
+        "",
+        max_age=0,
+        expires=0,
+        httponly=True,
+        samesite="lax",
+        secure=PRAMAGENT_DASHBOARD_SECURE_COOKIE,
+        path="/",
+    )
+    return response
+
+
+def _preauth_template_response(request: Request, template: str, context: dict) -> Response:
+    token = request.cookies.get(_PREAUTH_CSRF_COOKIE, "")
+    if not _valid_preauth_csrf(token):
+        token = _new_preauth_csrf()
+    body = dict(context)
+    body["csrf_token"] = token
+    response = templates.TemplateResponse(request, template, body)
+    return _set_preauth_csrf_cookie(response, token)
+
+
+def require_preauth_csrf(request: Request, supplied: str = "") -> None:
+    cookie_token = request.cookies.get(_PREAUTH_CSRF_COOKIE, "")
+    if (
+        not supplied
+        or not cookie_token
+        or not hmac.compare_digest(supplied, cookie_token)
+        or not _valid_preauth_csrf(cookie_token)
+    ):
+        raise HTTPException(status_code=403, detail="CSRF token missing or invalid")
 
 
 def require_csrf(request: Request, ctx: AuthContext, supplied: str = "") -> None:
@@ -415,7 +488,7 @@ async def health():
 
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request, error: str = ""):
-    return templates.TemplateResponse(request, "login.html", {
+    return _preauth_template_response(request, "login.html", {
         "error": error,
         "signup_enabled": PRAMAGENT_DASHBOARD_SIGNUP_ENABLED and _user_store is not None,
         "password_reset_enabled": PRAMAGENT_DASHBOARD_PASSWORD_RESET_ENABLED and _user_store is not None,
@@ -451,6 +524,7 @@ def _session_response(user: DashboardUser | None, username: str = "") -> Redirec
         httponly=True, samesite="lax", secure=PRAMAGENT_DASHBOARD_SECURE_COOKIE,
         max_age=SESSION_TTL_S,
     )
+    _expire_preauth_csrf_cookie(resp)
     return resp
 
 
@@ -459,8 +533,10 @@ async def login(
     request: Request,
     username: str = Form(...),
     password: str = Form(...),
+    csrf_token: str = Form(""),
     _rl=Depends(_rate_limit),
 ):
+    require_preauth_csrf(request, csrf_token)
     if _user_store is not None:
         user = _user_store.authenticate(username, password)
         if user is not None:
@@ -489,7 +565,7 @@ async def signup_page(request: Request, error: str = ""):
     if not PRAMAGENT_DASHBOARD_SIGNUP_ENABLED:
         raise HTTPException(status_code=404, detail="Signup is disabled")
     _require_user_store()
-    return templates.TemplateResponse(request, "signup.html", {
+    return _preauth_template_response(request, "signup.html", {
         "error": error,
         "tenant": PRAMAGENT_DASHBOARD_SIGNUP_TENANT,
     })
@@ -500,8 +576,10 @@ async def signup(
     request: Request,
     email: str = Form(""),
     phone: str = Form(""),
+    csrf_token: str = Form(""),
     _rl=Depends(_rate_limit),
 ):
+    require_preauth_csrf(request, csrf_token)
     if not PRAMAGENT_DASHBOARD_SIGNUP_ENABLED:
         raise HTTPException(status_code=404, detail="Signup is disabled")
     store = _require_user_store()
@@ -528,7 +606,7 @@ async def forgot_password_page(request: Request, message: str = "", error: str =
     if not PRAMAGENT_DASHBOARD_PASSWORD_RESET_ENABLED:
         raise HTTPException(status_code=404, detail="Password reset is disabled")
     _require_user_store()
-    return templates.TemplateResponse(request, "forgot_password.html", {
+    return _preauth_template_response(request, "forgot_password.html", {
         "message": message,
         "error": error,
     })
@@ -538,8 +616,10 @@ async def forgot_password_page(request: Request, message: str = "", error: str =
 async def forgot_password(
     request: Request,
     identity: str = Form(...),
+    csrf_token: str = Form(""),
     _rl=Depends(_rate_limit),
 ):
+    require_preauth_csrf(request, csrf_token)
     if not PRAMAGENT_DASHBOARD_PASSWORD_RESET_ENABLED:
         raise HTTPException(status_code=404, detail="Password reset is disabled")
     store = _require_user_store()
@@ -550,7 +630,7 @@ async def forgot_password(
     }
     if token and PRAMAGENT_DASHBOARD_RESET_SHOW_TOKEN:
         context["reset_token"] = token
-    return templates.TemplateResponse(request, "forgot_password.html", context)
+    return _preauth_template_response(request, "forgot_password.html", context)
 
 
 @app.get("/reset-password", response_class=HTMLResponse)
@@ -558,7 +638,7 @@ async def reset_password_page(request: Request, token: str = "", error: str = ""
     if not PRAMAGENT_DASHBOARD_PASSWORD_RESET_ENABLED:
         raise HTTPException(status_code=404, detail="Password reset is disabled")
     _require_user_store()
-    return templates.TemplateResponse(request, "reset_password.html", {
+    return _preauth_template_response(request, "reset_password.html", {
         "token": token,
         "error": error,
         "message": "",
@@ -569,14 +649,16 @@ async def reset_password_page(request: Request, token: str = "", error: str = ""
 async def reset_password(
     request: Request,
     token: str = Form(...),
+    csrf_token: str = Form(""),
     _rl=Depends(_rate_limit),
 ):
+    require_preauth_csrf(request, csrf_token)
     if not PRAMAGENT_DASHBOARD_PASSWORD_RESET_ENABLED:
         raise HTTPException(status_code=404, detail="Password reset is disabled")
     store = _require_user_store()
     issue = store.regenerate_key(token)
     if not issue:
-        return templates.TemplateResponse(request, "reset_password.html", {
+        return _preauth_template_response(request, "reset_password.html", {
             "token": token,
             "error": "Verification token is invalid or expired",
             "message": "",

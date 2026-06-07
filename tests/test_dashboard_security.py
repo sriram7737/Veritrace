@@ -10,15 +10,24 @@ from pramagent.dashboard_auth import (  # noqa: E402
 from starlette.requests import Request  # noqa: E402
 
 
+def _csrf_from(client: TestClient, path: str = "/login") -> str:
+    page = client.get(path)
+    assert page.status_code == 200
+    marker = 'name="csrf_token" value="'
+    assert marker in page.text
+    return page.text.split(marker, 1)[1].split('"', 1)[0]
+
+
 def _login_dashboard(monkeypatch, tenant: str = "tenant_a"):
     monkeypatch.setattr(dashboard, "PRAMAGENT_DASHBOARD_KEY", "secret")
     monkeypatch.setattr(dashboard, "PRAMAGENT_DASHBOARD_TENANT", tenant)
     monkeypatch.setattr(dashboard, "PRAMAGENT_DASHBOARD_SECURE_COOKIE", False)
     dashboard._revoked_sessions.clear()
     client = TestClient(dashboard.app)
+    csrf = _csrf_from(client, "/login")
     login = client.post(
         "/login",
-        data={"username": "alice", "password": "secret"},
+        data={"username": "alice", "password": "secret", "csrf_token": csrf},
         follow_redirects=False,
     )
     assert login.status_code == 302
@@ -125,11 +134,12 @@ def test_dashboard_login_cookie_uses_configured_tenant_and_secure_flag(monkeypat
     monkeypatch.setattr(dashboard, "PRAMAGENT_DASHBOARD_KEY", "secret")
     monkeypatch.setattr(dashboard, "PRAMAGENT_DASHBOARD_TENANT", "tenant_a")
     monkeypatch.setattr(dashboard, "PRAMAGENT_DASHBOARD_SECURE_COOKIE", True)
-    client = TestClient(dashboard.app)
+    client = TestClient(dashboard.app, base_url="https://testserver")
+    csrf = _csrf_from(client, "/login")
 
     response = client.post(
         "/login",
-        data={"username": "alice", "password": "secret"},
+        data={"username": "alice", "password": "secret", "csrf_token": csrf},
         follow_redirects=False,
     )
 
@@ -140,6 +150,37 @@ def test_dashboard_login_cookie_uses_configured_tenant_and_secure_flag(monkeypat
     payload = dashboard._verify(token)
     assert payload["sub"] == "alice"
     assert payload["tenant"] == "tenant_a"
+
+
+def test_dashboard_login_requires_preauth_csrf(monkeypatch):
+    monkeypatch.setattr(dashboard, "PRAMAGENT_DASHBOARD_KEY", "secret")
+    monkeypatch.setattr(dashboard, "_rate_limit", lambda request: None)
+    client = TestClient(dashboard.app)
+
+    response = client.post(
+        "/login",
+        data={"username": "alice", "password": "secret"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 403
+    assert "pramagent_session" not in response.cookies
+
+
+def test_dashboard_preauth_csrf_rejects_tampered_token(monkeypatch):
+    monkeypatch.setattr(dashboard, "PRAMAGENT_DASHBOARD_KEY", "secret")
+    monkeypatch.setattr(dashboard, "_rate_limit", lambda request: None)
+    client = TestClient(dashboard.app)
+    csrf = _csrf_from(client, "/login")
+
+    response = client.post(
+        "/login",
+        data={"username": "alice", "password": "secret", "csrf_token": csrf + "x"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 403
+    assert "pramagent_session" not in response.cookies
 
 
 def test_dashboard_usage_page_is_tenant_scoped(monkeypatch):
@@ -370,12 +411,14 @@ def test_dashboard_signup_creates_user_session_when_enabled(tmp_path, monkeypatc
     monkeypatch.setattr(dashboard, "PRAMAGENT_DASHBOARD_SECURE_COOKIE", False)
     monkeypatch.setattr(dashboard, "_rate_limit", lambda request: None)
     client = TestClient(dashboard.app)
+    csrf = _csrf_from(client, "/signup")
 
     response = client.post(
         "/signup",
         data={
             "email": "newuser@example.com",
             "phone": "",
+            "csrf_token": csrf,
         },
         follow_redirects=False,
     )
@@ -386,6 +429,23 @@ def test_dashboard_signup_creates_user_session_when_enabled(tmp_path, monkeypatc
     assert marker in response.text
     key = marker + response.text.split(marker, 1)[1].split("<", 1)[0].strip()
     assert store.authenticate("newuser@example.com", key) is not None
+
+
+def test_dashboard_signup_requires_preauth_csrf(tmp_path, monkeypatch):
+    store = SQLiteDashboardUserStore(tmp_path / "dashboard-users.db")
+    monkeypatch.setattr(dashboard, "_user_store", store)
+    monkeypatch.setattr(dashboard, "PRAMAGENT_DASHBOARD_SIGNUP_ENABLED", True)
+    monkeypatch.setattr(dashboard, "_rate_limit", lambda request: None)
+    client = TestClient(dashboard.app)
+
+    response = client.post(
+        "/signup",
+        data={"email": "newuser@example.com", "phone": ""},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 403
+    assert store.authenticate("newuser@example.com", "anything") is None
 
 
 def test_dashboard_sql_user_login_takes_precedence_over_shared_key(tmp_path, monkeypatch):
@@ -402,10 +462,11 @@ def test_dashboard_sql_user_login_takes_precedence_over_shared_key(tmp_path, mon
     monkeypatch.setattr(dashboard, "PRAMAGENT_DASHBOARD_SECURE_COOKIE", False)
     monkeypatch.setattr(dashboard, "_rate_limit", lambda request: None)
     client = TestClient(dashboard.app)
+    csrf = _csrf_from(client, "/login")
 
     response = client.post(
         "/login",
-        data={"username": "alice@example.com", "password": key},
+        data={"username": "alice@example.com", "password": key, "csrf_token": csrf},
         follow_redirects=False,
     )
 
@@ -422,10 +483,11 @@ def test_dashboard_signup_accepts_phone_only_identity(tmp_path, monkeypatch):
     monkeypatch.setattr(dashboard, "PRAMAGENT_DASHBOARD_SIGNUP_TENANT", "tenant_phone")
     monkeypatch.setattr(dashboard, "_rate_limit", lambda request: None)
     client = TestClient(dashboard.app)
+    csrf = _csrf_from(client, "/signup")
 
     response = client.post(
         "/signup",
-        data={"email": "", "phone": "+1 555 123 4567"},
+        data={"email": "", "phone": "+1 555 123 4567", "csrf_token": csrf},
     )
 
     assert response.status_code == 200
@@ -444,20 +506,22 @@ def test_dashboard_forgot_key_flow_regenerates_sql_user_key(tmp_path, monkeypatc
     monkeypatch.setattr(dashboard, "PRAMAGENT_DASHBOARD_RESET_SHOW_TOKEN", True)
     monkeypatch.setattr(dashboard, "_rate_limit", lambda request: None)
     client = TestClient(dashboard.app)
+    csrf = _csrf_from(client, "/forgot-password")
 
     requested = client.post(
         "/forgot-password",
-        data={"identity": "alice@example.com"},
+        data={"identity": "alice@example.com", "csrf_token": csrf},
     )
 
     assert requested.status_code == 200
     marker = 'name="token" value="'
     assert marker in requested.text
     token = requested.text.split(marker, 1)[1].split('"', 1)[0]
+    reset_csrf = requested.text.split('name="csrf_token" value="', 1)[1].split('"', 1)[0]
 
     changed = client.post(
         "/reset-password",
-        data={"token": token},
+        data={"token": token, "csrf_token": reset_csrf},
     )
 
     assert changed.status_code == 200
@@ -465,3 +529,22 @@ def test_dashboard_forgot_key_flow_regenerates_sql_user_key(tmp_path, monkeypatc
     new_key = "pga-" + changed.text.split("pga-", 1)[1].split("<", 1)[0].strip()
     assert store.authenticate("alice@example.com", issued.key) is None
     assert store.authenticate("alice@example.com", new_key) is not None
+
+
+def test_dashboard_reset_requires_preauth_csrf(tmp_path, monkeypatch):
+    store = SQLiteDashboardUserStore(tmp_path / "dashboard-users.db")
+    token = store.create_user_with_key(email="alice@example.com", tenant_id="tenant_a")
+    reset_token = store.create_reset_token("alice@example.com", ttl_s=300)
+    assert token and reset_token
+    monkeypatch.setattr(dashboard, "_user_store", store)
+    monkeypatch.setattr(dashboard, "PRAMAGENT_DASHBOARD_PASSWORD_RESET_ENABLED", True)
+    monkeypatch.setattr(dashboard, "_rate_limit", lambda request: None)
+    client = TestClient(dashboard.app)
+
+    response = client.post(
+        "/reset-password",
+        data={"token": reset_token},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 403

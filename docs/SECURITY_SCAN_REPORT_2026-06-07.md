@@ -10,6 +10,7 @@ penetration test or certification.
 - Dynamic target: local FastAPI sidecar on `http://127.0.0.1:8091`, scanned
   from Docker as `http://host.docker.internal:8091`
 - OpenAPI target: `http://host.docker.internal:8091/openapi.json`
+- Authenticated OpenAPI target: local sidecar with `Authorization: Bearer <ci test key>`
 - Raw artifacts: `test-results/security/` (ignored by git; local evidence)
 
 ## Tool Versions
@@ -47,6 +48,14 @@ docker run --rm -v "$PWD/test-results/security:/zap/wrk/:rw" `
   -t http://host.docker.internal:8091/openapi.json -f openapi `
   -J zap_api_20260607_postfix.json -r zap_api_20260607_postfix.html `
   -w zap_api_20260607_postfix.md -d
+
+docker run --rm --user root -v "$PWD/test-results/security:/zap/wrk/:rw" `
+  ghcr.io/zaproxy/zaproxy:stable zap-api-scan.py `
+  -t http://host.docker.internal:8092/openapi.json -f openapi `
+  -J zap_api_authenticated_local.json -r zap_api_authenticated_local.html `
+  -w zap_api_authenticated_local.md `
+  -z "-config replacer.full_list(0).description=auth-header -config replacer.full_list(0).enabled=true -config replacer.full_list(0).matchtype=REQ_HEADER -config replacer.full_list(0).matchstr=Authorization -config replacer.full_list(0).replacement=Bearer\ ci-test-key" `
+  -I
 ```
 
 ## Before / After
@@ -57,6 +66,7 @@ docker run --rm -v "$PWD/test-results/security:/zap/wrk/:rw" `
 | Semgrep | 11 findings / warnings | 0 findings |
 | ZAP baseline | 0 fail, 1 warning class | 0 fail, 1 informational warning class |
 | ZAP OpenAPI/API | 0 fail, 2 warning classes | 0 fail, 1 low + 4 informational classes |
+| ZAP authenticated OpenAPI/API | Not present | 0 fail, 1 low + 3 informational classes |
 
 ## Fixes Implemented
 
@@ -71,6 +81,8 @@ docker run --rm -v "$PWD/test-results/security:/zap/wrk/:rw" `
 | Provider runtime check | Replaced `assert providers` with an explicit `ValueError` so optimized Python cannot remove validation. |
 | Scanner hygiene | Added narrow `nosec` / `nosemgrep` annotations only where a preceding validation makes the flagged pattern safe. |
 | CI | Added `.github/workflows/security.yml` for Bandit, Semgrep, and OWASP ZAP OpenAPI scans. Bandit/Semgrep now fail CI on any finding. |
+| Authenticated ZAP | The ZAP CI job now injects `Authorization: Bearer ci-test-key` through ZAP's replacer so protected `/v1/*` routes are scanned with an authenticated tenant context. |
+| Dashboard CSRF | Added signed, expiring double-submit CSRF tokens to pre-auth dashboard forms: `/login`, `/signup`, `/forgot-password`, and `/reset-password`. Existing session-bound CSRF still protects logout and approval actions. |
 | NIST AI RMF | Expanded `docs/COMPLIANCE_MAPPING.md` with GOVERN, MAP, MEASURE, and MANAGE self-assessment rows. |
 
 ## Remaining ZAP Findings
@@ -81,7 +93,7 @@ No ZAP fail-level findings remain.
 |---|---|---|---|
 | Baseline | `Non-Storable Content` on `/`, `/robots.txt`, `/sitemap.xml` | Informational | These paths return 404 during API-only scanning. Low value; optional root redirect can reduce noise. |
 | OpenAPI | `Timestamp Disclosure - Unix` on `/usage?tenant_id=default` | Low | Expected quota/ledger expiry metadata. Keep endpoint tenant-scoped; not a secret. |
-| OpenAPI | Many 4xx responses | Informational | Expected. ZAP probes unauthenticated/protected paths and receives 401/422. |
+| OpenAPI | Many 4xx responses | Informational | Expected. ZAP sends malformed and fuzzed inputs; the sidecar returns validation errors instead of processing them. |
 | OpenAPI | `tenant_id` in query URL | Informational | `tenant_id` is not a secret. Long-term API design should derive tenant from auth where possible. |
 | OpenAPI | Session-management response identified | Informational | Expected auth/session behavior. |
 
@@ -89,10 +101,13 @@ No ZAP fail-level findings remain.
 
 ```powershell
 python -m pytest tests\test_security_helpers.py tests\test_api.py tests\test_dashboard_security.py tests\test_adapters.py tests\test_providers.py tests\test_usage.py -q --tb=short
-# 81 passed
+# 85 passed
+
+python -m pytest tests\test_dashboard_security.py -q --tb=short
+# 25 passed
 
 python -m pytest -q --tb=short
-# 427 passed
+# 431 passed
 
 python -m compileall -q pramagent tests deploy\dashboard
 # passed
@@ -102,8 +117,9 @@ python -m compileall -q pramagent tests deploy\dashboard
 
 - This is not an external penetration test.
 - ZAP ran locally over HTTP, not against a hardened TLS deployment.
-- ZAP OpenAPI scan was not authenticated with a real customer tenant; many 401s
-  are expected and healthy.
+- ZAP OpenAPI CI scan is authenticated with a CI API key, not a real customer
+  tenant. It proves protected route scanning works, but does not replace a
+  customer-specific authenticated security assessment.
 - Semgrep used community rulesets. It is useful coverage, not a replacement for
   manual secure-code review.
 - Several `urllib` call sites are intentionally retained for low dependency
@@ -111,10 +127,10 @@ python -m compileall -q pramagent tests deploy\dashboard
 
 ## Next Security Work
 
-1. Add an authenticated ZAP scan profile that obtains a CI JWT and exercises
-   tenant-scoped success paths.
-2. Add CSRF protection to dashboard form POSTs before any public dashboard
-   deployment.
+1. Extend the authenticated ZAP scan to obtain a short-lived CI JWT through
+   `/v1/auth/token` in addition to the bearer API-key path.
+2. Add stronger dashboard CSP and consider replacing CDN HTMX with a pinned
+   local asset for locked-down enterprise deployments.
 3. Move dashboard/admin auth toward OIDC + RBAC for enterprise deployments.
 4. Schedule an external API/security assessment before claiming production or
    compliance certification.
