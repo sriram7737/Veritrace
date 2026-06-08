@@ -76,13 +76,18 @@ class SQLiteHITLQueue:
 
     def list_pending(self, tenant_id: Optional[str] = None,
                      limit: int = 100) -> list[QueuedRequest]:
-        sql = ("SELECT * FROM hitl_queue WHERE status = ?"
-               + (" AND tenant_id = ?" if tenant_id else "")
-               + " ORDER BY created_at ASC LIMIT ?")
-        args: tuple = (RequestStatus.PENDING.value,)
         if tenant_id:
-            args = args + (tenant_id,)
-        args = args + (int(limit),)
+            sql = (
+                "SELECT * FROM hitl_queue WHERE status = ? AND tenant_id = ? "
+                "ORDER BY created_at ASC LIMIT ?"
+            )
+            args: tuple = (RequestStatus.PENDING.value, tenant_id, int(limit))
+        else:
+            sql = (
+                "SELECT * FROM hitl_queue WHERE status = ? "
+                "ORDER BY created_at ASC LIMIT ?"
+            )
+            args = (RequestStatus.PENDING.value, int(limit))
         with self._lock:
             cur = self._conn.execute(sql, args)
             rows = cur.fetchall()

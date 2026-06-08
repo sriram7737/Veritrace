@@ -238,14 +238,16 @@ Pramagent wraps model calls and agent workflows with:
 - Slack HITL approvals
 - adapters for OpenAI, Anthropic, Gemini, Ollama, local models, and
   OpenAI-compatible endpoints
-- FastAPI sidecar, dashboard skeleton, Redis/Postgres support, S3 archive
+- curated rule corpora, persistent HITL queues, and framework adapters
+- FastAPI sidecar, dashboard, Redis/Postgres support, S3 archive
   support, and OpenTelemetry spans
+- compliance evidence generation
 - RCA helpers for replay, causality, and counterfactual inspection
 - static and dynamic red-team benchmark CLI
 
 Release evidence:
 
-- 421 passing tests
+- 449 passing tests, one optional-environment skip
 - Python 3.10, 3.11, 3.12, and 3.13 CI matrix
 - live OpenAI smoke test
 - real OpenAI job-agent stress run: 216 calls, five tenants, concurrency 10,
@@ -257,6 +259,7 @@ Release evidence:
 - local Ollama smoke test
 - live Sepolia anchoring smoke test
 - S3 archive/restore smoke test
+- Bandit, Semgrep, and authenticated OWASP ZAP scan evidence
 - local Docker Compose load-test documentation
 - public implementation-status and hardening docs
 
@@ -388,10 +391,11 @@ The most important layer is ToolGuard:
 - escalate risky tools to human approval
 - record decisions in a tamper-evident trace
 
-The release has 402 passing tests and a Python 3.10 through 3.13 CI matrix, plus
-live smoke evidence for OpenAI, Ollama, Sepolia anchoring, and S3
-archive/restore. That does not make it production-certified, but it does mean
-the release is more than a README.
+The release has 449 passing tests, one optional-environment skip, and a Python
+3.10 through 3.13 CI matrix, plus live smoke evidence for OpenAI, Ollama,
+Sepolia anchoring, S3 archive/restore, Slack HITL, multi-tenant load, and
+security scans. That does not make it production-certified, but it does mean the
+release is more than a README.
 
 It is published as Alpha software, with an honest implementation-status doc. No
 fake "prompt-injection-proof" claims. No pretending it is certified enterprise
@@ -430,14 +434,18 @@ Pramagent currently includes:
 
 - ToolGuard with JSON Schema validation, tenant/action allow-lists, side-effect
   taxonomy, output scanning, and HITL escalation
+- curated deterministic safety rule corpora
+- persistent HITL queues for longer-running approvals
+- LangGraph, AutoGen, CrewAI, and generic framework adapters
 - adapters for OpenAI, Anthropic, Gemini, Ollama, and local/OpenAI-compatible
   endpoints
 - Slack HITL approval callbacks
 - tamper-evident SHA-256 trace chains
 - optional Sepolia timestamp anchoring and S3 cold archive support
-- FastAPI sidecar, dashboard skeleton, Redis/Postgres support, OTel spans
+- FastAPI sidecar, dashboard, Redis/Postgres support, OTel spans
+- compliance evidence generation
 - red-team benchmark CLI
-- 402 passing tests across Python 3.10 through 3.13
+- 449 passing tests across Python 3.10 through 3.13, with one optional skip
 
 Important: it is Alpha software. It is not bank-grade, healthcare-grade,
 externally audited, or prompt-injection-proof. I documented the current status
@@ -472,12 +480,16 @@ enough. You need policy outside the model.
 What is included today:
 
 - ToolGuard for schema, tenant/action, and side-effect policy
+- curated deterministic safety rule corpora
+- persistent HITL queues for longer approval workflows
+- LangGraph, AutoGen, CrewAI, and generic framework adapters
 - OpenAI, Anthropic, Gemini, Ollama, local provider support
 - Slack HITL approvals
 - hash-chain audit traces
 - optional Sepolia timestamp anchoring and S3 archive support
-- FastAPI sidecar, dashboard skeleton, Redis/Postgres, OTel
-- 402 passing tests
+- compliance evidence generation for auditor-facing packages
+- FastAPI sidecar, dashboard, Redis/Postgres, OTel
+- 449 passing tests, 1 optional-environment skip
 
 It is Alpha and not externally certified. The implementation status is public
 and intentionally blunt.
@@ -544,11 +556,12 @@ anchoring, S3 archive support, Redis/Postgres, OTel, and a FastAPI sidecar.
 
 6. Current release evidence:
 
-- 402 passing tests
+- 449 passing tests, 1 optional-environment skip
 - Python 3.10 to 3.13 CI
 - OpenAI and Ollama smoke tests
 - Sepolia anchoring smoke
 - S3 archive/restore smoke
+- Bandit, Semgrep, and authenticated OWASP ZAP scan evidence
 - red-team benchmark CLI
 
 7. Important: it is Alpha.
@@ -621,7 +634,7 @@ It is built around a simple idea:
 Pramagent includes provider adapters, PII scrubbing, prompt-injection checks,
 ToolGuard policy validation, HITL approvals, tamper-evident trace chains,
 optional Sepolia timestamp anchoring, S3 archive support, a FastAPI sidecar, and
-a dashboard skeleton.
+a dashboard.
 
 The most important piece is ToolGuard: JSON Schema validation, tenant/action
 allow-lists, side-effect taxonomy, output scanning, and HITL escalation for
@@ -663,7 +676,7 @@ generic guardrails:
 Run this before launch posts, release notes, or demo videos:
 
 ```powershell
-cd C:\Users\srira\OneDrive\Desktop\veritrace
+cd path\to\pramagent
 
 # Legacy-name scan. Expected hits: only migration docs or intentional mentions.
 rg -n "veritrace|Veritrace|VERITRACE" `

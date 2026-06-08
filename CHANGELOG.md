@@ -4,6 +4,33 @@
 
 No unreleased changes.
 
+## v0.5.20 - 2026-06-07
+
+### Changed
+
+- Refreshed README, implementation status, hardening guide, release checklist,
+  live-test results, deployment guide, and technical marketing docs to match
+  the v0.5.x trust-extension scope.
+- Added the June 7 security scan report to packaged documentation.
+- Opted GitHub Actions workflows into Node 24 with
+  `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true` to clear upstream Node.js 20
+  deprecation noise.
+
+### Fixed
+
+- Replaced remaining silent exception paths in AutoGen adapter notification and
+  HITL notification paths with debug/warning logging.
+- Tightened SQLite/Postgres HITL queue query construction and scanner
+  annotations after Bandit/Semgrep review.
+
+### Verified
+
+- `python -m pytest -q --tb=short` -> `449 passed, 1 skipped`.
+- `python -m compileall -q pramagent tests deploy\dashboard` -> passed.
+- `python -m bandit -r pramagent deploy\dashboard` -> no issues identified.
+- Semgrep `p/security-audit` + `p/python` -> `0 findings`.
+- `python -m build` and `python -m twine check dist\pramagent-0.5.20*` -> passed.
+
 ## v0.5.19 - 2026-06-07
 
 ### Added

@@ -16,7 +16,9 @@ Pramagent wraps OpenAI, Anthropic, Gemini, Ollama, local, and
 OpenAI-compatible providers with guardrails that run outside the model. The
 most differentiated layer is ToolGuard: deterministic tool validation with JSON
 Schema, tenant/action allow-lists, side-effect taxonomy, dangerous-chain
-detection, output scanning, and HITL escalation.
+detection, output scanning, and HITL escalation. The current package also
+ships curated safety rule corpora, persistent HITL queues, thin adapters for
+popular agent frameworks, and compliance evidence generation.
 
 ## Alpha Maturity Notice
 
@@ -109,7 +111,7 @@ pramagent redteam --json --attacks 100
 pramagent redteam --json --dynamic --attacks 200 --seed 999
 ```
 
-Current local result: `421 passed`.
+Current local result: `449 passed, 1 skipped`.
 
 ## ToolGuard Example
 
@@ -177,6 +179,94 @@ async def main():
 asyncio.run(main())
 ```
 
+## Built-In Rule Corpora
+
+Pramagent now includes deterministic, importable rule bundles. They are plain
+Python `Rule` objects, so a reviewer can inspect exactly what is enforced.
+
+```python
+from pramagent import Pramagent
+from pramagent.layers import SafetyLayer
+from pramagent.rules import ALL_RULES, JAILBREAK_PATTERNS, OWASP_LLM_TOP10
+
+armor = Pramagent(
+    safety=SafetyLayer(rules=[*JAILBREAK_PATTERNS, *OWASP_LLM_TOP10])
+)
+
+strict_armor = Pramagent(safety=SafetyLayer(rules=ALL_RULES))
+```
+
+Included corpora:
+
+- `JAILBREAK_PATTERNS`
+- `OWASP_LLM_TOP10`
+- `INJECTION_CORPUS`
+- `FICTIONAL_WRAPPER`
+- `PHI_PATTERNS`
+- `FINANCIAL_PII`
+
+## Persistent HITL Queue
+
+For approval flows that must survive process restarts, use the persistent
+queue backends:
+
+```python
+from pramagent.layers import HITLLayer
+from pramagent.queue import SQLiteHITLQueue
+
+hitl = HITLLayer(
+    require_approval_for=["send_email", "wire_transfer"],
+    store=SQLiteHITLQueue("hitl.db"),
+    timeout_s=None,  # wait until another process approves or denies
+)
+```
+
+`InMemoryHITLQueue`, `SQLiteHITLQueue`, and `PostgresHITLQueue` are available
+under `pramagent.queue`.
+
+## Framework Adapters
+
+Pramagent is meant to sit under existing agent frameworks, not replace them.
+
+```python
+from pramagent.adapters import PramagentNode, PramagentHook, PramagentGuard
+
+# LangGraph
+guard_node = PramagentNode(armor=armor)
+
+# AutoGen
+PramagentHook(armor=armor).attach(agent)
+
+# CrewAI
+safe_tool = PramagentGuard(armor=armor).wrap_tool(send_email)
+```
+
+Generic helpers are also available:
+
+```python
+from pramagent.adapters import protect, protect_tool
+```
+
+## Compliance Evidence
+
+`ComplianceReporter.generate()` can produce point-in-time evidence packages
+from Pramagent traces and mappings:
+
+```python
+from pramagent.compliance import ComplianceReporter
+
+ComplianceReporter(store=store, audit=audit).generate(
+    framework="SOC2",
+    period_start="2026-01-01",
+    period_end="2026-06-30",
+    tenant_id="demo",
+    output="evidence.json",
+)
+```
+
+Supported mapping targets include SOC2, HIPAA, GDPR, NIST AI RMF, EU AI Act,
+and PCI DSS. This is engineering evidence, not a certification.
+
 ## When To Use Pramagent
 
 - You are wrapping LLM calls or agent workflows and need audit trails, policy
@@ -187,6 +277,8 @@ asyncio.run(main())
   matters more than marketing claims.
 - You need tamper-evident traces with optional Sepolia anchoring and encrypted
   S3 cold archive support.
+- You already use LangGraph, AutoGen, CrewAI, or a custom loop and want a thin
+  trust layer around prompts, tool calls, and approvals.
 
 ## When Not To Use Pramagent Yet
 
@@ -207,17 +299,20 @@ asyncio.run(main())
 | Capability | Status | Notes |
 |---|---|---|
 | Provider adapters | Implemented | Mock, OpenAI, Anthropic, Gemini, Ollama, OpenAI-compatible/local |
-| ToolGuard | Strong MVP | JSON Schema, allow-lists, side-effect taxonomy, output scanning |
-| HITL | Beta | Slack callbacks, approval queues, quorum/escalation primitives, ServiceNow/PagerDuty/email/webhook notifiers |
+| Rule corpora | MVP | 129 deterministic rules across jailbreaks, OWASP LLM risks, injection, fictional-wrapper bypasses, PHI, and financial PII |
+| ToolGuard | Strong MVP | Draft 2020-12 JSON Schema, allow-lists, side-effect taxonomy, output scanning, Redis-backed chain state |
+| HITL | Beta | Slack callbacks, persistent SQLite/Postgres queues, quorum/escalation primitives, ServiceNow/PagerDuty/email/webhook notifiers |
 | Audit trail | Strong MVP | SHA-256 hash chain; optional real Sepolia anchoring |
 | PII redaction | Strong MVP | Context-aware patterns for common regulated data |
 | Auth/rate limits/quotas | Beta | JWT/API keys, token buckets, per-tenant quotas |
-| Dashboard | Prototype | Shared-key fallback, optional SQL users with generated keys, tenant scoping, traces, approvals, metrics, usage page |
+| Framework adapters | MVP | LangGraph node, AutoGen hook, CrewAI guard, generic protect/protect_tool helpers |
+| Dashboard | Prototype | Shared-key fallback, optional SQL users with generated keys, tenant scoping, traces, approvals, metrics, usage page, CSRF |
 | Redis/Postgres backends | Beta | Wired and tested locally; needs scale/load testing |
 | OpenTelemetry | Partial | Per-layer spans exist; dashboards and alerting need hardening |
 | Red-team benchmark | MVP | Static and dynamic mutation modes with bypass/false-positive rates |
 | Billing hooks | MVP | In-memory hash-chain usage ledger plus fail-open webhook; no Stripe/Chargebee provider yet |
 | S3 cold archive | MVP | Gzip + encrypted trace archive wrapper; metadata sink hook |
+| Compliance evidence | MVP | `ComplianceReporter.generate()` for JSON/text/PDF-style evidence packages |
 
 ## Honest Limits
 
@@ -227,7 +322,8 @@ asyncio.run(main())
 - ToolGuard is a hard policy gate outside the model, but it is not a sandbox.
 - Slack is the main decision-collecting HITL adapter today. ServiceNow,
   PagerDuty, email, and generic webhooks are useful notification/escalation
-  adapters, but broader enterprise approval workflows are still in development.
+  adapters. Persistent SQLite/Postgres approval queues exist, but broader
+  enterprise approval workflows are still in development.
 - Dashboard auth has tenant-scoped shared-key fallback plus optional SQL-backed
   users with generated dashboard keys and key regeneration. It is still not
   SSO/OIDC/RBAC-grade.

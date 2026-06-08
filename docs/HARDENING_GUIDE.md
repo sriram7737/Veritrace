@@ -6,6 +6,15 @@ controls, and third-party validation.
 
 ## What This Pass Added
 
+- Curated deterministic rule corpora under `pramagent.rules` for jailbreaks,
+  OWASP LLM risks, injection payloads, fictional-wrapper bypasses, PHI, and
+  financial PII.
+- Persistent HITL queue backends under `pramagent.queue`: in-memory, SQLite,
+  and Postgres.
+- Thin framework adapters under `pramagent.adapters` for LangGraph, AutoGen,
+  CrewAI, and generic custom loops/tools.
+- `ComplianceReporter.generate()` for JSON/text/PDF-style evidence packages
+  across SOC2, HIPAA, GDPR, NIST AI RMF, EU AI Act, and PCI DSS.
 - In-memory hash-chain usage ledger for pilot metering evidence.
 - `/v1/usage/ledger` API endpoint for tenant-scoped ledger inspection.
 - Explicit fail-open/fail-closed behavior for usage event sinks.
@@ -89,6 +98,8 @@ Current state:
 - Slack can collect decisions.
 - ServiceNow, PagerDuty, email, and webhooks can notify humans.
 - Quorum/escalation primitives exist.
+- Persistent in-memory, SQLite, and Postgres approval queues exist for HITL
+  gates that need to survive process restarts or wait indefinitely.
 - Dashboard approval actions require session-bound CSRF tokens for browser
   cookie sessions.
 - Dashboard users can be stored in SQLite/Postgres with generated keys and
@@ -96,7 +107,8 @@ Current state:
 
 Next:
 
-- Persist approval queues in Redis/Postgres for multi-worker deployments.
+- Battle-test persistent approval queues under multi-worker load and add admin
+  queue UX for search, reassignment, and manual expiry.
 - Add escalation policies with owner rotation and timeout handoff.
 - Add approval evidence exports: who approved, when, context hash, and final
   action.
@@ -130,11 +142,14 @@ Current state:
 - Compliance mapping docs exist.
 - Retention, erasure, consent, purpose limitation, S3 archive, and audit export
   primitives exist.
+- `ComplianceReporter.generate()` can render point-in-time evidence packages
+  from traces, HITL approvals, redaction counts, audit-chain verification, and
+  framework control mappings.
 
 Next:
 
-- Map controls to NIST AI RMF, ISO 42001, SOC 2, HIPAA, and EU AI Act in one
-  evidence table.
+- Extend generated evidence packages to ISO 42001 and customer-specific control
+  mappings.
 - Add field-level redaction policies by tenant.
 - Add tiered retention by tenant, data class, and legal hold.
 - Use immutable external storage for audit exports where required.

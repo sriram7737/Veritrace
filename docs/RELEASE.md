@@ -27,7 +27,7 @@ python -m venv %TEMP%/pramagent-release-venv
 Optional extras install check:
 
 ```bash
-python -m pip install dist/pramagent-0.5.16-py3-none-any.whl[all]
+python -m pip install "dist/pramagent-0.5.20-py3-none-any.whl[all]"
 python - <<'PY'
 import anthropic, aiohttp, fastapi, uvicorn, jinja2, httpx, cryptography
 import opentelemetry, redis, psycopg2, web3, boto3
@@ -86,14 +86,18 @@ python -m twine check dist/*
 
 ```bash
 git status --short
-git tag -a v0.5.16 -m "v0.5.16"
+git tag -a v0.5.20 -m "v0.5.20"
 git push origin main
-git push origin v0.5.16
+git push origin v0.5.20
 ```
 
-Create a GitHub Release from tag `v0.5.16` and include:
+Create a GitHub Release from tag `v0.5.20` and include:
 
-- Test result: `421 passed`
+- Test result: `449 passed, 1 skipped`
+- Rule corpus result: 129 importable deterministic rules
+- Persistent HITL queue result: in-memory/SQLite/Postgres backends packaged
+- Framework adapters result: LangGraph, AutoGen, CrewAI, and generic helpers packaged
+- ComplianceReporter.generate result: JSON/text/PDF-style evidence generation packaged
 - Test-agent v2 result: `57/57 passed`
 - Dynamic feed agent result: mock `8/8 passed`, Ollama `qwen2.5:1.5b` `8/8 passed`
 - Dynamic red-team result: `200/200 caught`, seed `999`
@@ -106,6 +110,8 @@ Create a GitHub Release from tag `v0.5.16` and include:
 - Links to `docs/IMPLEMENTATION_STATUS.md` and `docs/HARDENING_GUIDE.md`
 - Honest limits: Alpha maturity, no external pen test, no SSO/OIDC/RBAC, no
   regulated-production certification
+- Confirm GitHub Actions no longer emits the Node.js 20 deprecation warning.
+  Workflows opt in with `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true`.
 
 ## PyPI
 

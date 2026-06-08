@@ -1,6 +1,6 @@
 # Pramagent — Current Implementation Status
 
-_Last updated after the 2026-06-05 Slack HITL and real OpenAI workflow validation pass._
+_Last updated after the 2026-06-07 v0.5.20 documentation and security-cleanup release._
 
 This document is deliberately blunt. Pramagent is **strong trust middleware for
 AI agents** — deterministic guardrails, HITL, tool policy, and tamper-evident
@@ -13,8 +13,10 @@ exist.
 
 ## Test status
 
-`python -m pytest -q --tb=no` -> **421 passing**. No skips or
-expected failures hiding classifier misses in the bundled suite.
+`python -m pytest -q --tb=short` -> **449 passing, 1 skipped**. The skip is
+the Postgres optional-driver negative test when `psycopg2` is installed
+locally; there are no expected failures hiding classifier misses in the bundled
+suite.
 
 Additional release harnesses:
 
@@ -43,6 +45,11 @@ Actions is configured to run the same suite on Python 3.10, 3.11, 3.12, and
 
 ### Implemented (works today, covered by tests)
 - Provider adapters (Mock, OpenAI, Anthropic, Gemini, Ollama, OpenAI-compatible) + fallback chain
+- Curated deterministic rule corpora under `pramagent.rules`: jailbreaks,
+  OWASP LLM risks, injection payloads, fictional-wrapper bypasses, PHI, and
+  financial PII. Current total: 129 importable `Rule` objects.
+- Framework adapters under `pramagent.adapters`: LangGraph node, AutoGen hook,
+  CrewAI guard, and generic `protect` / `protect_tool` helpers.
 - PII scrubbing (context-guarded patterns)
 - Deterministic safety rule engine (pre/post, precedence veto)
 - Isolation heuristics + size caps + tenant/session-scoped memory
@@ -51,8 +58,9 @@ Actions is configured to run the same suite on Python 3.10, 3.11, 3.12, and
   detection, Redis/back-end-backed side-effect history and session call counters,
   per-tenant/action allow-lists, decision recorded in the trace,
   **LLM-as-judge** tightening hook
-- Slack HITL (approve/deny, signed callbacks) **+ persistent queue, escalation
-  chains, N-of-M quorum, full approval audit log, ServiceNow/PagerDuty/email/webhook adapters**
+- Slack HITL (approve/deny, signed callbacks) **+ persistent in-memory,
+  SQLite, and Postgres HITL queues, escalation chains, N-of-M quorum, full
+  approval audit log, ServiceNow/PagerDuty/email/webhook adapters**
 - Tamper-evident hash chain (SHA-256), optional real Ethereum/Sepolia anchoring
   with tx hash + block metadata, and Hyperledger fallback anchoring. Live
   Sepolia validation passed on tx
@@ -72,8 +80,10 @@ Actions is configured to run the same suite on Python 3.10, 3.11, 3.12, and
   metadata sink hook for Postgres/compliance tables). Live AWS S3
   archive/restore validation passed with a tiny fake trace.
 - **Migration runner** (stdlib, SQLite + Postgres)
-- **Compliance reporter** — consent registry, purpose limitation, retention
-  policy with legal floor, JSON/text/PDF auditor reports
+- **Compliance reporter** - consent registry, purpose limitation, retention
+  policy with legal floor, JSON/text/PDF auditor reports, plus
+  `ComplianceReporter.generate()` for SOC2, HIPAA, GDPR, NIST AI RMF, EU AI Act,
+  and PCI DSS evidence packages
 - OpenTelemetry per-layer spans (Compliance, Isolation, Safety, ToolGuard,
   Provider, HITL) + W3C trace-context propagation
 - FastAPI sidecar (auth, CORS, security headers, structured logging, RCA +
@@ -82,13 +92,15 @@ Actions is configured to run the same suite on Python 3.10, 3.11, 3.12, and
 - Dashboard usage page, Redis-backed dashboard rate limiting with local
   fallback, no-store security headers, session revocation, optional SQL users
   with generated high-entropy dashboard keys, bcrypt key hashes, phone/email
-  identities, hashed reset tokens, and CSRF protection for cookie-authenticated
-  state-changing actions
+  identities, hashed reset tokens, and signed CSRF protection for both pre-auth
+  and session-authenticated browser forms
 - Built-in red-team benchmark CLI with static and dynamic mutation modes
   (`pramagent redteam --json --dynamic --attacks 200 --seed 999`)
 - Public red-team result/methodology doc and load-test runbook
 - Syntax-health test that compiles every Python source file before release
 - Small concurrency smoke test for trace uniqueness and hash-chain integrity
+- CI security scanning with Bandit, Semgrep, and authenticated OWASP ZAP
+  OpenAPI scan
 
 ### MVP / needs hardening
 - Usage quotas: enforced before expensive routes and integrated with rate
@@ -104,13 +116,15 @@ Actions is configured to run the same suite on Python 3.10, 3.11, 3.12, and
   regeneration tokens, secure-cookie support, CSRF protection, Redis-backed
   throttling, and explicit all-tenant opt-in exist; still not SSO/OIDC/RBAC-grade
   and no email/SMS delivery provider is wired yet
-- HITL adapters: Slack collects approve/deny decisions. ServiceNow,
+- HITL adapters: Slack collects approve/deny decisions and persistent
+  in-memory/SQLite/Postgres queues survive worker restarts. ServiceNow,
   PagerDuty, email, and generic webhooks are notification/escalation adapters;
-  broader enterprise approval workflows are not complete.
-- Prompt-injection defense — keyword pass catches the bundled static corpus and
-  seeded dynamic mutation smoke tests; embedding classifier is optional (needs
-  `sentence-transformers`); third-party and novel red-team sets are still
-  required before high-stakes claims
+  broader enterprise approval workflows, admin queue UX, and owner rotation are
+  not complete.
+- Prompt-injection defense: the bundled deterministic corpora and seeded
+  dynamic mutation smoke tests help, but the embedding classifier is optional
+  (needs `sentence-transformers`); third-party and novel red-team sets are
+  still required before high-stakes claims
 - Multi-process scaling — Redis backend exists and ToolGuard chain state can be
   shared across workers; still not load-tested at 50+ tenant / 10k+ daily-call
   scale
@@ -130,6 +144,14 @@ Actions is configured to run the same suite on Python 3.10, 3.11, 3.12, and
 - Pilot-user production deployments
 
 ## Latest Workflow Evidence
+
+2026-06-07 v0.5.20 package verification:
+
+- Test suite: 449 passed, 1 skipped
+- Rule corpus import smoke: 129 total rules
+- Package build: wheel and sdist include `pramagent.rules`,
+  `pramagent.queue`, and `pramagent.adapters`
+- PyPI: `pramagent==0.5.20` published through GitHub Trusted Publishing
 
 2026-06-05 job-agent stress harness with real OpenAI:
 

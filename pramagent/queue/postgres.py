@@ -42,13 +42,13 @@ def _import_driver():
     try:
         import psycopg  # psycopg3
         return ("psycopg3", psycopg)
-    except Exception:
-        pass
+    except ImportError:
+        psycopg = None
     try:
         import psycopg2  # psycopg2
         return ("psycopg2", psycopg2)
-    except Exception:
-        pass
+    except ImportError:
+        psycopg2 = None
     return (None, None)
 
 
@@ -97,13 +97,14 @@ class PostgresHITLQueue:
     # ── HITLQueueStore protocol ────────────────────────────────────────
     def enqueue(self, request: QueuedRequest) -> str:
         row = to_row(request)
-        sql = f"""
-            INSERT INTO {self.table}
-                (request_id, action, context, tenant_id, created_at,
-                 decided_at, status, decided_by, notes)
-            VALUES (%s, %s, %s::jsonb, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT (request_id) DO NOTHING
-        """
+        # Table name is strictly validated in __init__; all values are parameterized.
+        sql = (
+            f"INSERT INTO {self.table} "  # nosec B608
+            "(request_id, action, context, tenant_id, created_at, "
+            "decided_at, status, decided_by, notes) "
+            "VALUES (%s, %s, %s::jsonb, %s, %s, %s, %s, %s, %s) "
+            "ON CONFLICT (request_id) DO NOTHING"
+        )
         with self._connect() as conn:
             with conn.cursor() as cur:
                 cur.execute(sql, (
@@ -115,7 +116,7 @@ class PostgresHITLQueue:
         return request.request_id
 
     def get(self, request_id: str) -> Optional[QueuedRequest]:
-        sql = f"SELECT * FROM {self.table} WHERE request_id = %s"
+        sql = f"SELECT * FROM {self.table} WHERE request_id = %s"  # nosec B608
         with self._connect() as conn:
             with conn.cursor() as cur:
                 cur.execute(sql, (request_id,))
@@ -132,12 +133,12 @@ class PostgresHITLQueue:
     def list_pending(self, tenant_id: Optional[str] = None,
                      limit: int = 100) -> list[QueuedRequest]:
         if tenant_id:
-            sql = (f"SELECT * FROM {self.table} "
+            sql = (f"SELECT * FROM {self.table} "  # nosec B608
                    "WHERE status = %s AND tenant_id = %s "
                    "ORDER BY created_at ASC LIMIT %s")
             args = (RequestStatus.PENDING.value, tenant_id, int(limit))
         else:
-            sql = (f"SELECT * FROM {self.table} "
+            sql = (f"SELECT * FROM {self.table} "  # nosec B608
                    "WHERE status = %s ORDER BY created_at ASC LIMIT %s")
             args = (RequestStatus.PENDING.value, int(limit))
         out: list[QueuedRequest] = []
@@ -156,7 +157,7 @@ class PostgresHITLQueue:
                decided_by: str = "", notes: str = "") -> bool:
         new_status = (RequestStatus.APPROVED.value if approved
                       else RequestStatus.DENIED.value)
-        sql = (f"UPDATE {self.table} "
+        sql = (f"UPDATE {self.table} "  # nosec B608
                "SET status=%s, decided_at=%s, decided_by=%s, notes=%s "
                "WHERE request_id=%s AND status=%s")
         with self._connect() as conn:
@@ -168,7 +169,7 @@ class PostgresHITLQueue:
         return changed
 
     def expire(self, request_id: str) -> bool:
-        sql = (f"UPDATE {self.table} "
+        sql = (f"UPDATE {self.table} "  # nosec B608
                "SET status=%s, decided_at=%s "
                "WHERE request_id=%s AND status=%s")
         with self._connect() as conn:

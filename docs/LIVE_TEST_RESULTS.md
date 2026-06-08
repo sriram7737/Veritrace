@@ -63,8 +63,13 @@ python -m pytest -q --tb=no
 Result:
 
 ```text
-421 passed
+449 passed, 1 skipped
 ```
+
+Current package regression note: after the v0.5.20 documentation and
+security-cleanup release,
+the full local suite passed with `449 passed, 1 skipped`. The skip is the
+Postgres optional-driver negative test when `psycopg2` is installed locally.
 
 ## Clean Environment Checks
 
@@ -92,7 +97,7 @@ Notes:
 - GitHub Actions is configured to run Python 3.10, 3.11, 3.12, and 3.13 with
   upgraded pip/setuptools/wheel before installing test dependencies.
 
-## Built Wheel Smoke Test
+## Built Wheel Smoke Test (historical v0.5.16)
 
 Result: **passed**
 
@@ -158,7 +163,7 @@ no non-blocked sentinel outputs found
 This checks that benign non-blocked responses are not silently replaced with
 `[output withheld by safety rule]`.
 
-Optional extras install check:
+Optional extras install check (historical v0.5.16):
 
 ```text
 python -m pip install "dist/pramagent-0.5.16-py3-none-any.whl[all]"

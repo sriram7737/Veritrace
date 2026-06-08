@@ -22,6 +22,7 @@ RCAEngine is in pramagent.rca; the audit chain is in pramagent.audit.
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 import time
 from dataclasses import dataclass, field
@@ -34,6 +35,8 @@ from .isolation import (IsolationLayer, IsolationViolation, InputTooLarge,
                         InjectionSuspected)
 from .observability import ObservabilityLayer
 from .tool_guard import ToolDecision, ToolGuardLayer, ToolPolicy
+
+log = logging.getLogger(__name__)
 
 
 
@@ -321,8 +324,12 @@ class HITLLayer:
         if self.on_enqueue is not None:
             try:
                 await self.on_enqueue(req.request_id, action, context)
-            except Exception:
-                pass  # notification failure must not block the gate
+            except Exception as exc:
+                log.warning(
+                    "HITL enqueue notification failed for request %s: %s",
+                    req.request_id,
+                    exc,
+                )
 
         deadline = (time.time() + self.timeout_s) if self.timeout_s else None
 

@@ -26,10 +26,13 @@ Usage::
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Any, Optional
 
 from ..core import Pramagent
 from ..types import AgentResponse
+
+log = logging.getLogger(__name__)
 
 
 class PramagentHook:
@@ -70,8 +73,8 @@ class PramagentHook:
                         agent.register_hook("process_last_received_message",
                                             self._after_receive)
                 return
-            except Exception:
-                pass
+            except Exception as exc:
+                log.debug("AutoGen register_hook path failed; trying fallback: %s", exc)
 
         # Fallback: wrap generate_reply if no hook API present
         if hasattr(agent, "register_reply"):

@@ -80,7 +80,7 @@ docker run --rm --user root -v "$PWD/test-results/security:/zap/wrk/:rw" `
 | Migration SQL | Removed string-interpolated migration insert construction and selected fixed placeholder SQL per backend dialect. |
 | Provider runtime check | Replaced `assert providers` with an explicit `ValueError` so optimized Python cannot remove validation. |
 | Scanner hygiene | Added narrow `nosec` / `nosemgrep` annotations only where a preceding validation makes the flagged pattern safe. |
-| CI | Added `.github/workflows/security.yml` for Bandit, Semgrep, and OWASP ZAP OpenAPI scans. Bandit/Semgrep now fail CI on any finding. |
+| CI | Added `.github/workflows/security.yml` for Bandit, Semgrep, and OWASP ZAP OpenAPI scans. Bandit/Semgrep now fail CI on any finding. Workflows opt in to Node.js 24 with `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true` to remove the GitHub Actions Node 20 deprecation warning. |
 | Authenticated ZAP | The ZAP CI job now injects `Authorization: Bearer ci-test-key` through ZAP's replacer so protected `/v1/*` routes are scanned with an authenticated tenant context. |
 | Dashboard CSRF | Added signed, expiring double-submit CSRF tokens to pre-auth dashboard forms: `/login`, `/signup`, `/forgot-password`, and `/reset-password`. Existing session-bound CSRF still protects logout and approval actions. |
 | NIST AI RMF | Expanded `docs/COMPLIANCE_MAPPING.md` with GOVERN, MAP, MEASURE, and MANAGE self-assessment rows. |
@@ -107,10 +107,18 @@ python -m pytest tests\test_dashboard_security.py -q --tb=short
 # 25 passed
 
 python -m pytest -q --tb=short
-# 431 passed
+# 449 passed, 1 skipped after the v0.5.20 documentation and security-cleanup release
 
 python -m compileall -q pramagent tests deploy\dashboard
 # passed
+
+python -m bandit -r pramagent deploy\dashboard
+# No issues identified
+
+docker run --rm -v "${PWD}:/src" -w /src semgrep/semgrep:latest `
+  semgrep scan --metrics=off --config p/security-audit --config p/python `
+  --error pramagent deploy/dashboard
+# 0 findings
 ```
 
 ## Limitations

@@ -1,7 +1,7 @@
-# Pramagent — Control Mapping (SOC 2 / HIPAA / EU AI Act)
+# Pramagent - Control Mapping (SOC 2 / HIPAA / EU AI Act)
 
 This maps Pramagent's implemented controls to common framework expectations.
-It is an engineering self-assessment to accelerate an auditor's review — **not**
+It is an engineering self-assessment to accelerate an auditor's review - **not**
 a certification. Independent audit is required for any compliance claim.
 
 ## EU AI Act (high-risk systems)
@@ -15,11 +15,11 @@ a certification. Independent audit is required for any compliance claim.
 ## HIPAA Security Rule
 | Safeguard | Citation | Pramagent control |
 |---|---|---|
-| Access control | §164.312(a)(1) | API-key + JWT auth, per-tenant isolation, cross-tenant trace guard |
-| Audit controls | §164.312(b) | Tamper-evident hash chain + approval audit log |
-| Integrity | §164.312(c)(1) | SHA-256 chain verification detects any retroactive edit |
-| Transmission security | §164.312(e)(1) | TLS/HSTS headers; encrypted-at-rest SQLite option |
-| Minimum necessary | §164.502(b) | PII scrubbing before model exposure |
+| Access control | 164.312(a)(1) | API-key + JWT auth, per-tenant isolation, cross-tenant trace guard |
+| Audit controls | 164.312(b) | Tamper-evident hash chain + approval audit log |
+| Integrity | 164.312(c)(1) | SHA-256 chain verification detects any retroactive edit |
+| Transmission security | 164.312(e)(1) | TLS/HSTS headers; encrypted-at-rest SQLite option |
+| Minimum necessary | 164.502(b) | PII scrubbing before model exposure |
 
 ## SOC 2 (Trust Services Criteria)
 | TSC | Pramagent control |
@@ -45,6 +45,7 @@ red-team or penetration-test evidence.
 | MANAGE | Prioritize, respond to, and monitor mitigations | Deterministic ToolGuard policy, isolation layer, HITL escalation, rate limits, quotas, circuit breakers, retention/erasure endpoints | Controls are implemented for developer beta; enterprise runbooks, SSO, persistent billing ledger, and formal incident process remain roadmap |
 
 ## Auditor-facing artifacts
-- `ComplianceReporter.to_pdf()/.to_json()` — point-in-time attestation
-- `GET /v1/audit/verify` — live hash-chain validity
-- `POST /v1/rca/{id}/incident` — per-decision incident report
+- `ComplianceReporter.generate()` - point-in-time JSON/text/PDF-style evidence
+  package across SOC2, HIPAA, GDPR, NIST AI RMF, EU AI Act, and PCI DSS
+- `GET /v1/audit/verify` - live hash-chain validity
+- `POST /v1/rca/{id}/incident` - per-decision incident report
