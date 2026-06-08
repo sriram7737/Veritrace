@@ -250,17 +250,38 @@ class HITLLayer:
     proposes and WAITS. The hard invariant: on timeout it returns IDLE and the
     action is NOT taken. Silence is never consent.
 
-    `approver` is an async callable that returns True/False/None (None = no answer).
-    In production this is a webhook / Slack / PagerDuty integration. In the demo
-    it is supplied directly.
+    Two modes::
+
+        # Ephemeral mode — the approver coroutine returns True/False/None
+        hitl = HITLLayer(require_approval_for=["wire_transfer"], approver=fn)
+
+        # Persistent mode — requests survive process restarts. Any process
+        # holding the same store can approve/deny a queued request.
+        from pramagent.queue import PostgresHITLQueue
+        hitl = HITLLayer(
+            require_approval_for=["wire_transfer"],
+            store=PostgresHITLQueue(dsn=os.environ["DATABASE_URL"]),
+            timeout_s=None,  # wait forever
+        )
+
+    When ``store`` is set, ``gate()`` enqueues the request and polls the store
+    until a decision is recorded or the timeout (if any) elapses. A side
+    channel — Slack handler, admin CLI, web dashboard — calls
+    ``store.decide(request_id, approved=...)`` and the waiter unblocks.
     """
 
     def __init__(self, require_approval_for: list[str] | None = None,
-                 timeout_s: float = 300.0,
-                 approver: Optional[Callable[[str, dict], Awaitable[Optional[bool]]]] = None):
+                 timeout_s: Optional[float] = 300.0,
+                 approver: Optional[Callable[[str, dict], Awaitable[Optional[bool]]]] = None,
+                 store=None,
+                 poll_interval_s: float = 1.0,
+                 on_enqueue: Optional[Callable[[str, str, dict], Awaitable[None]]] = None):
         self.require_approval_for = set(require_approval_for or [])
         self.timeout_s = timeout_s
         self.approver = approver
+        self.store = store
+        self.poll_interval_s = max(0.05, float(poll_interval_s))
+        self.on_enqueue = on_enqueue  # notification hook (Slack, email, etc.)
 
     def is_consequential(self, action: str) -> bool:
         return action in self.require_approval_for
@@ -268,11 +289,18 @@ class HITLLayer:
     async def gate(self, action: str, context: dict) -> HITLStatus:
         if not self.is_consequential(action):
             return HITLStatus.AUTO
+
+        # Persistent path: enqueue + poll the store.
+        if self.store is not None:
+            return await self._gate_persistent(action, context)
+
+        # Ephemeral path: original behaviour.
         if self.approver is None:
-            # no approver wired -> safest default is to do nothing
             return HITLStatus.IDLE
         try:
-            answer = await asyncio.wait_for(self.approver(action, context), timeout=self.timeout_s)
+            timeout = self.timeout_s if self.timeout_s is not None else 300.0
+            answer = await asyncio.wait_for(
+                self.approver(action, context), timeout=timeout)
         except asyncio.TimeoutError:
             return HITLStatus.IDLE
         if answer is True:
@@ -280,3 +308,54 @@ class HITLLayer:
         if answer is False:
             return HITLStatus.DENIED
         return HITLStatus.IDLE
+
+    async def _gate_persistent(self, action: str, context: dict) -> HITLStatus:
+        # Local import to avoid a hard package dependency at import time.
+        from ..queue.base import QueuedRequest, RequestStatus
+
+        req = QueuedRequest.new(action, context,
+                                tenant_id=str(context.get("tenant") or context.get("tenant_id") or "default"))
+        self.store.enqueue(req)
+
+        # Fire-and-forget notification (so a Slack DM is sent per request, etc.).
+        if self.on_enqueue is not None:
+            try:
+                await self.on_enqueue(req.request_id, action, context)
+            except Exception:
+                pass  # notification failure must not block the gate
+
+        deadline = (time.time() + self.timeout_s) if self.timeout_s else None
+
+        while True:
+            row = self.store.get(req.request_id)
+            if row is not None and row.status != RequestStatus.PENDING.value:
+                if row.status == RequestStatus.APPROVED.value:
+                    return HITLStatus.APPROVED
+                if row.status == RequestStatus.DENIED.value:
+                    return HITLStatus.DENIED
+                return HITLStatus.IDLE  # EXPIRED or anything unexpected
+
+            # Ephemeral approver still works alongside the queue, for backends
+            # that push (e.g. Slack approver writes back to the store directly).
+            if self.approver is not None:
+                try:
+                    answer = await asyncio.wait_for(
+                        self.approver(action, context),
+                        timeout=self.poll_interval_s,
+                    )
+                    if answer is True:
+                        self.store.decide(req.request_id, approved=True,
+                                          decided_by="approver")
+                        return HITLStatus.APPROVED
+                    if answer is False:
+                        self.store.decide(req.request_id, approved=False,
+                                          decided_by="approver")
+                        return HITLStatus.DENIED
+                except asyncio.TimeoutError:
+                    pass  # keep polling the store
+
+            if deadline is not None and time.time() >= deadline:
+                self.store.expire(req.request_id)
+                return HITLStatus.IDLE
+
+            await asyncio.sleep(self.poll_interval_s)

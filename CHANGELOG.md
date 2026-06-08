@@ -4,6 +4,29 @@
 
 No unreleased changes.
 
+## v0.5.19 - 2026-06-07
+
+### Added
+
+- Added curated deterministic rule corpora for jailbreaks, OWASP LLM risks,
+  injection payloads, fictional-wrapper bypasses, PHI, and financial PII.
+- Added persistent HITL queue backends with in-memory, SQLite, and Postgres
+  stores for approval flows that survive process restarts.
+- Added framework adapters for LangGraph, AutoGen, CrewAI, and generic custom
+  loops/tools.
+- Added `ComplianceReporter.generate()` for JSON/text/PDF-style evidence
+  packages across SOC2, HIPAA, GDPR, NIST AI RMF, EU AI Act, and PCI DSS.
+
+### Fixed
+
+- Added Slack signature verification export support used by HITL imports.
+- Added decorator-style support for `protect_tool(...)`.
+
+### Verified
+
+- `python -m pytest -q --tb=short` -> `449 passed, 1 skipped`.
+- `python -m compileall -q pramagent tests` -> passed.
+
 ## v0.5.18 - 2026-06-07
 
 ### Added

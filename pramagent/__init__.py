@@ -44,7 +44,7 @@ from .usage import (
     WebhookUsageSink,
 )
 
-__version__ = "0.5.18"
+__version__ = "0.5.19"
 __all__ = [
     "Pramagent",
     "AgentResponse",
@@ -96,3 +96,31 @@ from .classifier import (
     build_classifier, EmbeddingInjectionClassifier, KeywordFallbackClassifier,
     INJECTION_EXEMPLARS, BENIGN_EXEMPLARS,
 )
+
+# Compliance evidence reporting (extended ComplianceReporter — generate(),
+# control mapping, redaction counts, audit-chain attestation).
+from .compliance import ComplianceReporter, ConsentRegistry, RetentionPolicy
+
+# Persistent HITL queue stores (optional Postgres / SQLite backends).
+# Located under pramagent.queue to avoid coupling to pramagent.hitl's optional
+# Slack / workflow imports.
+from .queue import (
+    HITLQueueStore,
+    InMemoryHITLQueue,
+    QueuedRequest,
+    RequestStatus,
+    SQLiteHITLQueue,
+    PostgresHITLQueue,
+)
+
+__all__ += [
+    "ComplianceReporter",
+    "ConsentRegistry",
+    "RetentionPolicy",
+    "HITLQueueStore",
+    "InMemoryHITLQueue",
+    "QueuedRequest",
+    "RequestStatus",
+    "SQLiteHITLQueue",
+    "PostgresHITLQueue",
+]

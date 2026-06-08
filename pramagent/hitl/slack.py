@@ -32,6 +32,48 @@ from ..security import validate_http_url
 log = logging.getLogger(__name__)
 
 
+def verify_slack_signature(signing_secret: str, *,
+                           timestamp: str, body: bytes,
+                           signature: str,
+                           max_skew_s: int = 300) -> bool:
+    """Verify a Slack request signature per
+    https://api.slack.com/authentication/verifying-requests-from-slack.
+
+    Returns True iff the signature matches AND the timestamp is within
+    ``max_skew_s`` of now. Replay protection comes from rejecting old
+    timestamps.
+
+    Parameters
+    ----------
+    signing_secret : str
+        ``Slack App > Basic Info > Signing Secret``.
+    timestamp : str
+        Value of the ``X-Slack-Request-Timestamp`` header.
+    body : bytes
+        Raw request body (must be the bytes exactly as Slack sent them).
+    signature : str
+        Value of the ``X-Slack-Signature`` header (begins with ``v0=``).
+    max_skew_s : int
+        Reject timestamps older than this. Default 5 minutes (Slack's recommendation).
+    """
+    if not signing_secret or not timestamp or not signature:
+        return False
+    try:
+        ts_int = int(timestamp)
+    except (TypeError, ValueError):
+        return False
+    if abs(time.time() - ts_int) > max_skew_s:
+        return False
+    if isinstance(body, str):
+        body = body.encode("utf-8")
+    basestring = f"v0:{timestamp}:".encode("utf-8") + body
+    digest = hmac.new(
+        signing_secret.encode("utf-8"), basestring, hashlib.sha256
+    ).hexdigest()
+    expected = f"v0={digest}"
+    return hmac.compare_digest(expected, signature)
+
+
 class SlackApprovalError(RuntimeError):
     pass
 
