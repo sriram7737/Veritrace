@@ -34,24 +34,42 @@ class RCAEngine:
     def get(self, call_id: str) -> TraceEvent:
         return self._by_id[call_id]
 
+    @staticmethod
+    def _derive_verdict(rules, phase: str) -> Verdict:
+        """Max-precedence verdict over the fired rules of one screening phase."""
+        precedence = {Verdict.BLOCK: 3, Verdict.ESCALATE: 2,
+                      Verdict.REDACT: 1, Verdict.ALLOW: 0}
+        fired = [r.action for r in rules
+                 if r.fired and getattr(r, "phase", "pre") == phase]
+        return (max((Verdict(a) for a in fired), key=lambda v: precedence[v])
+                if fired else Verdict.ALLOW)
+
     # ── decision replay ──────────────────────────────────────────────
     def replay(self, call_id: str) -> dict:
         """
-        Re-derive the final verdict from the recorded rule results, independently
-        of what was stored as the outcome. If the derived verdict disagrees with
-        the stored one, the trace has been tampered with or the engine changed.
+        Re-derive the pre and post verdicts from the recorded rule results,
+        independently of what was stored, then compare each to its stored
+        counterpart. Pre- and post-rules are derived separately (both phases
+        live in rules_evaluated, tagged by `phase`). A disagreement means the
+        trace was tampered with or the engine changed since the call ran.
         """
         t = self.get(call_id)
-        precedence = {Verdict.BLOCK: 3, Verdict.ESCALATE: 2, Verdict.REDACT: 1, Verdict.ALLOW: 0}
-        fired = [r.action for r in t.rules_evaluated if r.fired]
-        derived = max((Verdict(a) for a in fired), key=lambda v: precedence[v]) if fired else Verdict.ALLOW
+        derived_pre = self._derive_verdict(t.rules_evaluated, "pre")
+        derived_post = self._derive_verdict(t.rules_evaluated, "post")
+        # A None stored verdict means that phase never ran (e.g. a pre-BLOCK
+        # short-circuits before post) — nothing to compare for that phase.
+        pre_matches = t.pre_verdict is None or derived_pre.value == t.pre_verdict
+        post_matches = t.post_verdict is None or derived_post.value == t.post_verdict
         return {
             "call_id": call_id,
             "stored_pre_verdict": t.pre_verdict,
             "stored_post_verdict": t.post_verdict,
-            "derived_from_rules": derived.value,
+            "derived_pre_verdict": derived_pre.value if t.pre_verdict is not None else None,
+            "derived_post_verdict": derived_post.value if t.post_verdict is not None else None,
+            # kept for backwards compatibility: the pre-phase derivation
+            "derived_from_rules": derived_pre.value,
             "rules_fired": [r.rule_id for r in t.rules_evaluated if r.fired],
-            "reproducible": True,
+            "reproducible": pre_matches and post_matches,
         }
 
     # ── causality graph ──────────────────────────────────────────────
@@ -68,10 +86,15 @@ class RCAEngine:
 
     # ── counterfactual ───────────────────────────────────────────────
     def counterfactual(self, call_id: str, disable_rule: str) -> dict:
-        """Recompute the verdict as if `disable_rule` had not fired. No production calls."""
+        """Recompute the verdict as if `disable_rule` had not fired. No production calls.
+
+        Compares against the stored pre_verdict, so the derivation is scoped
+        to pre-phase rules only."""
         t = self.get(call_id)
         precedence = {Verdict.BLOCK: 3, Verdict.ESCALATE: 2, Verdict.REDACT: 1, Verdict.ALLOW: 0}
-        fired = [r.action for r in t.rules_evaluated if r.fired and r.rule_id != disable_rule]
+        fired = [r.action for r in t.rules_evaluated
+                 if r.fired and r.rule_id != disable_rule
+                 and getattr(r, "phase", "pre") == "pre"]
         verdict = max((Verdict(a) for a in fired), key=lambda v: precedence[v]) if fired else Verdict.ALLOW
         return {
             "call_id": call_id,
@@ -129,7 +152,8 @@ class RCAEngine:
                       Verdict.REDACT: 1, Verdict.ALLOW: 0}
         disabled = set(disable_rules)
         fired = [r.action for r in t.rules_evaluated
-                 if r.fired and r.rule_id not in disabled]
+                 if r.fired and r.rule_id not in disabled
+                 and getattr(r, "phase", "pre") == "pre"]
         verdict = (max((Verdict(a) for a in fired), key=lambda v: precedence[v])
                    if fired else Verdict.ALLOW)
         return {

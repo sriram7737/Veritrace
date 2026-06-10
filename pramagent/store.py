@@ -22,7 +22,7 @@ import json
 import sqlite3
 from typing import Protocol, runtime_checkable
 
-from .audit import canonical_hash
+from .audit import canonical_hash, redact_chain_payload
 from .types import TraceEvent
 
 
@@ -82,8 +82,10 @@ class MemoryStore:
 
     def delete_for_tenant(self, tenant_id: str) -> int:
         """GDPR erasure: delete all traces for a tenant. Returns the count deleted.
-        Note: the audit chain payloads are not removed — that would break the chain.
-        For chain payloads, redact the trace's input_text/output_text fields instead."""
+        MemoryStore does not hold the audit chain; when the audit backend is a
+        separate object (the default HashChainBackend), call its
+        redact_for_tenant() as well so chain payloads are tombstoned too —
+        the API erase endpoint does both."""
         before = len(self._traces)
         self._traces = [t for t in self._traces if t.tenant_id != tenant_id]
         return before - len(self._traces)
@@ -195,12 +197,48 @@ class SQLiteStore:
         return cur.rowcount
 
     def delete_for_tenant(self, tenant_id: str) -> int:
-        """GDPR erasure for one tenant. The audit_chain table is left intact
-        (deleting links would invalidate every subsequent hash)."""
+        """GDPR erasure for one tenant: deletes the trace rows AND redacts the
+        tenant's payloads inside audit_chain. Chain links are never deleted
+        (that would orphan every subsequent hash); instead the PII-bearing
+        fields are tombstoned and the chain is re-anchored — every link from
+        the first redaction onward is re-hashed so verification still
+        succeeds without the erased content."""
         cur = self._conn.execute(
             "DELETE FROM traces WHERE tenant_id = ?", (tenant_id,))
+        self.redact_for_tenant(tenant_id)
         self._conn.commit()
         return cur.rowcount
+
+    def redact_for_tenant(self, tenant_id: str) -> int:
+        """Tombstone PII fields in this tenant's chain payloads (see
+        pramagent.audit.redact_chain_payload), then re-anchor the chain:
+        every link from the first redaction onward gets recomputed prev/this
+        hashes so verify_chain() still passes. Returns payloads redacted."""
+        rows = self._conn.execute(
+            "SELECT seq, payload, prev_hash, this_hash FROM audit_chain ORDER BY seq"
+        ).fetchall()
+        prev = GENESIS
+        redacted = 0
+        rehash = False
+        for seq, payload_json, _stored_prev, stored_hash in rows:
+            payload = json.loads(payload_json)
+            if payload.get("tenant_id") == tenant_id and redact_chain_payload(payload):
+                redacted += 1
+                rehash = True
+            if rehash:
+                new_hash = canonical_hash(payload, prev)
+                self._conn.execute(
+                    "UPDATE audit_chain SET payload = ?, prev_hash = ?, this_hash = ?"
+                    " WHERE seq = ?",
+                    (json.dumps(payload, sort_keys=True, separators=(",", ":")),
+                     prev, new_hash, seq))
+                prev = new_hash
+            else:
+                prev = stored_hash
+        if rehash:
+            self._head = prev
+            self._conn.commit()
+        return redacted
 
     # ── AuditBackend interface ────────────────────────────────────────────
     @property

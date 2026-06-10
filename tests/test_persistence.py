@@ -93,6 +93,64 @@ def test_sqlite_pii_scrubbing_persisted():
         os.unlink(path)
 
 
+def test_sqlite_erasure_redacts_chain_and_reanchors():
+    """run -> store -> erase: the audit chain must hold no original PII
+    afterwards, and must still verify because the links were re-hashed."""
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+        path = f.name
+    try:
+        db = SQLiteStore(path)
+        # compliance disabled simulates PII that reached the record anyway —
+        # erasure must remove it from the chain regardless of how it got there
+        armor = Pramagent(
+            provider=MockProvider(),
+            compliance=ComplianceLayer(enabled=False),
+            store=db, audit=db,
+        )
+        run(armor.run("subject SSN 123-45-6789 email bob@x.com", tenant_id="erase-me"))
+        run(armor.run("keeper tenant data", tenant_id="keeper"))
+        chain_before = str([r["payload"] for r in db.records()])
+        assert "123-45-6789" in chain_before
+
+        deleted = db.delete_for_tenant("erase-me")
+
+        assert deleted == 1
+        chain_after = str([r["payload"] for r in db.records()])
+        assert "123-45-6789" not in chain_after
+        assert "bob@x.com" not in chain_after
+        assert "keeper tenant data" in chain_after    # other tenant untouched
+        assert db.verify_chain()                      # re-anchored, still valid
+        assert db.head == db.records()[-1]["this_hash"]
+        assert len(db.list_by_tenant("keeper")) == 1
+        assert len(db.list_by_tenant("erase-me")) == 0
+        db.close()
+
+        # the redaction must survive a restart
+        db2 = SQLiteStore(path)
+        assert "123-45-6789" not in str([r["payload"] for r in db2.records()])
+        assert db2.verify_chain()
+        db2.close()
+    finally:
+        os.unlink(path)
+
+
+def test_sqlite_redact_for_tenant_is_idempotent():
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+        path = f.name
+    try:
+        db = SQLiteStore(path)
+        db.append({"tenant_id": "x", "input_text": "SSN 123-45-6789",
+                   "output_text": "ok"})
+        assert db.redact_for_tenant("x") == 1
+        head_after_first = db.head
+        assert db.redact_for_tenant("x") == 0          # already tombstoned
+        assert db.head == head_after_first             # no double re-anchor
+        assert db.verify_chain()
+        db.close()
+    finally:
+        os.unlink(path)
+
+
 def test_sqlite_multiple_tenants_isolated():
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
         path = f.name

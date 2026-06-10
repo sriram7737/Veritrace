@@ -131,7 +131,11 @@ class Pramagent:
         """
         self.observability.start_call()
         t_start = time.perf_counter()
-        tr = TraceEvent(tenant_id=tenant_id, session_id=session_id, input_text=prompt)
+        # input_text is filled with the SCRUBBED copy after the compliance
+        # pass — raw PII must never reach the persisted trace or the audit
+        # chain (GDPR Art. 5(1)(c) data minimization). input_hash still
+        # covers the original bytes so the caller can prove what was sent.
+        tr = TraceEvent(tenant_id=tenant_id, session_id=session_id)
         tr.input_hash = hashlib.sha256(prompt.encode()).hexdigest()
 
         def mark(layer, decision, detail, t0, **data):
@@ -150,6 +154,7 @@ class Pramagent:
                 clean, redactions = self.compliance.scrub(prompt)
                 span.set_attribute("pii.redaction_count", len(redactions))
             tr.pii_redactions = redactions
+            tr.input_text = clean   # persist only the scrubbed copy
             mark("ComplianceLayer", "scrubbed", f"{len(redactions)} redaction(s)", t0)
 
             # 2) Isolation: size limits + injection heuristics + scope binding
@@ -305,7 +310,10 @@ class Pramagent:
             return response
 
     def _finalize(self, tr, *, output, blocked, reason, t_start):
-        tr.output_text = output
+        # The caller receives `output` as-is; the durable record (trace +
+        # audit chain) keeps only the scrubbed copy, mirroring input_text.
+        scrubbed_output, _ = self.compliance.scrub(output)
+        tr.output_text = scrubbed_output
         tr.total_latency_ms = (time.perf_counter() - t_start) * 1000
         payload = tr.to_dict()
         for k in (

@@ -433,6 +433,27 @@ def test_cross_tenant_erase_returns_403(auth_client):
     assert r.status_code == 403
 
 
+def test_erase_endpoint_redacts_audit_chain(auth_client):
+    """Finding #4 end-to-end: erasing a tenant over HTTP must also tombstone
+    its payloads in the (separate) audit chain backend."""
+    import json as _json
+    client, key_a, _ = auth_client
+    # disable the scrub so PII demonstrably reaches the chain, then erase
+    client.app.state.armor.compliance.enabled = False
+    client.post("/v1/run", json={"prompt": "subject SSN 123-45-6789"},
+                headers={"Authorization": f"Bearer {key_a}"})
+    audit = client.app.state.armor.audit
+    assert "123-45-6789" in _json.dumps([r["payload"] for r in audit.records()])
+
+    r = client.delete("/v1/tenant/tenant_a/traces",
+                      headers={"Authorization": f"Bearer {key_a}"})
+
+    assert r.status_code == 200 and r.json()["deleted"] == 1
+    chain = _json.dumps([rec["payload"] for rec in audit.records()])
+    assert "123-45-6789" not in chain
+    assert audit.verify_chain()
+
+
 def test_default_api_provider_can_be_selected_from_env(monkeypatch):
     monkeypatch.setenv("PRAMAGENT_PROVIDER", "anthropic")
     monkeypatch.setenv("ANTHROPIC_MODEL", "claude-test-model")

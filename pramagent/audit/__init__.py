@@ -34,6 +34,33 @@ def canonical_hash(payload: dict, prev_hash: str) -> str:
     return hashlib.sha256(material.encode("utf-8")).hexdigest()
 
 
+# Chain-payload fields that can carry user content and must be tombstoned on
+# GDPR Art. 17 erasure. pii_redactions holds only pattern labels, never values.
+GDPR_TOMBSTONE_FIELDS = ("input_text", "output_text")
+
+
+def redact_chain_payload(payload: dict) -> bool:
+    """Tombstone PII-bearing fields in an audit-chain payload, in place.
+
+    Each erased value is replaced with a marker carrying its SHA-256 digest:
+    the chain still proves *that* content existed (and can match it if the
+    subject re-presents it) without retaining the content itself. Idempotent —
+    already-erased payloads are left alone. Returns True if anything changed.
+    """
+    if payload.get("gdpr_erased"):
+        return False
+    changed = False
+    for field in GDPR_TOMBSTONE_FIELDS:
+        value = payload.get(field)
+        if value:
+            digest = hashlib.sha256(str(value).encode("utf-8")).hexdigest()
+            payload[field] = f"[ERASED-GDPR-ART17 sha256:{digest[:16]}]"
+            changed = True
+    if changed:
+        payload["gdpr_erased"] = True
+    return changed
+
+
 class AuditBackend(Protocol):
     def append(self, payload: dict, prev_hash: str) -> tuple[str, str]:
         """Return (this_hash, anchor_tx_id)."""
@@ -73,6 +100,27 @@ class HashChainBackend:
                 return False
             prev = rec["this_hash"]
         return True
+
+    def redact_for_tenant(self, tenant_id: str) -> int:
+        """GDPR Art. 17: tombstone PII fields in this tenant's chain payloads,
+        then re-anchor — every link from the first redaction onward is
+        re-hashed so verify_chain() still succeeds without the erased content.
+        Returns the number of payloads redacted."""
+        redacted = 0
+        rehash = False
+        prev = self.GENESIS
+        for rec in self._records:
+            payload = rec["payload"]
+            if payload.get("tenant_id") == tenant_id and redact_chain_payload(payload):
+                redacted += 1
+                rehash = True
+            if rehash:
+                rec["prev_hash"] = prev
+                rec["this_hash"] = canonical_hash(payload, prev)
+            prev = rec["this_hash"]
+        if rehash:
+            self._head = prev
+        return redacted
 
     def records(self) -> list[dict]:
         return list(self._records)
@@ -138,6 +186,9 @@ class EthereumBackend:
             raise RuntimeError("Ethereum anchor is not configured")
         return self._anchor.verify_on_chain(tx_hash, expected_hash=expected_hash)
 
+    def redact_for_tenant(self, tenant_id: str) -> int:
+        return self._chain.redact_for_tenant(tenant_id)
+
     def records(self) -> list[dict]:
         return self._chain.records()
 
@@ -189,6 +240,9 @@ class HyperledgerBackend:
 
     def verify_chain(self) -> bool:
         return self._chain.verify_chain()
+
+    def redact_for_tenant(self, tenant_id: str) -> int:
+        return self._chain.redact_for_tenant(tenant_id)
 
     def records(self) -> list[dict]:
         return self._chain.records()

@@ -669,6 +669,13 @@ def create_app(armor: Optional[Pramagent] = None,
                 detail="a tenant may only erase its own data",
             )
         deleted = app.state.armor.store.delete_for_tenant(tenant_id)
+        # When the audit backend is a separate object (default MemoryStore +
+        # HashChainBackend), tombstone the tenant's chain payloads too.
+        # SQLiteStore is its own audit backend and redacts inside
+        # delete_for_tenant; redact_for_tenant is idempotent either way.
+        audit = app.state.armor.audit
+        if audit is not app.state.armor.store and hasattr(audit, "redact_for_tenant"):
+            audit.redact_for_tenant(tenant_id)
         return {"deleted": deleted, "tenant_id": tenant_id}
 
     # ── dashboard-friendly routes (unversioned prefix, used by admin UI) ─────

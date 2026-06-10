@@ -33,11 +33,17 @@ class HITLStatus(str, Enum):
 
 @dataclass
 class RuleResult:
-    """Record of a single rule evaluation by the SafetyLayer rule engine."""
+    """Record of a single rule evaluation by the SafetyLayer rule engine.
+
+    `phase` records which screening pass produced the result ("pre" = input,
+    "post" = output) so RCA replay can re-derive each verdict separately
+    instead of mixing both passes into one. Records persisted before this
+    field existed default to "pre"."""
     rule_id: str
     fired: bool
     action: Verdict
     detail: str = ""
+    phase: str = "pre"
 
 
 @dataclass

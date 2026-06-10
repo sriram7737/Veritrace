@@ -185,18 +185,33 @@ class SafetyLayer:
         text: str,
         rules: list[Rule],
         classifier: Optional[Callable[[str], Verdict]],
+        *,
+        phase: str = "pre",
     ) -> tuple[Verdict, list[RuleResult]]:
         results = [r.evaluate(text) for r in rules]
         clf = classifier(text) if classifier else None
+        if clf is not None:
+            # Record the classifier verdict as a rule result: RCA replay
+            # re-derives the verdict from rules_evaluated alone, so every
+            # input to the combined verdict must appear in that list.
+            results.append(RuleResult(
+                rule_id=f"classifier.{phase}",
+                fired=clf != Verdict.ALLOW,
+                action=clf if clf != Verdict.ALLOW else Verdict.ALLOW,
+                detail="safety classifier verdict" if clf != Verdict.ALLOW else "",
+            ))
+        for r in results:
+            r.phase = phase
         return self._combine(results, clf), results
 
     def evaluate(self, text: str) -> tuple[Verdict, list[RuleResult]]:
-        return self._evaluate_with(text, self.rules, self.classifier)
+        return self._evaluate_with(text, self.rules, self.classifier, phase="pre")
 
     pre = evaluate
 
     def post(self, text: str) -> tuple[Verdict, list[RuleResult]]:
-        return self._evaluate_with(text, self.post_rules, self.post_classifier)
+        return self._evaluate_with(text, self.post_rules, self.post_classifier,
+                                   phase="post")
 
 
 # ───────────────────────────── ReliabilityLayer ────────────────────────────
