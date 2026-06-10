@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 from pramagent.api.app import create_app  # noqa: E402
 from pramagent.api.app import build_default_armor  # noqa: E402
 from pramagent import Pramagent, Verdict  # noqa: E402
+from pramagent.auth import APIKeyRegistry  # noqa: E402
 from pramagent.hitl.slack import SlackApprovalRegistry  # noqa: E402
 from pramagent.layers import HITLLayer, ToolGuardLayer, ToolPolicy  # noqa: E402
 from pramagent.layers.tool_guard import SideEffect  # noqa: E402
@@ -17,6 +18,15 @@ from pramagent.usage import InMemoryUsageLedger, UsageLimits, UsageTracker  # no
 @pytest.fixture
 def client():
     return TestClient(create_app())
+
+
+@pytest.fixture
+def auth_client():
+    """Authenticated client with keys for two tenants."""
+    reg = APIKeyRegistry()
+    key_a = reg.issue_key("tenant_a")
+    key_b = reg.issue_key("tenant_b")
+    return TestClient(create_app(registry=reg)), key_a, key_b
 
 
 def test_health(client):
@@ -316,6 +326,111 @@ def test_hitl_pending_includes_registry_tenant_context():
     assert item["request_id"] == pending.request_id
     assert item["tenant_id"] == "bank"
     assert item["context"]["output_preview"] == "transfer preview"
+
+
+# ── Finding #1: unversioned routes must require auth ───────────────────
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("GET", "/traces"),
+        ("GET", "/traces/some-trace-id"),
+        ("GET", "/metrics"),
+        ("GET", "/usage"),
+        ("GET", "/usage/ledger"),
+        ("GET", "/hitl/pending"),
+        ("POST", "/hitl/some-request-id/decide"),
+    ],
+)
+def test_unversioned_routes_require_auth(auth_client, method, path):
+    """With API-key auth enabled, every unversioned route must return 401
+    without a valid key — these shipped unauthenticated (audit Finding #1)."""
+    client, _, _ = auth_client
+    kwargs = {"json": {"approved": True}} if method == "POST" else {}
+    r = client.request(method, path, **kwargs)
+    assert r.status_code == 401
+
+
+def test_unversioned_routes_accept_valid_key(auth_client):
+    client, key_a, _ = auth_client
+    headers = {"Authorization": f"Bearer {key_a}"}
+    assert client.get("/metrics", headers=headers).status_code == 200
+    assert client.get("/usage", headers=headers).status_code == 200
+    assert client.get("/traces", headers=headers).status_code == 200
+    assert client.get("/hitl/pending", headers=headers).status_code == 200
+
+
+def test_unversioned_trace_detail_enforces_tenant_ownership(auth_client):
+    """A tenant can only read its OWN traces through /traces/{id}."""
+    client, key_a, key_b = auth_client
+    cid = client.post(
+        "/v1/run", json={"prompt": "tenant_a confidential data"},
+        headers={"Authorization": f"Bearer {key_a}"},
+    ).json()["call_id"]
+    own = client.get(f"/traces/{cid}", headers={"Authorization": f"Bearer {key_a}"})
+    assert own.status_code == 200
+    assert own.json()["tenant_id"] == "tenant_a"
+    # cross-tenant read must 404 (not 403 — don't leak that the id exists)
+    cross = client.get(f"/traces/{cid}", headers={"Authorization": f"Bearer {key_b}"})
+    assert cross.status_code == 404
+
+
+def test_unversioned_traces_list_scoped_to_caller_tenant(auth_client):
+    """The tenant_id query param must not widen the listing across tenants."""
+    client, key_a, key_b = auth_client
+    client.post("/v1/run", json={"prompt": "alpha"},
+                headers={"Authorization": f"Bearer {key_a}"})
+    client.post("/v1/run", json={"prompt": "beta"},
+                headers={"Authorization": f"Bearer {key_b}"})
+    r = client.get("/traces", params={"tenant_id": "tenant_a"},
+                   headers={"Authorization": f"Bearer {key_b}"})
+    assert r.status_code == 200
+    assert {item["tenant_id"] for item in r.json()} == {"tenant_b"}
+
+
+def test_unversioned_hitl_decide_blocks_cross_tenant(auth_client):
+    """Tenant B must not be able to approve tenant A's pending action."""
+    client, key_a, key_b = auth_client
+    registry = SlackApprovalRegistry()
+    pending = registry.create("wire_transfer", {"tenant": "tenant_a"})
+    client.app.state.armor.hitl = HITLLayer(
+        require_approval_for=["wire_transfer"],
+        approver=RegistryBackedApprover(registry),
+    )
+    cross = client.post(f"/hitl/{pending.request_id}/decide",
+                        json={"approved": True},
+                        headers={"Authorization": f"Bearer {key_b}"})
+    assert cross.status_code == 404
+    assert registry._pending[pending.request_id].decision is None
+    own = client.post(f"/hitl/{pending.request_id}/decide",
+                      json={"approved": True},
+                      headers={"Authorization": f"Bearer {key_a}"})
+    assert own.status_code == 200
+    assert own.json()["decision"] == "approved"
+
+
+# ── Finding #5: erase/prune must refuse when no tenant is authenticated ─
+def test_unauthenticated_erase_is_refused(client):
+    """With auth disabled the resolved tenant is "" — that must NOT grant
+    implicit ownership of every tenant's data (audit Finding #5)."""
+    client.post("/v1/run", json={"prompt": "data", "tenant_id": "victim"})
+    r = client.delete("/v1/tenant/victim/traces")
+    assert r.status_code == 403
+    # the data is still there
+    assert client.app.state.armor.store.list_all()
+
+
+def test_unauthenticated_prune_is_refused(client):
+    r = client.post("/v1/retention/prune?older_than_days=365")
+    assert r.status_code == 403
+
+
+def test_cross_tenant_erase_returns_403(auth_client):
+    client, key_a, key_b = auth_client
+    client.post("/v1/run", json={"prompt": "tenant_a rows"},
+                headers={"Authorization": f"Bearer {key_a}"})
+    r = client.delete("/v1/tenant/tenant_a/traces",
+                      headers={"Authorization": f"Bearer {key_b}"})
+    assert r.status_code == 403
 
 
 def test_default_api_provider_can_be_selected_from_env(monkeypatch):

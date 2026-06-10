@@ -51,10 +51,12 @@ def _normalize_dashboard_tenant(raw_tenant: str, allow_super_admin: bool) -> str
     return raw_tenant or "default"
 
 
+_DEFAULT_JWT_SECRET = "change-me-in-production"  # nosec B105 — sentinel, refused at startup
+
 PRAMAGENT_API_URL       = os.environ.get("PRAMAGENT_API_URL", "http://localhost:8080")
 PRAMAGENT_API_KEY       = os.environ.get("PRAMAGENT_API_KEY", "")
 PRAMAGENT_DASHBOARD_KEY = os.environ.get("PRAMAGENT_DASHBOARD_KEY", PRAMAGENT_API_KEY)  # shared key for browser
-PRAMAGENT_JWT_SECRET    = os.environ.get("PRAMAGENT_JWT_SECRET", "change-me-in-production")
+PRAMAGENT_JWT_SECRET    = os.environ.get("PRAMAGENT_JWT_SECRET", _DEFAULT_JWT_SECRET)
 PRAMAGENT_DASHBOARD_ALLOW_SUPER_ADMIN = os.environ.get(
     "PRAMAGENT_DASHBOARD_ALLOW_SUPER_ADMIN", "false"
 ).lower() in {"1", "true", "yes", "on"}
@@ -97,6 +99,27 @@ PRAMAGENT_DASHBOARD_SIGNUP_TENANT = _normalize_dashboard_tenant(
 app = FastAPI(title="Pramagent Dashboard", docs_url=None, redoc_url=None)
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 log = logging.getLogger("pramagent.dashboard")
+
+
+def validate_dashboard_config() -> None:
+    """Refuse to serve with a missing or well-known JWT secret.
+
+    Mirrors ``pramagent.config.Settings.validate()`` for the API: the JWT
+    secret signs every session cookie, so the default value means anyone can
+    forge a super-admin (tenant "*") session.
+    """
+    if not PRAMAGENT_JWT_SECRET or PRAMAGENT_JWT_SECRET == _DEFAULT_JWT_SECRET:
+        raise RuntimeError(
+            "PRAMAGENT_JWT_SECRET is unset or still the default "
+            f"'{_DEFAULT_JWT_SECRET}'. Session cookies signed with a known "
+            "secret are forgeable; set a strong random value before starting "
+            "the dashboard."
+        )
+
+
+@app.on_event("startup")
+async def _refuse_default_jwt_secret() -> None:
+    validate_dashboard_config()
 
 
 def _build_user_store() -> DashboardUserStore | None:

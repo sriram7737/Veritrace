@@ -123,6 +123,10 @@ class ToolValidateResponse(BaseModel):
     action_label: str
 
 
+class HITLDecideRequest(BaseModel):
+    approved: bool = Field(False, description="True to approve the pending action")
+
+
 class TokenRequest(BaseModel):
     api_key: str = Field(..., description="Bootstrap API key")
     ttl_s: int = Field(900, ge=60, le=3600, description="JWT lifetime in seconds")
@@ -621,28 +625,45 @@ def create_app(armor: Optional[Pramagent] = None,
                 detail=(f"retention window of {older_than_days} days is below the "
                         f"{MIN_RETENTION_DAYS}-day minimum required for audit logs"),
             )
+        # An empty tenant (auth disabled) carries no ownership, so a prune
+        # would silently span every tenant. Refuse instead of widening scope.
+        if not tenant:
+            raise HTTPException(
+                status_code=403,
+                detail="retention prune requires API-key auth so it can be "
+                       "scoped to the caller's tenant",
+            )
         cutoff_ts = time.time() - older_than_days * 86400
         store = app.state.armor.store
-        scope_tenant = tenant or None
         try:
-            deleted = store.prune_older_than(cutoff_ts, tenant_id=scope_tenant)
+            deleted = store.prune_older_than(cutoff_ts, tenant_id=tenant)
         except TypeError:
-            # store predates tenant-scoped prune
-            deleted = store.prune_older_than(cutoff_ts)
+            # store predates tenant-scoped prune — refusing is safer than
+            # falling back to an unscoped, cross-tenant prune
+            raise HTTPException(
+                status_code=501,
+                detail="store does not support tenant-scoped pruning",
+            )
         return {"pruned": deleted, "older_than_days": older_than_days,
-                "tenant_id": scope_tenant or "*"}
+                "tenant_id": tenant}
 
     @app.delete("/v1/tenant/{tenant_id}/traces")
     async def erase_tenant_traces(tenant_id: str,
                                   tenant: str = Depends(require_tenant)):
         """GDPR right-to-erasure: delete all traces for `tenant_id`.
 
-        A tenant may only erase its OWN data. When auth is enabled, attempting to
-        erase another tenant's data is forbidden (403). The tamper-evident audit
-        hash chain is intentionally left intact — only the trace store rows are
-        removed, so chain verification still succeeds.
+        A tenant may only erase its OWN data: erasure requires an authenticated
+        tenant, and that tenant must match the path. An empty resolved tenant
+        (auth disabled) carries no ownership, so the call is refused rather
+        than allowing any caller to erase any tenant's data.
         """
-        if tenant and tenant != tenant_id:
+        if not tenant:
+            raise HTTPException(
+                status_code=403,
+                detail="erasure requires API-key auth so ownership of the "
+                       "target tenant can be verified",
+            )
+        if tenant != tenant_id:
             raise HTTPException(
                 status_code=403,
                 detail="a tenant may only erase its own data",
@@ -650,27 +671,32 @@ def create_app(armor: Optional[Pramagent] = None,
         deleted = app.state.armor.store.delete_for_tenant(tenant_id)
         return {"deleted": deleted, "tenant_id": tenant_id}
 
-    # ── dashboard-friendly routes (no auth prefix, used by admin UI) ──────────
-    @app.get("/health")
-    async def health_unversioned():
-        return {"status": "ok"}
+    # ── dashboard-friendly routes (unversioned prefix, used by admin UI) ─────
+    # These mirror the /v1 data surface for the dashboard. They carry the SAME
+    # auth dependency as /v1 — the dashboard authenticates with its upstream
+    # API key. When auth is enabled, every route is scoped to the caller's
+    # tenant so the dashboard key cannot read or decide across tenants.
 
     @app.get("/metrics")
-    async def metrics_unversioned():
-        """Dashboard-friendly metrics endpoint (no auth required for internal use)."""
+    async def metrics_unversioned(tenant: str = Depends(require_tenant)):
+        """Dashboard-friendly metrics endpoint (same auth as /v1/metrics)."""
         report = app.state.armor.observability.report()
         report["usage_quota_enabled"] = app.state.usage.enabled
         report["usage_event_sinks"] = len(getattr(app.state.usage, "event_sinks", []))
         return report
 
     @app.get("/usage")
-    async def usage_unversioned(tenant_id: str = "default"):
-        return app.state.usage.snapshot(tenant_id).to_dict()
+    async def usage_unversioned(tenant_id: str = "default",
+                                tenant: str = Depends(require_tenant)):
+        effective_tenant = tenant if tenant else (tenant_id or "default")
+        return app.state.usage.snapshot(effective_tenant).to_dict()
 
     @app.get("/usage/ledger")
-    async def usage_ledger_unversioned(tenant_id: str = "", limit: int = 100):
+    async def usage_ledger_unversioned(tenant_id: str = "", limit: int = 100,
+                                       tenant: str = Depends(require_tenant)):
+        effective_tenant = tenant if tenant else tenant_id
         return app.state.usage.ledger_report(
-            tenant_id=tenant_id,
+            tenant_id=effective_tenant,
             limit=_usage_ledger_limit(limit),
         )
 
@@ -680,14 +706,21 @@ def create_app(armor: Optional[Pramagent] = None,
         session_id: str = "",
         blocked: str = "",
         limit: int = 50,
+        tenant: str = Depends(require_tenant),
     ):
-        """Return recent traces. Dashboard uses this for the trace browser."""
+        """Return recent traces. Dashboard uses this for the trace browser.
+
+        When auth is enabled the listing is hard-scoped to the caller's tenant
+        — the tenant_id query parameter cannot widen it."""
         def trace_to_dict(trace):
             if isinstance(trace, dict):
                 return trace
             if hasattr(trace, "to_dict"):
                 return trace.to_dict()
             return vars(trace)
+
+        if tenant:
+            tenant_id = tenant
 
         store = app.state.armor.store
         items = []
@@ -711,19 +744,14 @@ def create_app(armor: Optional[Pramagent] = None,
         return items[-limit:]
 
     @app.get("/traces/{trace_id}")
-    async def trace_detail_unversioned(trace_id: str):
-        store = app.state.armor.store
-        try:
-            result = store.get(trace_id)
-        except KeyError:
-            raise HTTPException(status_code=404, detail="trace not found")
+    async def trace_detail_unversioned(trace_id: str,
+                                       tenant: str = Depends(require_tenant)):
+        result = _fetch_trace(trace_id, tenant)
         if result is None:
             raise HTTPException(status_code=404, detail="trace not found")
         return result.to_dict() if hasattr(result, "to_dict") else vars(result)
 
-    @app.get("/hitl/pending")
-    async def hitl_pending():
-        hitl = app.state.armor.hitl
+    def _pending_approvals(hitl) -> list[dict]:
         pending = []
         seen = set()
 
@@ -752,17 +780,35 @@ def create_app(armor: Optional[Pramagent] = None,
                     "tenant_id": "",
                     "context": {},
                 })
+        return pending
+
+    @app.get("/hitl/pending")
+    async def hitl_pending(tenant: str = Depends(require_tenant)):
+        pending = _pending_approvals(app.state.armor.hitl)
+        if tenant:
+            pending = [p for p in pending if p["tenant_id"] == tenant]
         return {"items": pending}
 
     @app.post("/hitl/{request_id}/decide")
-    async def hitl_decide(request_id: str, body: dict):
-        approved = body.get("approved", False)
+    async def hitl_decide(request_id: str, body: HITLDecideRequest,
+                          tenant: str = Depends(require_tenant)):
         hitl = app.state.armor.hitl
         registry = getattr(hitl, "registry", None) or getattr(
             getattr(hitl, "approver", None), "registry", None)
-        if registry is not None:
-            registry.decide(request_id, approved)
-        return {"request_id": request_id, "decision": "approved" if approved else "denied"}
+        if registry is None:
+            raise HTTPException(status_code=404, detail="approval request not found")
+        if tenant:
+            # Tenant ownership: a tenant may only decide its own pending
+            # approvals. Unknown / cross-tenant ids both return 404 so the
+            # response does not leak which request ids exist.
+            match = next(
+                (p for p in _pending_approvals(hitl)
+                 if p["request_id"] == request_id), None)
+            if match is None or match["tenant_id"] != tenant:
+                raise HTTPException(status_code=404, detail="approval request not found")
+        registry.decide(request_id, body.approved)
+        return {"request_id": request_id,
+                "decision": "approved" if body.approved else "denied"}
 
     def _require_rca_quota(tenant: str, request: Request) -> None:
         allowed, retry_after = request.app.state.rca_bucket.allow(tenant)

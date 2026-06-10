@@ -107,6 +107,27 @@ def test_dashboard_super_admin_requires_explicit_opt_in():
     assert dashboard._normalize_dashboard_tenant("tenant_a", False) == "tenant_a"
 
 
+# ── Finding #6: refuse to start with the well-known default JWT secret ──
+def test_dashboard_startup_refuses_default_jwt_secret(monkeypatch):
+    monkeypatch.setattr(dashboard, "PRAMAGENT_JWT_SECRET", "change-me-in-production")
+    with pytest.raises(RuntimeError, match="PRAMAGENT_JWT_SECRET"):
+        with TestClient(dashboard.app):
+            pass
+
+
+def test_dashboard_startup_refuses_empty_jwt_secret(monkeypatch):
+    monkeypatch.setattr(dashboard, "PRAMAGENT_JWT_SECRET", "")
+    with pytest.raises(RuntimeError, match="PRAMAGENT_JWT_SECRET"):
+        with TestClient(dashboard.app):
+            pass
+
+
+def test_dashboard_startup_accepts_strong_jwt_secret(monkeypatch):
+    monkeypatch.setattr(dashboard, "PRAMAGENT_JWT_SECRET", "a-strong-random-secret")
+    with TestClient(dashboard.app) as client:
+        assert client.get("/health").status_code == 200
+
+
 def test_dashboard_redis_rate_limit_blocks_after_burst(monkeypatch):
     class FakeRedis:
         def __init__(self):
