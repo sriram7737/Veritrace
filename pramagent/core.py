@@ -232,7 +232,36 @@ class Pramagent:
                     self.observability.record_result(blocked=True,
                         latency_ms=response.trace.total_latency_ms, block_reason=reason)
                     return response
-                # ESCALATE: recorded in trace; caller decides on human approval.
+                if td.verdict == Verdict.ESCALATE:
+                    # ESCALATE → HITL: the tool requires human approval before
+                    # any side effect. Propose-and-wait; on DENIED or IDLE
+                    # (silence is never consent) the call does not proceed.
+                    hitl_action = f"tool:{tool_name}"
+                    t0 = time.perf_counter()
+                    with trace_layer("HITLLayer",
+                                     attributes={"action": hitl_action}) as span:
+                        status = await self.hitl.propose(hitl_action, {
+                            "tenant": tenant_id,
+                            "tool_name": tool_name,
+                            "side_effect": td.side_effect,
+                            "reason": td.reason,
+                        })
+                        span.set_attribute("hitl.status", status.value)
+                    tr.hitl_status = status.value
+                    mark("HITLLayer", status.value,
+                         f"tool escalation: {tool_name} ({td.reason})", t0,
+                         tool_name=tool_name, decision_id=td.decision_id)
+                    if status != HITLStatus.APPROVED:
+                        reason = (f"tool '{tool_name}' requires human approval: "
+                                  + ("denied" if status == HITLStatus.DENIED
+                                     else "no response"))
+                        response = self._finalize(
+                            tr, output="[action not executed - awaiting/declined human approval]",
+                            blocked=True, reason=reason, t_start=t_start)
+                        self.observability.record_result(blocked=True,
+                            latency_ms=response.trace.total_latency_ms,
+                            block_reason=reason)
+                        return response
 
             # 4) Reliability-guarded provider call
             t0 = time.perf_counter()
@@ -245,7 +274,7 @@ class Pramagent:
                     tr.provider_latency_ms = result.latency_ms
                     tr.provider_prompt_tokens = getattr(result, "prompt_tokens", 0)
                     tr.provider_completion_tokens = getattr(result, "completion_tokens", 0)
-                    tr.used_fallback = "fallback" in result.model
+                    tr.used_fallback = bool(getattr(result, "used_fallback", False))
                     output = result.text
                     span.set_attribute("provider", self.provider.name)
                     span.set_attribute("model", result.model)
@@ -291,6 +320,20 @@ class Pramagent:
             if was_truncated:
                 mark("IsolationLayer.cap_output", "truncated",
                      f"capped at {self.isolation.max_output_bytes}B", time.perf_counter())
+
+            # 5c) ToolGuard output validation — exfiltration scan (AWS keys,
+            # private keys, JWTs, …) on the provider output, plus output
+            # schema/size checks when this call was a registered tool.
+            t0 = time.perf_counter()
+            with trace_layer("ToolGuardLayer.validate_output") as span:
+                ov = self.tool_guard.validate_output(
+                    tool_name if tool_name is not None else "__provider__",
+                    output, tenant_id=tenant_id, session_id=session_id)
+                span.set_attribute("output.ok", ov.ok)
+            mark("ToolGuardLayer.validate_output",
+                 "ok" if ov.ok else "withheld", ov.reason, t0)
+            if not ov.ok:
+                output = "[output withheld by tool output validation]"
 
             # 6) HITL
             t0 = time.perf_counter()

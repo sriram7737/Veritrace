@@ -24,3 +24,18 @@ jobs:
           python -m pip install -e ".[dev,api,otel]"
       - name: Test
         run: python -m pytest -q
+
+  pip-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: |
+          python -m pip install -U pip setuptools wheel
+          python -m pip install -e ".[dev,api,otel,dashboard,redis,ollama]"
+          python -m pip install pip-audit
+      - name: Audit dependencies for known vulnerabilities
+        run: python -m pip-audit --skip-editable

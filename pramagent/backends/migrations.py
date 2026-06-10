@@ -60,8 +60,8 @@ class MigrationRunner:
     # ── connection helpers ─────────────────────────────────────────────────
     def _connect(self):
         if self._is_pg:
-            import psycopg2  # type: ignore
-            return psycopg2.connect(self._dsn)
+            from .. import _pg
+            return _pg.connect(self._dsn)
         return sqlite3.connect(self._sqlite_path)
 
     @property

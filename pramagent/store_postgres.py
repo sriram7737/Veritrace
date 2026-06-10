@@ -68,11 +68,9 @@ def _retry(fn, *, max_attempts: int = 3, base_delay_s: float = 0.1,
 
 def _transient(exc: Exception) -> bool:
     """True for errors that are worth retrying (connection blips, timeouts)."""
-    try:
-        import psycopg2
-        return isinstance(exc, (psycopg2.OperationalError, psycopg2.InterfaceError))
-    except ImportError:
-        return False
+    from . import _pg
+    transient = _pg.transient_exceptions()
+    return bool(transient) and isinstance(exc, transient)
 
 
 # ─────────────────────────── circuit breaker ──────────────────────────────
@@ -128,12 +126,14 @@ class _ThreadLocalPool:
     thread-proliferation from exhausting Postgres max_connections.
     """
 
-    def __init__(self, dsn: str, max_pool_size: int = 10) -> None:
+    def __init__(self, dsn: str, max_pool_size: int = 10, *, connect=None) -> None:
         self._dsn = dsn
         self._max_pool_size = max_pool_size
         self._local = threading.local()
         self._count_lock = threading.Lock()
         self._open_count = 0
+        # injectable connection factory (tests pass a fake driver here)
+        self._connect = connect
 
     def get(self):
         """Return a healthy connection for the current thread."""
@@ -158,9 +158,11 @@ class _ThreadLocalPool:
             self._open_count += 1
 
         try:
-            import psycopg2
-            import psycopg2.extras
-            conn = psycopg2.connect(self._dsn)
+            if self._connect is not None:
+                conn = self._connect(self._dsn)
+            else:
+                from . import _pg
+                conn = _pg.connect(self._dsn)
             conn.autocommit = False
         except Exception as exc:
             with self._count_lock:
@@ -225,8 +227,10 @@ class _PostgresBase:
         base_delay_s: float = 0.1,
         breaker_threshold: int = 5,
         breaker_cooldown_s: float = 30.0,
+        connect=None,
     ) -> None:
-        self._pool = _ThreadLocalPool(dsn, max_pool_size=max_pool_size)
+        self._pool = _ThreadLocalPool(dsn, max_pool_size=max_pool_size,
+                                      connect=connect)
         self._max_retries = max_retries
         self._base_delay_s = base_delay_s
         self._breaker = _CircuitBreaker(threshold=breaker_threshold, cooldown_s=breaker_cooldown_s)
@@ -243,6 +247,7 @@ class _PostgresBase:
         base_delay_s: float = 0.1,
         breaker_threshold: int = 5,
         breaker_cooldown_s: float = 30.0,
+        connect=None,
     ) -> "_PostgresBase":
         """Construct, validate connectivity, run DDL, return instance."""
         instance = cls(
@@ -252,6 +257,7 @@ class _PostgresBase:
             base_delay_s=base_delay_s,
             breaker_threshold=breaker_threshold,
             breaker_cooldown_s=breaker_cooldown_s,
+            connect=connect,
         )
         instance._validate_and_init()
         return instance
@@ -315,6 +321,12 @@ class _PostgresBase:
         return self._pool.open_count
 
 
+def _as_dict(value) -> dict:
+    """JSONB columns come back as dict from psycopg/psycopg2 but as str from
+    test fakes and some cursor configurations — accept both."""
+    return value if isinstance(value, dict) else json.loads(value)
+
+
 # ──────────────────────────── Store impl ──────────────────────────────────
 
 class PostgresStore(_PostgresBase):
@@ -350,7 +362,7 @@ class PostgresStore(_PostgresBase):
         def _fn(conn, cur):
             cur.execute("SELECT payload FROM pramagent_traces WHERE trace_id = %s", (trace_id,))
             row = cur.fetchone()
-            return json.loads(row[0]) if row else None
+            return _as_dict(row[0]) if row else None
         return self._run(_fn)
 
     def list_for_tenant(self, tenant_id: str, limit: int = 100) -> List[dict]:
@@ -359,14 +371,64 @@ class PostgresStore(_PostgresBase):
                 "SELECT payload FROM pramagent_traces WHERE tenant_id = %s ORDER BY created_at DESC LIMIT %s",
                 (tenant_id, limit),
             )
-            return [json.loads(r[0]) for r in cur.fetchall()]
+            return [_as_dict(r[0]) for r in cur.fetchall()]
         return self._run(_fn)
 
     def delete_for_tenant(self, tenant_id: str) -> int:
+        """GDPR erasure: delete the tenant's trace rows AND tombstone its
+        payloads in the hash chain (see redact_for_tenant)."""
         def _fn(conn, cur):
             cur.execute("DELETE FROM pramagent_traces WHERE tenant_id = %s", (tenant_id,))
             return cur.rowcount
-        return self._run(_fn)
+        deleted = self._run(_fn)
+        self.redact_for_tenant(tenant_id)
+        return deleted
+
+    def redact_for_tenant(self, tenant_id: str) -> int:
+        """Tombstone PII fields in this tenant's chain payloads and recompute
+        the content hashes so verify() still passes without the erased text.
+        Returns the number of payloads redacted."""
+        import hashlib
+        from .audit import redact_chain_payload
+
+        def _read(conn, cur):
+            cur.execute(
+                "SELECT id, this_hash, prev_hash, payload FROM pramagent_chain ORDER BY id ASC"
+            )
+            return cur.fetchall()
+        rows = self._run(_read)
+
+        redacted = 0
+        rehash = False   # once a payload changes, relink every later row
+        prev = "0" * 64
+        for row_id, this_hash, stored_prev, payload_raw in rows:
+            payload = _as_dict(payload_raw)
+            if payload.get("tenant_id") == tenant_id and redact_chain_payload(payload):
+                redacted += 1
+                rehash = True
+                blob = json.dumps(payload, sort_keys=True).encode()
+                this_hash = hashlib.sha256(blob).hexdigest()
+
+                def _update(conn, cur, *, _id=row_id, _payload=payload,
+                            _hash=this_hash, _prev=prev):
+                    cur.execute(
+                        "UPDATE pramagent_chain SET payload = %s, this_hash = %s,"
+                        " prev_hash = %s WHERE id = %s",
+                        (json.dumps(_payload), _hash, _prev, _id),
+                    )
+                self._run(_update)
+            elif rehash and stored_prev != prev:
+                def _relink(conn, cur, *, _id=row_id, _prev=prev):
+                    cur.execute(
+                        "UPDATE pramagent_chain SET prev_hash = %s WHERE id = %s",
+                        (_prev, _id),
+                    )
+                self._run(_relink)
+            prev = this_hash
+        if rehash:
+            with self._head_lock:
+                self._head = prev
+        return redacted
 
     def prune_older_than(self, cutoff_ts: float) -> int:
         """Delete traces older than UNIX timestamp cutoff_ts. Returns count deleted."""
@@ -417,8 +479,8 @@ class PostgresStore(_PostgresBase):
 
         import hashlib
         broken = []
-        for this_hash, prev_hash, payload_str in rows:
-            payload = json.loads(payload_str)
+        for this_hash, prev_hash, payload_raw in rows:
+            payload = _as_dict(payload_raw)
             blob = json.dumps(payload, sort_keys=True).encode()
             expected = hashlib.sha256(blob).hexdigest()
             if expected != this_hash:

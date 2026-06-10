@@ -157,6 +157,17 @@ class InProcessBackend(AbstractBackend):
             self._store[key] = (new, exp)
             return new
 
+    def history_append(self, key: str, value: str, *, max_len: int,
+                       ttl_s: Optional[int] = None) -> list[str]:
+        """Atomically append to a bounded list and return the updated window."""
+        with self._lock:
+            lst = list(self._get_raw(key) or [])
+            lst.append(value)
+            lst = lst[-max_len:]
+            exp = time.monotonic() + ttl_s if ttl_s else None
+            self._store[key] = (lst, exp)
+            return list(lst)
+
     # ── token bucket ──────────────────────────────────────────────────────
 
     def tb_allow(self, key: str, *, capacity: float,
@@ -427,6 +438,33 @@ class RedisBackend(AbstractBackend):
                 self._r.expire(key, ttl_s)
             return int(val)
         return self._call(_incr)
+
+    # ── bounded list append (Lua script for atomicity) ────────────────────
+    # RPUSH + LTRIM + EXPIRE in one atomic unit so concurrent same-session
+    # appends from different workers never lose updates (ToolGuard chain
+    # detection relies on this).
+
+    _HISTORY_SCRIPT = """
+local key     = KEYS[1]
+local value   = ARGV[1]
+local max_len = tonumber(ARGV[2])
+local ttl     = tonumber(ARGV[3])
+
+redis.call('RPUSH', key, value)
+redis.call('LTRIM', key, -max_len, -1)
+if ttl > 0 then
+    redis.call('EXPIRE', key, ttl)
+end
+return redis.call('LRANGE', key, 0, -1)
+"""
+
+    def history_append(self, key: str, value: str, *, max_len: int,
+                       ttl_s: Optional[int] = None) -> list[str]:
+        """Atomically append to a bounded Redis list and return the window."""
+        def _run():
+            script = self._r.register_script(self._HISTORY_SCRIPT)
+            return script(keys=[key], args=[value, int(max_len), int(ttl_s or 0)])
+        return [str(item) for item in self._call(_run)]
 
     # ── token bucket (Lua script for atomicity) ───────────────────────────
 

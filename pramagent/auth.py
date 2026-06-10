@@ -128,14 +128,14 @@ class PostgresAPIKeyRegistry(APIKeyRegistry):
     def _connection(self):
         if self._connect is not None:
             return self._connect(self._dsn)
+        from . import _pg
         try:
-            import psycopg2  # type: ignore
-        except ImportError as exc:
+            return _pg.connect(self._dsn)
+        except RuntimeError as exc:
             raise RuntimeError(
-                "psycopg2 is required for PostgresAPIKeyRegistry; "
+                "a Postgres driver is required for PostgresAPIKeyRegistry; "
                 "install pramagent[postgres]"
             ) from exc
-        return psycopg2.connect(self._dsn)
 
     def _run(self, fn):
         conn = self._connection()

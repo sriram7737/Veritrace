@@ -320,6 +320,12 @@ and PCI DSS. This is engineering evidence, not a certification.
   seeded dynamic mutation smoke tests now pass, but the embedding classifier is
   optional and the project still needs larger third-party red-team sets.
 - ToolGuard is a hard policy gate outside the model, but it is not a sandbox.
+- ToolGuard chain detection and per-session call limits are per-process unless
+  a shared Redis backend is configured (`PRAMAGENT_TOOL_GUARD_REDIS_URL` or
+  `PRAMAGENT_REDIS_URL`). When running multiple uvicorn workers, a dangerous
+  tool chain whose steps land on different workers is only detected with a
+  shared Redis backend; the Redis path uses an atomic Lua append so concurrent
+  same-session calls never lose history.
 - Slack is the main decision-collecting HITL adapter today. ServiceNow,
   PagerDuty, email, and generic webhooks are useful notification/escalation
   adapters. Persistent SQLite/Postgres approval queues exist, but broader

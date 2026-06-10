@@ -307,7 +307,13 @@ class HITLLayer:
     async def gate(self, action: str, context: dict) -> HITLStatus:
         if not self.is_consequential(action):
             return HITLStatus.AUTO
+        return await self.propose(action, context)
 
+    async def propose(self, action: str, context: dict) -> HITLStatus:
+        """Require human approval for `action` regardless of whether it is in
+        require_approval_for. The pipeline calls this when ToolGuard returns
+        ESCALATE — the tool decision itself already established that approval
+        is required. Same invariant as gate(): silence is never consent."""
         # Persistent path: enqueue + poll the store.
         if self.store is not None:
             return await self._gate_persistent(action, context)

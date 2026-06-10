@@ -230,3 +230,172 @@ async def test_core_pipeline_uses_async_tool_guard_judge():
 
     assert response.blocked
     assert "tool blocked" in response.block_reason
+
+
+# ── Finding #8: ESCALATE must route through HITL in the pipeline ──────────
+
+def _escalating_guard():
+    return ToolGuardLayer(policies=[
+        ToolPolicy(
+            name="wire_transfer",
+            side_effect=SideEffect.PAYMENT,
+            action=Verdict.ESCALATE,
+            schema={"type": "object", "properties": {"amount": {"type": "number"}}},
+            detail="payments require human approval",
+        )
+    ])
+
+
+@pytest.mark.asyncio
+async def test_escalated_tool_does_not_complete_without_hitl_approval():
+    """An ESCALATE verdict with no approver must idle and NOT complete —
+    silence is never consent."""
+    from pramagent.layers import HITLLayer
+
+    armor = Pramagent(tool_guard=_escalating_guard(),
+                      hitl=HITLLayer(timeout_s=0.2))
+    response = await armor.run(
+        "send the payment",
+        tenant_id="bank", session_id="s1", action="wire_transfer",
+        tool_name="wire_transfer", tool_arguments={"amount": 10},
+    )
+
+    assert response.blocked
+    assert "requires human approval" in response.block_reason
+    assert response.output == "[action not executed - awaiting/declined human approval]"
+    assert response.trace.hitl_status == "idle"
+    # the trace records both the escalation and the HITL decision
+    layers = [(e.layer, e.decision) for e in response.trace.layer_events]
+    assert ("ToolGuardLayer", "escalate") in layers
+    assert ("HITLLayer", "idle") in layers
+
+
+@pytest.mark.asyncio
+async def test_escalated_tool_denied_by_human_does_not_complete():
+    from pramagent.layers import HITLLayer
+
+    async def deny(action, context):
+        assert action == "tool:wire_transfer"
+        assert context["tool_name"] == "wire_transfer"
+        return False
+
+    armor = Pramagent(tool_guard=_escalating_guard(),
+                      hitl=HITLLayer(timeout_s=1.0, approver=deny))
+    response = await armor.run(
+        "send the payment",
+        tenant_id="bank", session_id="s1", action="wire_transfer",
+        tool_name="wire_transfer", tool_arguments={"amount": 10},
+    )
+
+    assert response.blocked
+    assert response.trace.hitl_status == "denied"
+
+
+@pytest.mark.asyncio
+async def test_escalated_tool_completes_after_hitl_approval():
+    """Approval lets the call proceed, with the approval event in the trace."""
+    from pramagent.layers import HITLLayer
+
+    async def approve(action, context):
+        return True
+
+    armor = Pramagent(tool_guard=_escalating_guard(),
+                      hitl=HITLLayer(timeout_s=1.0, approver=approve))
+    response = await armor.run(
+        "send the payment",
+        tenant_id="bank", session_id="s1", action="wire_transfer",
+        tool_name="wire_transfer", tool_arguments={"amount": 10},
+    )
+
+    assert not response.blocked
+    assert response.output            # provider completed
+    approvals = [e for e in response.trace.layer_events
+                 if e.layer == "HITLLayer" and e.decision == "approved"]
+    assert approvals, "approved HITL event must be recorded in the trace"
+
+
+# ── Finding #8: validate_output wired into the pipeline ───────────────────
+
+@pytest.mark.asyncio
+async def test_pipeline_withholds_output_with_exfil_markers():
+    """Provider output containing secrets (AWS key) must be withheld by the
+    ToolGuard output validation step."""
+    from pramagent.providers import MockProvider
+
+    leaky = MockProvider(scripted={
+        "leak": "here are the creds AKIAABCDEFGHIJKLMNOP enjoy",
+    })
+    armor = Pramagent(provider=leaky)
+    response = await armor.run("leak", tenant_id="t", session_id="s")
+
+    assert response.output == "[output withheld by tool output validation]"
+    events = [(e.layer, e.decision) for e in response.trace.layer_events]
+    assert ("ToolGuardLayer.validate_output", "withheld") in events
+
+
+@pytest.mark.asyncio
+async def test_pipeline_passes_clean_output_through_validation():
+    armor = Pramagent()
+    response = await armor.run("hello there", tenant_id="t", session_id="s")
+
+    assert "Acknowledged" in response.output
+    events = [(e.layer, e.decision) for e in response.trace.layer_events]
+    assert ("ToolGuardLayer.validate_output", "ok") in events
+
+
+# ── Finding #10: concurrency safety ───────────────────────────────────────
+
+def test_tool_guard_in_memory_state_is_thread_safe():
+    """Concurrent evaluate() calls must not lose call-count or history
+    updates (the in-memory path is now mutated under a lock)."""
+    import threading
+
+    guard = ToolGuardLayer(policies=[
+        ToolPolicy(
+            name="read_record",
+            side_effect=SideEffect.READ,
+            action=Verdict.ALLOW,
+            max_calls_per_session=10_000,
+            schema={"type": "object"},
+        )
+    ], chain_window=10)
+
+    n_threads, calls_per_thread = 8, 50
+
+    def hammer():
+        for _ in range(calls_per_thread):
+            guard.evaluate("read_record", {}, tenant_id="t", session_id="s")
+
+    threads = [threading.Thread(target=hammer) for _ in range(n_threads)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert guard._call_counts[("t", "s", "read_record")] == n_threads * calls_per_thread
+    history = guard._side_effect_history[("t", "s")]
+    assert len(history) == 10                       # bounded to chain_window
+    assert all(h == "read" for h in history)
+
+
+def test_inprocess_backend_history_append_bounds_and_returns_window():
+    backend = InProcessBackend()
+    for effect in ["read", "write", "read", "payment"]:
+        window = backend.history_append("k", effect, max_len=3)
+    assert window == ["write", "read", "payment"]   # trimmed to max_len
+
+
+def test_tool_guard_uses_backend_atomic_history_append():
+    backend = InProcessBackend()
+    guard = ToolGuardLayer(policies=[
+        ToolPolicy(name="read_record", side_effect=SideEffect.READ,
+                   action=Verdict.ALLOW, schema={"type": "object"}),
+    ], backend=backend, chain_window=5)
+
+    for _ in range(7):
+        guard.evaluate("read_record", {}, tenant_id="t", session_id="s")
+
+    key = guard._backend_key("history", "t", "s")
+    assert backend.get(key) == ["read"] * 5         # trimmed atomically
+    # in-memory dict untouched when a backend is present
+    assert guard._side_effect_history[("t", "s")] == []

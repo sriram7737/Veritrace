@@ -29,6 +29,9 @@ class ProviderResult:
     latency_ms: float = 0.0
     prompt_tokens: int = 0
     completion_tokens: int = 0
+    # True when a FallbackProvider satisfied the call with a non-primary
+    # provider. A structured field — never inferred from the model name.
+    used_fallback: bool = False
 
 
 class BaseProvider:
@@ -421,6 +424,7 @@ class FallbackProvider(BaseProvider):
                 res = await p.complete(prompt, **kwargs)
                 if i > 0:
                     res.model = f"{res.model} (fallback#{i})"
+                    res.used_fallback = True
                 return res
             except Exception as e:  # noqa: BLE001  (we genuinely want to try the next)
                 last_err = e

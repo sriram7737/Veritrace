@@ -446,13 +446,14 @@ class PostgresDashboardUserStore(DashboardUserStore):
     def _connection(self):
         if self._connect is not None:
             return self._connect(self.dsn)
+        from . import _pg
         try:
-            import psycopg2  # type: ignore
-        except ImportError as exc:
+            return _pg.connect(self.dsn)
+        except RuntimeError as exc:
             raise RuntimeError(
-                "psycopg2 is required for PostgresDashboardUserStore; install pramagent[postgres]"
+                "a Postgres driver is required for PostgresDashboardUserStore; "
+                "install pramagent[postgres]"
             ) from exc
-        return psycopg2.connect(self.dsn)
 
     def _run(self, fn):
         conn = self._connection()

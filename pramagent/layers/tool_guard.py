@@ -47,6 +47,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
+import threading
 import time
 import uuid
 from collections import defaultdict
@@ -604,6 +605,12 @@ class ToolGuardLayer:
         self.chain_window = chain_window
         self.chain_ttl_s = chain_ttl_s
         self._backend = backend
+        # Guards the in-memory chain history and call counters: evaluate()
+        # may be called from multiple threads (sync API, thread-pool hosts).
+        # NOTE: without a shared backend (Redis) this state is per-process —
+        # chain detection and session call limits are only correct across
+        # uvicorn workers when a Redis backend is configured.
+        self._lock = threading.Lock()
         # (tenant_id, session_id) -> list of side_effects (bounded to chain_window)
         self._side_effect_history: dict[tuple[str, str], list[str]] = defaultdict(list)
         # per-(tenant, session, tool) call counter
@@ -638,32 +645,44 @@ class ToolGuardLayer:
                 ))
             except Exception as exc:
                 log.warning("ToolGuard backend call count unavailable; falling back to memory: %s", exc)
-        self._call_counts[key] += 1
-        return self._call_counts[key]
+        with self._lock:
+            self._call_counts[key] += 1
+            return self._call_counts[key]
 
-    def _load_side_effect_history(self, tenant_id: str, session_id: str) -> list[str]:
+    def _append_side_effect(self, tenant_id: str, session_id: str,
+                            side_effect: str) -> list[str]:
+        """Append one side effect to the (tenant, session) chain history and
+        return the updated window.
+
+        Backend path: uses the backend's atomic history_append (Redis Lua
+        RPUSH+LTRIM+EXPIRE) when available, so concurrent same-session calls
+        on different workers never lose updates. Legacy backends without
+        history_append fall back to load→append→store (non-atomic, logged).
+        In-memory path: mutation under the lock."""
         if self._backend is not None:
+            key = self._backend_key("history", tenant_id, session_id)
             try:
-                raw = self._backend.get(self._backend_key("history", tenant_id, session_id))
-                if isinstance(raw, list):
-                    return [str(item) for item in raw][-self.chain_window:]
+                if hasattr(self._backend, "history_append"):
+                    return [str(item) for item in self._backend.history_append(
+                        key, side_effect,
+                        max_len=self.chain_window, ttl_s=self.chain_ttl_s)]
+                log.warning(
+                    "ToolGuard backend lacks atomic history_append; "
+                    "using non-atomic load-append-store")
+                raw = self._backend.get(key)
+                history = ([str(item) for item in raw][-self.chain_window:]
+                           if isinstance(raw, list) else [])
+                history.append(side_effect)
+                history = history[-self.chain_window:]
+                self._backend.set(key, history, ttl_s=self.chain_ttl_s)
+                return history
             except Exception as exc:
                 log.warning("ToolGuard backend side-effect history unavailable; falling back to memory: %s", exc)
-        return list(self._side_effect_history[(tenant_id, session_id)])
-
-    def _store_side_effect_history(self, tenant_id: str, session_id: str, history: list[str]) -> None:
-        history = list(history)[-self.chain_window:]
-        if self._backend is not None:
-            try:
-                self._backend.set(
-                    self._backend_key("history", tenant_id, session_id),
-                    history,
-                    ttl_s=self.chain_ttl_s,
-                )
-                return
-            except Exception as exc:
-                log.warning("ToolGuard backend side-effect history write failed; falling back to memory: %s", exc)
-        self._side_effect_history[(tenant_id, session_id)] = history
+        with self._lock:
+            history = self._side_effect_history[(tenant_id, session_id)]
+            history.append(side_effect)
+            del history[:-self.chain_window]
+            return list(history)
 
     def _record(self, decision: ToolDecision) -> ToolDecision:
         self.audit_log.append(decision)
@@ -756,13 +775,9 @@ class ToolGuardLayer:
                                   f"(>= {policy.escalate_if_severity_gte})",
                                   side_effect=policy.side_effect)
 
-        # 8. Tool-chain detection
-        history = self._load_side_effect_history(tenant_id, session_id)
-        # record this call's side-effect first, then check
-        history.append(policy.side_effect)
-        if len(history) > self.chain_window:
-            history = history[-self.chain_window:]
-        self._store_side_effect_history(tenant_id, session_id, history)
+        # 8. Tool-chain detection — record this call's side-effect atomically,
+        # then check the returned window
+        history = self._append_side_effect(tenant_id, session_id, policy.side_effect)
 
         chain_verdict, chain_reason, chain_ctx = detect_dangerous_chain(history)
         if chain_verdict == Verdict.ESCALATE:
