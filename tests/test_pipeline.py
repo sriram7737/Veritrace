@@ -160,3 +160,53 @@ def test_narrow_post_safety_does_not_silently_withhold_benign_output():
     assert r.trace.post_verdict == "allow"
     assert r.output != "[output withheld by safety rule]"
     assert "exothermic reactions" in r.output
+
+
+def test_consent_gate_blocks_without_consent_and_allows_with_it():
+    """When a ConsentRegistry is configured, core.run() refuses to process
+    without consent on file for the tenant/subject/purpose (GDPR Art. 5/7)."""
+    from pramagent.compliance import ConsentRegistry, Purpose
+
+    registry = ConsentRegistry()
+    armor = Pramagent(provider=MockProvider(), consent=registry,
+                      consent_purpose=Purpose.SERVICE.value)
+
+    r = run(armor.run("hello", tenant_id="acme", session_id="subj1"))
+    assert r.blocked is True
+    assert "consent" in r.block_reason
+    assert r.output == ""
+    # the refusal itself is traced
+    assert any(e.layer == "ConsentGate" and e.decision == "blocked"
+               for e in r.trace.layer_events)
+
+    registry.grant("acme", "subj1", [Purpose.SERVICE])
+    r2 = run(armor.run("hello", tenant_id="acme", session_id="subj1"))
+    assert r2.blocked is False
+    assert any(e.layer == "ConsentGate" and e.decision == "ok"
+               for e in r2.trace.layer_events)
+
+    # revocation is honored immediately
+    registry.revoke("acme", "subj1")
+    r3 = run(armor.run("hello", tenant_id="acme", session_id="subj1"))
+    assert r3.blocked is True
+
+
+def test_no_consent_registry_means_no_enforcement():
+    armor = Pramagent(provider=MockProvider())
+    r = run(armor.run("hello", tenant_id="acme"))
+    assert r.blocked is False
+    assert not any(e.layer == "ConsentGate" for e in r.trace.layer_events)
+
+
+def test_provider_error_does_not_leak_exception_text():
+    """block_reason must be generic — provider internals stay in logs/trace."""
+
+    class ExplodingProvider(MockProvider):
+        async def complete(self, prompt, **kwargs):
+            raise RuntimeError("secret-internal-detail http://10.0.0.1/creds")
+
+    armor = Pramagent(provider=ExplodingProvider())
+    r = run(armor.run("hello"))
+    assert r.blocked is True
+    assert r.block_reason == "provider error"
+    assert "secret-internal-detail" not in r.block_reason

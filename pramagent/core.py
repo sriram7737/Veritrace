@@ -20,6 +20,7 @@ any side effect is executed. Unregistered tools are blocked by default.
 from __future__ import annotations
 
 import hashlib
+import logging
 import time
 from typing import Any, Optional
 
@@ -32,6 +33,8 @@ from .providers import BaseProvider, MockProvider
 from .store import MemoryStore
 from .telemetry import trace_layer, span_from_headers
 from .types import (AgentResponse, HITLStatus, LayerEvent, TraceEvent, Verdict)
+
+log = logging.getLogger(__name__)
 
 
 class Pramagent:
@@ -48,6 +51,8 @@ class Pramagent:
         observability=None,
         store=None,
         tool_guard=None,
+        consent=None,
+        consent_purpose: str = "service_provision",
     ):
         """Create a Pramagent orchestrator.
 
@@ -74,6 +79,12 @@ class Pramagent:
         # via tool_guard=ToolGuardLayer(policies=[...]) or post-construction
         # via armor.tool_guard.register(policy).
         self.tool_guard = tool_guard or ToolGuardLayer(default_verdict=Verdict.BLOCK)
+        # Optional consent gate (GDPR Art. 5(1)(b)/7). When a ConsentRegistry
+        # is supplied, run() refuses to process unless consent for the
+        # tenant/subject covers `consent_purpose`. Absence of a registry
+        # keeps the previous behaviour (no consent enforcement).
+        self.consent = consent
+        self.consent_purpose = consent_purpose
 
     def validate_tool(
         self,
@@ -115,6 +126,7 @@ class Pramagent:
         tool_name=None,
         tool_arguments=None,
         trace_headers: Optional[dict] = None,
+        subject_id: Optional[str] = None,
     ) -> AgentResponse:
         """Run one agent call through the full trust pipeline.
 
@@ -147,6 +159,28 @@ class Pramagent:
             root_span.set_attribute("tenant.id", tenant_id)
             root_span.set_attribute("session.id", session_id)
             root_span.set_attribute("action", action)
+
+            # 0) Consent gate (GDPR Art. 5(1)(b) purpose limitation / Art. 7).
+            # Enforced only when a ConsentRegistry is configured. The subject
+            # defaults to the session id when no explicit subject_id is given.
+            if self.consent is not None:
+                t0 = time.perf_counter()
+                subject = subject_id or session_id
+                allowed = self.consent.check(tenant_id, subject, self.consent_purpose)
+                mark("ConsentGate", "ok" if allowed else "blocked",
+                     f"purpose={self.consent_purpose}", t0)
+                if not allowed:
+                    reason = (f"no consent on file for purpose "
+                              f"'{self.consent_purpose}'")
+                    root_span.set_attribute("blocked", True)
+                    root_span.set_attribute("block_reason", reason)
+                    response = self._finalize(tr, output="", blocked=True,
+                                              reason=reason, t_start=t_start)
+                    self.observability.record_result(
+                        blocked=True,
+                        latency_ms=response.trace.total_latency_ms,
+                        block_reason=reason)
+                    return response
 
             # 1) Compliance
             t0 = time.perf_counter()
@@ -292,13 +326,18 @@ class Pramagent:
                     return response
                 except Exception as e:
                     span.set_attribute("error", str(e))
+                    # Exception detail stays in the log and the tenant-scoped
+                    # trace; the response body gets a generic reason so
+                    # provider internals never leak to the caller.
+                    log.warning("provider call failed (tenant=%s session=%s): %r",
+                                tenant_id, session_id, e)
                     mark("ReliabilityLayer", "degraded", str(e)[:80], t0)
                     response = self._finalize(
                         tr, output="[safe default: unable to complete]",
-                        blocked=True, reason=f"provider error: {e}", t_start=t_start)
+                        blocked=True, reason="provider error", t_start=t_start)
                     self.observability.record_result(blocked=True,
                         latency_ms=response.trace.total_latency_ms,
-                        block_reason=f"provider error: {e}")
+                        block_reason="provider error")
                     return response
 
             # 5) Safety post

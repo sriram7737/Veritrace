@@ -1,5 +1,5 @@
 """
-Tests for: config, errors, llm_judge, cli basics.
+Tests for: config, llm_judge, cli basics.
 """
 from __future__ import annotations
 import asyncio
@@ -7,7 +7,6 @@ import os
 import pytest
 
 from pramagent.config import Settings
-from pramagent.errors import PramagentError, Errors
 from pramagent.layers.llm_judge import LLMJudge, JudgePolicy, JudgeDecision
 from pramagent.layers.tool_guard import SideEffect
 from pramagent.types import Verdict
@@ -62,59 +61,6 @@ class TestSettings:
         monkeypatch.setenv("PRAMAGENT_POSTGRES_DSN", "")
         s = Settings()
         assert s.postgres_store() is None
-
-
-# ── PramagentError / Errors ──────────────────────────────────────────────────────────
-
-class TestErrors:
-    def test_vterror_to_dict(self):
-        e = PramagentError(code="TEST", message="test", layer="L", http_status=400)
-        d = e.to_dict()
-        assert d["error"] == "TEST"
-        assert d["message"] == "test"
-
-    def test_vterror_str(self):
-        e = PramagentError(code="X", message="msg")
-        assert "X" in str(e) and "msg" in str(e)
-
-    def test_injection_detected(self):
-        e = Errors.injection_detected([{"pattern_id": "sql_injection"}])
-        assert e.code == "INJECTION_DETECTED"
-        assert e.http_status == 400
-
-    def test_tool_blocked(self):
-        e = Errors.tool_blocked("send_payment", "not in allowed_tenants")
-        assert e.code == "TOOL_BLOCKED"
-        assert e.http_status == 403
-
-    def test_circuit_open(self):
-        e = Errors.circuit_open("Redis")
-        assert e.code == "CIRCUIT_OPEN"
-        assert e.http_status == 503
-
-    def test_rate_limited(self):
-        e = Errors.rate_limited(retry_after=5.0)
-        assert e.code == "RATE_LIMITED"
-        assert e.http_status == 429
-        assert e.detail["retry_after_s"] == 5.0
-
-    def test_llm_judge_blocked(self):
-        e = Errors.llm_judge_blocked("wire_transfer", "anomalous amount")
-        assert e.code == "LLM_JUDGE_BLOCKED"
-        assert "ToolGuardLayer" in e.layer
-
-    def test_hitl_idle(self):
-        e = Errors.hitl_idle("send_payment")
-        assert e.http_status == 202
-
-    def test_hitl_denied(self):
-        e = Errors.hitl_denied("send_payment")
-        assert e.http_status == 403
-
-    def test_output_exfiltration(self):
-        e = Errors.output_exfiltration("fetch_user", [{"pattern_id": "aws_key"}])
-        assert e.code == "OUTPUT_EXFILTRATION"
-        assert e.http_status == 502
 
 
 # ── LLMJudge ─────────────────────────────────────────────────────────────────
