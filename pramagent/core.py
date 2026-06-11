@@ -6,9 +6,13 @@ call, in order, recording a LayerEvent at every step and emitting one immutable,
 hash-chained TraceEvent. This is the single place the layer ordering lives.
 
 Pipeline order (request path):
-    Compliance.scrub -> Isolation(scope) -> Safety.pre -> ToolGuard(action) ->
-    Reliability.guard( Provider.complete ) -> Safety.post -> HITL.gate ->
-    Trace.write(anchor)
+    Isolation(size cap) -> Compliance.scrub -> Isolation(scope) -> Safety.pre ->
+    ToolGuard(action) -> Reliability.guard( Provider.complete ) ->
+    Safety.post -> HITL.gate -> Trace.write(anchor)
+
+The size cap runs FIRST (SEC-2026-06-11-01): every later stage runs regex
+over the prompt, so an oversized input must be rejected before any pattern
+matching can burn CPU on it.
 
 OTel spans are created per layer so any distributed trace backend (Jaeger,
 Honeycomb, Datadog) gets full latency breakdown.  Pass incoming HTTP headers to
@@ -27,7 +31,8 @@ from typing import Any, Optional
 
 from .audit import HashChainBackend
 from .layers import (CircuitOpenError, ComplianceLayer, HITLLayer,
-                     IsolationLayer, ObservabilityLayer,
+                     InjectionSuspected, InputTooLarge, IsolationLayer,
+                     IsolationViolation, ObservabilityLayer,
                      ReliabilityLayer, SafetyLayer, ToolGuardLayer, ToolPolicy)
 from .layers.tool_guard import ToolDecision
 from .providers import BaseProvider, MockProvider
@@ -183,6 +188,28 @@ class Pramagent:
                         block_reason=reason)
                     return response
 
+            # 0b) Isolation size cap — FIRST gate (SEC-2026-06-11-01). The raw
+            # prompt byte cap must be enforced before ComplianceLayer.scrub()
+            # or any other regex pass: scrubbing an unbounded input lets an
+            # attacker burn CPU on pattern matching before the cap ever runs.
+            t0 = time.perf_counter()
+            with trace_layer("IsolationLayer.cap_input") as span:
+                try:
+                    self.isolation.check_input_size(prompt)
+                except InputTooLarge as exc:
+                    reason = "isolation: input too large"
+                    span.set_attribute("blocked", True)
+                    span.set_attribute("block_reason", reason)
+                    root_span.set_attribute("blocked", True)
+                    root_span.set_attribute("block_reason", reason)
+                    mark("IsolationLayer.cap_input", "blocked", str(exc)[:120], t0)
+                    response = await self._finalize(tr, output="", blocked=True,
+                                              reason=reason, t_start=t_start)
+                    self.observability.record_result(
+                        blocked=True, latency_ms=response.trace.total_latency_ms,
+                        block_reason=reason)
+                    return response
+
             # 1) Compliance
             t0 = time.perf_counter()
             with trace_layer("ComplianceLayer") as span:
@@ -205,8 +232,6 @@ class Pramagent:
                          injection_hits=iso_meta["injection_hits"],
                          input_bytes=iso_meta["input_bytes"])
                 except Exception as exc:
-                    from .layers.isolation import (InjectionSuspected, InputTooLarge,
-                                                   IsolationViolation)
                     reason = "isolation: " + (
                         "injection suspected" if isinstance(exc, InjectionSuspected)
                         else "input too large" if isinstance(exc, InputTooLarge)

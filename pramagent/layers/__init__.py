@@ -79,6 +79,12 @@ class ComplianceLayer:
 
     CONTEXT_WINDOW = 32  # chars on each side of a candidate to scan for a keyword
 
+    # Bounded candidate window around each "@" (SEC-2026-06-11-01): up to 64
+    # chars of local part before it, up to 255 chars of domain after it (the
+    # RFC 5321 limits). The email pattern itself only ever runs inside these
+    # windows, so its cost is independent of total input length.
+    _EMAIL_WINDOW = re.compile(r".{0,64}@.{0,255}")
+
     def __init__(self, standards: list[str] | None = None,
                  patterns: dict[str, str] | None = None,
                  contextual_patterns: dict[str, tuple[str, list[str]]] | None = None,
@@ -104,7 +110,13 @@ class ComplianceLayer:
             def _sub(m, _label=label):
                 redactions.append(_label)
                 return f"[REDACTED:{_label.upper()}]"
-            out = rx.sub(_sub, out)
+            if label == "email":
+                # The email pattern has superlinear no-match behaviour on long
+                # alphabetic input (SEC-2026-06-11-01) — route it through the
+                # bounded two-phase handler instead of a full-text sub().
+                out = self._scrub_email(out, rx, _sub)
+            else:
+                out = rx.sub(_sub, out)
 
         # 2) contextual patterns: redact only when a context keyword is nearby
         for label, (rx, keywords) in self.contextual_patterns.items():
@@ -119,6 +131,30 @@ class ComplianceLayer:
             out = rx.sub(_ctx, src)
 
         return out, redactions
+
+    def _scrub_email(self, text: str, rx: re.Pattern, sub_fn) -> str:
+        """Bounded, linear email scrubbing (SEC-2026-06-11-01).
+
+        The naive full-text email sub() is superlinear when nothing matches:
+        on long alphabetic input the local-part class consumes to end-of-string
+        and backtracks at every start position (16 KiB took ~1.3 s; 256 KiB
+        never finished). Two phases keep it linear:
+
+          Phase 1: O(n) pre-scan — an email requires "@", so no "@" means the
+                   pattern can be skipped entirely with zero regex work.
+          Phase 2: run the email pattern only inside bounded windows around
+                   each "@" (_EMAIL_WINDOW), so per-window cost is constant.
+        """
+        if "@" not in text:
+            return text
+        pieces: list[str] = []
+        last = 0
+        for m in self._EMAIL_WINDOW.finditer(text):
+            pieces.append(text[last:m.start()])
+            pieces.append(rx.sub(sub_fn, m.group()))
+            last = m.end()
+        pieces.append(text[last:])
+        return "".join(pieces)
 
 
 # ─────────────────────────────── SafetyLayer ───────────────────────────────
