@@ -8,7 +8,10 @@ Real isolation primitives. Three defenses:
      into tenant B; cross-scope reads raise IsolationViolation.
 
   2. Injection heuristics. Scans inbound prompts for common instruction-override
-     and exfiltration patterns. These are heuristics, not a complete defense.
+     and exfiltration patterns, authority/developer framing, and translation/
+     indirection wrappers. Base64-looking tokens are decoded and the decoded
+     text is scanned too, so encoding an attack does not bypass the patterns
+     (SEC-2026-06-11-02). These are heuristics, not a complete defense.
      An ML classifier hook is provided for layering stronger detection.
 
   3. Hard size limits. Input and output bytes are capped per call to prevent
@@ -22,6 +25,7 @@ outputs, and runtime constraints on the model action space.
 """
 from __future__ import annotations
 
+import base64
 import re
 from typing import Callable, Optional
 
@@ -104,6 +108,40 @@ _INJECTION_PATTERNS: list[tuple[str, re.Pattern, str]] = [
      "attempt to inject a chat-template delimiter"),
 ]
 
+# ── SEC-2026-06-11-02: authority framing + indirection wrappers ────────────
+# Security testing proved bypasses that claim a privileged role ("as a
+# developer ...") or wrap the override in an innocuous task ("translate to
+# French: ignore ..."). Kept as raw strings so deployments can extend them.
+AUTHORITY_FRAMING_PATTERNS: list[str] = [
+    r"\bas\s+an?\s+(developer|admin(?:istrator)?|system|operator|tester)\b",
+    r"\b(reveal|show|display|print|output|give\s+me)\s+(?:me\s+)?"
+    r"(?:the\s+|your\s+)?(system\s+prompt|instructions?|rules?|config(?:uration)?)\b",
+    r"\bfor\s+(testing|debug|development)\s+(purposes?|only)\b",
+    r"\bthis\s+is\s+a\s+(test|debug|dev)\s+(environment|mode|session)\b",
+    r"\bi\s+(work|am)\s+(at|for|with)\s+(anthropic|openai|the\s+company)\b",
+]
+
+INDIRECTION_PATTERNS: list[str] = [
+    r"translate\s+to\s+\w+\s*:\s*.*(ignore|bypass|disable|override)",
+    r"(summarize|paraphrase|rewrite)\s+.*\s+(ignore|bypass|override)\s+",
+    r"in\s+(french|spanish|german|chinese|arabic)\s*[,:]\s*(ignore|bypass)",
+    r"what\s+would\s+(you|an\s+ai)\s+say\s+if\s+(there\s+were\s+no|without)"
+    r"\s+(rules|restrictions|filters)",
+]
+
+_INJECTION_PATTERNS += [
+    ("authority_framing", re.compile(p, re.IGNORECASE),
+     "authority/developer framing to claim privileged access")
+    for p in AUTHORITY_FRAMING_PATTERNS
+] + [
+    ("indirection_wrapper", re.compile(p, re.IGNORECASE),
+     "translation/indirection wrapper around an override request")
+    for p in INDIRECTION_PATTERNS
+]
+
+# Base64-looking runs worth decode-and-scanning (20+ chars of b64 alphabet).
+_B64_TOKEN = re.compile(r"[A-Za-z0-9+/]{20,}={0,2}")
+
 
 class IsolationLayer:
     """
@@ -184,15 +222,39 @@ class IsolationLayer:
                 hits.append({"pattern_id": pid, "detail": detail})
         return hits
 
+    def _decode_b64_tokens(self, text: str) -> str:
+        """Extract and decode base64 tokens, append decoded text for scanning.
+
+        SEC-2026-06-11-02: a base64-encoded payload sails past plain-text
+        heuristics ("SWdub3JlIGFsbCBydWxlcw==" is "Ignore all rules"). Decoded
+        tokens that look like real text (printable, more than 8 chars) are
+        appended so every existing heuristic also sees the decoded form.
+        Tokens that fail to decode or decode to binary noise are ignored.
+        """
+        extras: list[str] = []
+        for match in _B64_TOKEN.finditer(text):
+            try:
+                decoded = base64.b64decode(match.group()).decode("utf-8")
+            except Exception:
+                continue
+            if decoded.isprintable() and len(decoded) > 8:
+                extras.append(decoded)
+        if extras:
+            return text + " [DECODED: " + " | ".join(extras) + "]"
+        return text
+
     async def evaluate_input(self, text: str, *, tenant_id: str,
                              session_id: str) -> dict:
         """Run all checks on an inbound prompt. Raises on hard violations."""
         self.check_input_size(text)
 
-        hits = self.scan_for_injection(text)
+        # Heuristics and the optional classifier both scan the augmented text
+        # (original + decoded base64 tokens) so encoding is not a bypass.
+        scan_text = self._decode_b64_tokens(text)
+        hits = self.scan_for_injection(scan_text)
         classifier_verdict: Optional[bool] = None
         if self.classifier is not None:
-            classifier_verdict = bool(self.classifier(text))
+            classifier_verdict = bool(self.classifier(scan_text))
 
         suspected = bool(hits) or (classifier_verdict is True)
         if suspected and self.block_on_injection:
