@@ -11,12 +11,14 @@ of silently importing a broken backend.
 """
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from typing import Optional
 
 from .base import QueuedRequest, RequestStatus, from_row, to_row
 
+log = logging.getLogger(__name__)
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS pramagent_hitl_queue (
@@ -93,8 +95,8 @@ class PostgresHITLQueue:
             try:
                 if not getattr(conn, "closed", 0):
                     return conn
-            except Exception:
-                pass
+            except Exception as exc:
+                log.debug("postgres HITL cached connection probe failed: %s", exc)
             self._local.conn = None
         conn = self._driver.connect(self.dsn)
         self._local.conn = conn

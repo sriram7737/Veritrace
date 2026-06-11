@@ -111,7 +111,7 @@ pramagent redteam --json --attacks 100
 pramagent redteam --json --dynamic --attacks 200 --seed 999
 ```
 
-Current local result: `449 passed, 1 skipped`.
+Current local result: `547 passed, 1 skipped`.
 
 ## ToolGuard Example
 
@@ -313,6 +313,27 @@ and PCI DSS. This is engineering evidence, not a certification.
 | Billing hooks | MVP | In-memory hash-chain usage ledger plus fail-open webhook; no Stripe/Chargebee provider yet |
 | S3 cold archive | MVP | Gzip + encrypted trace archive wrapper; metadata sink hook |
 | Compliance evidence | MVP | `ComplianceReporter.generate()` for JSON/text/PDF-style evidence packages |
+
+## Integration Safety Contract
+
+Pramagent should not replace human workflows that already work. Treat it as a
+policy and evidence layer around risky agent actions, not as a mandate to put AI
+into every decision path.
+
+Before integrating a new feature or agent workflow, require three gates:
+
+1. **Isolation contract:** declare which trust layers the feature touches. HITL
+   features need a negative test proving the action cannot proceed without an
+   authenticated approval. Isolation features need tenant/session boundary tests.
+2. **Regression baseline:** run the full suite plus the new feature tests. Zero
+   regressions are allowed for previously passing safety, trace, auth, and store
+   behavior.
+3. **Consequence traceability:** every approved or triggered action must leave a
+   trace that explains why it was allowed, who/what approved it, what policy
+   applied, and which downstream side effect was attempted.
+
+The reusable reviewer prompt for this is in
+[Security audit prompt](https://github.com/sriram7737/pramagent/blob/main/docs/SECURITY_AUDIT_PROMPT.md).
 
 ## Honest Limits
 

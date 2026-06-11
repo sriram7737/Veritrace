@@ -12,7 +12,7 @@ pramagent validate       # checks config + Redis/Postgres connectivity
 ## Local without Docker (dev)
 ```bash
 pip install -e ".[dev,api,redis,postgres,otel,encrypted]"
-python -m pytest -q  # 449 passing, 1 optional-environment skip
+python -m pytest -q  # 547 passing, 1 optional-environment skip
 uvicorn pramagent.api.app:app --port 8080
 ```
 
@@ -235,4 +235,3 @@ must never face the internet directly.
 - **Postgres**: any managed PG (RDS, Cloud SQL, Neon). Set `PRAMAGENT_POSTGRES_DSN`.
 - **Redis**: any managed Redis (ElastiCache, Memorystore, Upstash). Set `PRAMAGENT_REDIS_URL`.
 - Both fail open to local backends if unreachable, so a cache blip won't take the API down.
-

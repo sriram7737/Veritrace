@@ -63,12 +63,12 @@ python -m pytest -q --tb=no
 Result:
 
 ```text
-449 passed, 1 skipped
+547 passed, 1 skipped
 ```
 
-Current package regression note: after the v0.5.20 documentation and
-security-cleanup release,
-the full local suite passed with `449 passed, 1 skipped`. The skip is the
+Current package regression note: after the v0.7.1 enterprise-audit remediation
+release,
+the full local suite passed with `547 passed, 1 skipped`. The skip is the
 Postgres optional-driver negative test when `psycopg2` is installed locally.
 
 ## Clean Environment Checks

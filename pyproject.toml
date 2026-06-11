@@ -83,7 +83,7 @@ include-package-data = true
 "deploy.dashboard" = ["templates/*.html"]
 
 [tool.setuptools.data-files]
-"share/pramagent" = ["README.md", "CHANGELOG.md"]
+"share/pramagent" = ["README.md", "CHANGELOG.md", "pramagent_full_audit.md"]
 "share/pramagent/docs" = [
     "docs/IMPLEMENTATION_STATUS.md",
     "docs/HARDENING_GUIDE.md",
@@ -96,6 +96,7 @@ include-package-data = true
     "docs/RELEASE.md",
     "docs/DEMO_SCRIPT.md",
     "docs/LIVE_WORKFLOW_DEMO.md",
+    "docs/SECURITY_AUDIT_PROMPT.md",
     "docs/TECHNICAL_MARKETING_POST.md",
     "docs/SECURITY_SCAN_REPORT_2026-06-07.md",
     "docs/quickstart-terminal.png",

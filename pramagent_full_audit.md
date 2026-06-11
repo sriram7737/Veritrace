@@ -1,4 +1,4 @@
-# Pramagent SDK — Full-Spectrum Engineering Audit
+﻿# Pramagent SDK — Full-Spectrum Engineering Audit
 
 **Auditor:** Principal Engineer (independent review)
 **Date:** 2026-06-09
@@ -553,8 +553,9 @@ missing embedding dep without guidance.
 
 ## Remediation Status
 
-**Remediated:** 2026-06-10, version 0.5.20 (post-audit), branch `main`.
-**Verification:** full suite green after every sprint — final state **505 passed, 1 skipped**
+**Initial remediation:** 2026-06-10, v0.7.0 remediation draft, branch `main`.
+This block records the first pass over the June 9 audit; the final v0.7.1 enterprise-remediation status appears below.
+**Verification:** full suite green after every sprint - intermediate state **505 passed, 1 skipped**
 (449 baseline + 66 new tests, − 10 removed with the deleted `errors.py`).
 
 | # | Finding | Status | Fixed in | Commit |

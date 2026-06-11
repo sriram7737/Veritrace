@@ -4,6 +4,32 @@
 
 No unreleased changes.
 
+## v0.7.1 - 2026-06-11
+
+### Fixed
+
+- Remediated the June full-spectrum audit and enterprise pre-production review
+  findings across API authentication, HITL escalation, replay reproducibility,
+  persisted trace scrubbing, erasure parity, Postgres chain integrity, store
+  startup refusal, weak-secret startup denial, chain-head concurrency, blocking
+  I/O, deployment hardening, and security hygiene.
+- Added Postgres tamper-detection coverage for deletion, reordering, payload
+  tamper, stale-head concurrent appends, and JSONB dict handling.
+- Added regression coverage for fallback providers, threaded chain writers,
+  tenant-scoped trace access, weak-secret denylist enforcement, and deployment
+  startup contracts.
+
+### Added
+
+- Added a reusable security audit prompt for external AI/code-review passes
+  focused on integration safety, HITL correctness, downstream consequence
+  traceability, tenant isolation, persistence, and regression risk.
+
+### Verified
+
+- `python -m pytest -q --tb=short` -> `547 passed, 1 skipped`.
+- `python -m compileall -q pramagent tests deploy\dashboard` -> passed.
+
 ## v0.5.20 - 2026-06-07
 
 ### Changed

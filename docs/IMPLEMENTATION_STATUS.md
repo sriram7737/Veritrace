@@ -1,6 +1,6 @@
 # Pramagent — Current Implementation Status
 
-_Last updated after the 2026-06-07 v0.5.20 documentation and security-cleanup release._
+_Last updated after the 2026-06-11 v0.7.1 enterprise-audit remediation release._
 
 This document is deliberately blunt. Pramagent is **strong trust middleware for
 AI agents** — deterministic guardrails, HITL, tool policy, and tamper-evident
@@ -13,7 +13,7 @@ exist.
 
 ## Test status
 
-`python -m pytest -q --tb=short` -> **449 passing, 1 skipped**. The skip is
+`python -m pytest -q --tb=short` -> **547 passing, 1 skipped**. The skip is
 the Postgres optional-driver negative test when `psycopg2` is installed
 locally; there are no expected failures hiding classifier misses in the bundled
 suite.
@@ -144,6 +144,25 @@ Actions is configured to run the same suite on Python 3.10, 3.11, 3.12, and
 - Pilot-user production deployments
 
 ## Latest Workflow Evidence
+
+2026-06-11 v0.7.1 enterprise-audit remediation:
+
+- Baseline suite before the final audit remediation series: **505 passed,
+  1 skipped**.
+- Final suite after five remediation phases: **547 passed, 1 skipped**.
+- Closed the release-blocking API/dashboard issues from the June 9 full-spectrum
+  audit and the June 10 enterprise pre-production review, including
+  authenticated unversioned dashboard proxy routes, replay reproducibility,
+  scrubbed persisted traces, erasure parity, persistent store startup refusal,
+  weak-secret startup denial, Postgres chain integrity, chain-head race
+  handling, blocking I/O off the async hot path, and deployment hardening.
+- Added regression coverage for threaded chain writers, Postgres tamper
+  detection, fallback providers, weak-secret startup refusal, tenant-scoped
+  traces, and remediation-specific deployment/security behavior.
+- Remaining deferred items are documented in `pramagent_full_audit.md`:
+  keyset pagination, Redis quota Lua, chain verification watermark,
+  Prometheus-specific metrics, `jti` denylist, dependency lockfile/SBOM, CI SHA
+  pinning, and organizational artifacts such as breach runbook, DPA, and VDP.
 
 2026-06-07 v0.5.20 package verification:
 

@@ -247,7 +247,7 @@ Pramagent wraps model calls and agent workflows with:
 
 Release evidence:
 
-- 449 passing tests, one optional-environment skip
+- 547 passing tests, one optional-environment skip
 - Python 3.10, 3.11, 3.12, and 3.13 CI matrix
 - live OpenAI smoke test
 - real OpenAI job-agent stress run: 216 calls, five tenants, concurrency 10,
@@ -391,11 +391,11 @@ The most important layer is ToolGuard:
 - escalate risky tools to human approval
 - record decisions in a tamper-evident trace
 
-The release has 449 passing tests, one optional-environment skip, and a Python
+The release has 547 passing tests, one optional-environment skip, and a Python
 3.10 through 3.13 CI matrix, plus live smoke evidence for OpenAI, Ollama,
-Sepolia anchoring, S3 archive/restore, Slack HITL, multi-tenant load, and
-security scans. That does not make it production-certified, but it does mean the
-release is more than a README.
+Sepolia anchoring, S3 archive/restore, Slack HITL, multi-tenant load,
+enterprise-audit remediation, and security scans. That does not make it
+production-certified, but it does mean the release is more than a README.
 
 It is published as Alpha software, with an honest implementation-status doc. No
 fake "prompt-injection-proof" claims. No pretending it is certified enterprise
@@ -445,7 +445,7 @@ Pramagent currently includes:
 - FastAPI sidecar, dashboard, Redis/Postgres support, OTel spans
 - compliance evidence generation
 - red-team benchmark CLI
-- 449 passing tests across Python 3.10 through 3.13, with one optional skip
+- 547 passing tests across Python 3.10 through 3.13, with one optional skip
 
 Important: it is Alpha software. It is not bank-grade, healthcare-grade,
 externally audited, or prompt-injection-proof. I documented the current status
@@ -489,7 +489,7 @@ What is included today:
 - optional Sepolia timestamp anchoring and S3 archive support
 - compliance evidence generation for auditor-facing packages
 - FastAPI sidecar, dashboard, Redis/Postgres, OTel
-- 449 passing tests, 1 optional-environment skip
+- 547 passing tests, 1 optional-environment skip
 
 It is Alpha and not externally certified. The implementation status is public
 and intentionally blunt.
@@ -556,7 +556,7 @@ anchoring, S3 archive support, Redis/Postgres, OTel, and a FastAPI sidecar.
 
 6. Current release evidence:
 
-- 449 passing tests, 1 optional-environment skip
+- 547 passing tests, 1 optional-environment skip
 - Python 3.10 to 3.13 CI
 - OpenAI and Ollama smoke tests
 - Sepolia anchoring smoke
