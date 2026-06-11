@@ -183,8 +183,11 @@ Install the optional dependency:
 pip install -e ".[s3]"
 ```
 
-Wrap a hot store so retention/erasure flows archive old traces to S3 as
-encrypted gzip JSON before deleting them from the primary store:
+Wrap a hot store so retention flows (`prune_older_than`) archive old traces to
+S3 as encrypted gzip JSON before deleting them from the primary store. GDPR
+erasure (`delete_for_tenant`) is the opposite contract: it destroys without
+archiving and also deletes any previously archived objects under the tenant's
+S3 prefix.
 
 ```python
 from pramagent.store import SQLiteStore
@@ -207,7 +210,7 @@ kubectl create secret generic pramagent-secrets \
   --from-literal=PRAMAGENT_API_KEY=... --from-literal=PRAMAGENT_JWT_SECRET=... \
   --from-literal=PRAMAGENT_REDIS_URL=redis://... --from-literal=PRAMAGENT_POSTGRES_DSN=postgresql://...
 helm install pramagent deploy/helm/pramagent \
-  --set image.tag=0.5.20 --set otel.endpoint=http://otel-collector:4317
+  --set image.tag=0.7.1 --set otel.endpoint=http://otel-collector:4317
 ```
 Includes readiness/liveness probes, HorizontalPodAutoscaler (3–10 replicas), and
 secret-based config. Point `otel.endpoint` at any OTLP collector (Jaeger,

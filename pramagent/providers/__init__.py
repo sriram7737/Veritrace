@@ -314,7 +314,10 @@ class OllamaProvider(BaseProvider):
     async def complete(self, prompt: str, **kwargs) -> ProviderResult:
         import aiohttp  # lazy import
         t0 = time.perf_counter()
-        async with aiohttp.ClientSession() as s:
+        # bounded like every other provider call — a hung local daemon must
+        # not hold the request forever (P3-7)
+        timeout = aiohttp.ClientTimeout(total=60)
+        async with aiohttp.ClientSession(timeout=timeout) as s:
             async with s.post(f"{self.host}/api/generate",
                               json={"model": self.model, "prompt": prompt, "stream": False}) as r:
                 data = await r.json()

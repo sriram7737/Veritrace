@@ -603,3 +603,101 @@ isolation and human oversight are bypassable through a forgotten set of unauthen
 the fixes are scoped in the priority list above. Close findings #1–#5 and the project moves from "great
 demo with sharp edges" to "defensibly pilot-ready," which is exactly where the design document aspires to
 position it.
+
+---
+
+## v0.7.1 Remediation Status
+
+**Date:** 2026-06-10 · **Baseline:** the 2026-06-10 enterprise pre-production code
+review (2 P0 / 10 P1 / 18 P2 / 20 P3) and the 2026-06-10 formal security assessment
+(T1/T2/T3 tracks). Remediation landed as five sequential commits (Phases 1–4 + final),
+each gated on the full test suite. **Suite: 547 passed / 1 skipped** (505 at baseline;
+42 tests added). The threaded chain-writer test was verified to FAIL against the
+pre-fix code and PASS after it.
+
+Where a code-review finding and a security finding describe the same defect they were
+fixed in one change and are listed together.
+
+### P0 / Critical — Phase 1 (commit `4356521`)
+
+| Finding | Status | Fix | Where |
+|---|---|---|---|
+| P0-1 + T1-12 (reference deploy persists nothing) | **RESOLVED** | `build_default_armor()` store priority chain `PRAMAGENT_POSTGRES_DSN` > `PRAMAGENT_DB` > explicit `PRAMAGENT_ALLOW_MEMORY_STORE=1`; RuntimeError otherwise; compose/Helm DSN contract documented; tests opt in via `tests/conftest.py` | `pramagent/api/app.py`, `pramagent/config.py`, `docker-compose.yml`, `deploy/helm/pramagent/values.yaml` |
+| P0-2 + T1-1 (published placeholder secrets pass startup) | **RESOLVED** | shared `assert_strong_secret()` + `WEAK_SECRET_DENYLIST` (all 8 spellings incl. underscored + CI variants) enforced at startup by API `create_app()` AND the dashboard; `.env.example` regenerated with empty required secrets + generation instructions; negative tests parametrized over the full denylist in both services | `pramagent/security.py`, `pramagent/api/app.py`, `deploy/dashboard/app.py`, `.env.example` |
+| T2-3 + P1-6 (Postgres chain not chained; protocol mismatch) | **RESOLVED** | `PostgresStore.append()` hashes `canonical_hash(payload, prev)` with prev derived inside the transaction under `SELECT … FOR UPDATE`; `verify_chain()` checks hash AND prev-linkage in id order (deletion/reorder now detected — tests prove it); `get(call_id, tenant_id)` returns `TraceEvent` raising `KeyError`/`PermissionError`; rows keyed by `call_id`; `list_all`/`list_by_tenant`/tenant-scoped `prune_older_than`/`ping` added; `MIGRATIONS_PG` incl. call_id re-keying for pre-0.7.1 rows | `pramagent/store_postgres.py`, `pramagent/backends/migrations.py`, `tests/test_postgres_store.py` |
+
+### P1 / High — Phase 2 (commit `311ce7d`)
+
+| Finding | Status | Fix | Where |
+|---|---|---|---|
+| P1-5 + T2-4 (chain head race forks the chain) | **RESOLVED** | append derives prev inside a serialized critical section everywhere: SQLite/Encrypted stores use `threading.RLock` + `BEGIN IMMEDIATE` + DB re-read (passed prev ignored); `HashChainBackend` locked; Postgres uses FOR UPDATE (Phase 1); `core._finalize` no longer passes a pre-read head (`last_prev_hash` recorded post-append); `test_chain_survives_threaded_writers` (8 threads × 64 runs) fails pre-fix, passes post-fix | `pramagent/store.py`, `pramagent/store_encrypted.py`, `pramagent/audit/__init__.py`, `pramagent/core.py`, `tests/test_load_smoke.py` |
+| P1-1 + P1-8 + T1-7 (blocking I/O on the event loop; 300 s receipt wait) | **RESOLVED** | `_finalize` is async; `audit.append`/`store.save` via `asyncio.to_thread` (8 call sites awaited); SafetyLayer pre/post (embedding inference) off-loop; usage `reserve_call`/`reserve_tool_validation`/`record_cost` (and therefore the sync urllib billing webhook) off-loop; `EthereumAnchor.anchor()` submits and returns immediately with `status=-1` (unconfirmed) unless `wait_for_receipt=True`; nonce read→sign→send serialized under a lock | `pramagent/core.py`, `pramagent/api/app.py`, `pramagent/anchoring/ethereum.py`, `pramagent/usage.py` |
+| P1-2 + T3-1 (encrypted store erasure leaves PII in chain) | **RESOLVED** | `redact_for_tenant()` with canonical re-anchoring (tombstone + rehash every later link); `delete_for_tenant()` invokes it; protocol parity: `list_all(limit)`, `prune_older_than(tenant_id)`, `ping()`; parity test mirroring the SQLite erasure test incl. restart survival | `pramagent/store_encrypted.py`, `tests/test_encryption.py` |
+| P1-7 + T3-2 (S3 erasure archives instead of destroying) | **RESOLVED** | `delete_for_tenant()` never archives; deletes all previously archived objects under `tenant={id}/` (paginated `list_objects_v2` + `delete_objects`) and drops their metadata; `prune_older_than` keeps the archive path (retention); tests assert no-archive-on-erase and archive-on-prune | `pramagent/store_s3.py`, `tests/test_store_s3.py` |
+| P1-3 + T1-5 + P2-18 + T1-9 (O(n) unauthenticated readiness + info disclosure) | **RESOLVED** | `/health/ready` is O(1): store `ping()` + redis `ping()` only, returns `{status, checks}` with 503 on degraded; chain verification stays in authenticated rate-limited `/v1/audit/verify`; `auth_enabled`/`slack_last_error`/counts/`tool_guard_distributed` removed from the unauthenticated surface | `pramagent/api/app.py`, `pramagent/store.py` |
+| P1-4 + T1-6 (RCA loads the whole store per request) | **RESOLVED** | all three handlers build `RCAEngine([_fetch_trace(call_id, tenant)])` | `pramagent/api/app.py` |
+| P1-9 (/traces filters after the limit) | **RESOLVED** | tenant filter pushed into SQL via `list_by_tenant` (indexed); `limit` capped `Query(50, ge=1, le=500)`; dead `MemoryStore._traces` branch deleted | `pramagent/api/app.py` |
+| P1-10 + T2-9 (datastores published to host; root dashboard image) | **RESOLVED** | compose Postgres/Redis `expose:`-only; Redis healthcheck `--no-auth-warning -a "$$REDIS_PASSWORD"` via container env (no `docker inspect` leak); mem/cpu limits on all four services (also closes P3-14); dashboard image `USER 1001`, all deps pinned with upper caps, `psycopg[binary]>=3.1,<4` replaces psycopg2-binary | `docker-compose.yml`, `deploy/dashboard/Dockerfile` |
+| T1-2 (token endpoint unthrottled) + P2-12/T2-6 (per-process random JWT fallback) | **RESOLVED** | `/v1/auth/token` carries an IP-keyed bucket (429 + Retry-After, test included); refuses issuance with 503 when auth is on and no shared `PRAMAGENT_JWT_SECRET(S)` is configured (test included) | `pramagent/api/app.py`, `tests/test_auth.py` |
+| T2-1 + P2-8 (dashboard XSS + CSV formula injection) | **RESOLVED** | `html.escape()` on the approve/deny error badges; `csv_value()` prefixes `=`/`+`/`-`/`@`/tab strings with `'` | `deploy/dashboard/app.py` |
+| T2-7 + P2-6 (Gemini key in URL) + P3-7 (Ollama host unvalidated) | **RESOLVED** | key moved to `x-goog-api-key` header (test asserts no `key=` in URL); Ollama host through `validate_http_url(allow_http_localhost=True, allow_private=True)` + 60 s `ClientTimeout` | `pramagent/providers/__init__.py` |
+| P2-7 + T2-9 (Redis URL password logged) | **RESOLVED** | credentials redacted (`url.split("@")[-1]`) in both the INFO log and the unreachable-error message | `pramagent/backends/redis_backend.py` |
+
+### P2 / Medium — Phase 3 (commit `e315bf0`)
+
+| Finding | Status | Fix | Where |
+|---|---|---|---|
+| P2-2 + T1-8 (unbounded in-process growth) | **RESOLVED** | ToolGuard `_provenance_log`/`audit_log` and LLM-judge `audit_log` → `deque(maxlen=10_000)`; `_call_counts` stores `(count, window_started)` resetting on `chain_ttl_s`; usage ledger growth documented + one-time warning at 100k entries (silent truncation would break chain verification from genesis — see docstring) | `pramagent/layers/tool_guard.py`, `pramagent/layers/llm_judge.py`, `pramagent/usage.py` |
+| P2-3 (validator rebuilt per call) | **RESOLVED** | `compile_schema_validator()`; argument AND output validators compiled once per policy in `register()`; `validate_schema(validator=…)` skips per-call check_schema+constructor | `pramagent/layers/tool_guard.py` |
+| P2-4 + T1-8 (unbounded request body) | **RESOLVED** | `prompt` `max_length=262_144` (422 before the pipeline, test included); reverse-proxy `client_max_body_size` documented | `pramagent/api/app.py`, `docs/DEPLOYMENT.md` |
+| P3-4 + T1-3 (JWT aud/alg) | **RESOLVED** | `aud="pramagent-api"` issued and strictly verified (forged no-aud token test); explicit HS256 allow-list comment naming the none-algorithm/key-confusion defense. *Residual:* per-token `jti` revocation list deferred (short TTLs ≤ 1 h; dashboard sessions already revocable) | `pramagent/auth.py`, `tests/test_auth.py` |
+| P2-10 (untyped responses) | **RESOLVED** | `TraceModel` on `GET /v1/trace/{id}`, `EraseResponse` on `DELETE /v1/tenant/{id}/traces`, `PruneResponse` on `POST /v1/retention/prune` | `pramagent/api/app.py` |
+| P3-9 (CLI .env umask) | **RESOLVED** | written via `os.open(..., 0o600)` | `pramagent/cli.py` |
+| P2-15 + P3-3 (no graceful shutdown; deprecated on_event) | **RESOLVED** | lifespan context managers in API + dashboard; shutdown closes store/audit with error handling; `--timeout-graceful-shutdown 30` in the image CMD | `pramagent/api/app.py`, `deploy/dashboard/app.py`, `Dockerfile` |
+| P2-14 (compliance attests instead of measuring) | **RESOLVED** | live probes: audit row = actual `verify_chain()` result, consent rows = active-consent registry check, retention = real policy comparison; `CONTROL_MAP` evidence rows probed via `_control_in_place()`; `store.count(tenant_id)` (SQL COUNT) on SQLite/Postgres/Encrypted/Memory replaces `len(list_all())` | `pramagent/compliance.py`, `pramagent/store*.py` |
+| P3-13 + T2-9 (Helm drift, no securityContext/PDB) | **RESOLVED** | image tag 0.7.1; `runAsNonRoot` + `readOnlyRootFilesystem` + `allowPrivilegeEscalation: false` + drop ALL caps + seccomp RuntimeDefault; PodDisruptionBudget (minAvailable 2); /tmp emptyDir for the read-only root | `deploy/helm/pramagent/` |
+| P2-13 (judge exception leak; 3.10 timeout class) | **RESOLVED** | `except (TimeoutError, asyncio.TimeoutError)`; generic reason to callers, `repr(exc)[:500]` kept in audit-log `raw_response` only | `pramagent/layers/llm_judge.py` |
+
+### P3 hygiene — Phase 4 (commit `f030e63`)
+
+| Finding | Status | Note |
+|---|---|---|
+| P3-1 | **RESOLVED** | `require_tenant(request: Request)` — required, non-Optional. (The review's literal `Optional[Request] = None` suggestion is rejected by FastAPI's Request special-casing; FastAPI always injects the request for dependencies, so the truthful signature drops the default.) |
+| P3-2 | **RESOLVED** | `uvicorn pramagent.api.app:create_app --factory`; module-level `app` kept behind `PRAMAGENT_EAGER_APP` (default on); `pramagent.api.__init__` tolerates factory-only mode |
+| P3-3 | **RESOLVED** | in Phase 3.7 (lifespan, both services) |
+| P3-5 | **RESOLVED** | cap_output marker passes the pre-truncate `t0` |
+| P3-6 | **RESOLVED** | duplicate env-var names removed across the 6 `_env_*_optional` call sites |
+| P3-7 | **RESOLVED** | host validation + request timeout (Phase 2.11 / final). *Residual:* per-call `ClientSession` retained (cheap for a local daemon) |
+| P3-8 | **RESOLVED** | PostgresHITLQueue thread-local connection cache with commit/rollback + eviction; dead `_connect` branch deleted |
+| P3-9 | **RESOLVED** | in Phase 3.6 |
+| P3-10 | **RESOLVED** | `decide()` reports found only for ids known in-process or in the shared backend — the Slack "expired" reply path is reachable |
+| P3-11 | **RESOLVED** | `HITLLayer.enqueue_notify_failures` counter incremented in the except branch |
+| P3-12 | **RESOLVED** | compliance reports stamp `store_error` instead of silently asserting zero traces |
+| P3-13 | **RESOLVED** | in Phase 3.9 |
+| P3-14 | **RESOLVED** | in Phase 2.8 (compose mem/cpu limits) |
+| P3-15 | **RESOLVED** | `COPY docs/` dropped; psycopg comment corrected |
+| P3-16 | **RESOLVED** | HITL outcome-assert timeouts raised to ≥ 1 s |
+| P3-17 | **RESOLVED** | asserts through `GET /hitl/pending` |
+| P3-18 | **RESOLVED** | `rules_fired=` precedence fixed |
+| P3-19 | **RESOLVED** | regenerated in Phase 1.2 with required/optional/type annotations; verified complete |
+| P3-20 | **RESOLVED** | marketing assets moved to `assets/`; `.gitignore` extended (root-scoped so tracked docs/ images are unaffected) |
+
+### Intentionally deferred (with reason)
+
+| Finding | Reason |
+|---|---|
+| P2-1 (keyset pagination + streaming CSV export) | Mitigated by the 500-row cap on `/traces` (P1-9) and SQL-side tenant filtering; full cursor pagination is an API-shape change scheduled for 0.8 so dashboard and SDK clients migrate together |
+| P2-5 (atomic Redis quota Lua script) | Quota accounting races only across multi-worker Redis deployments and fails open by design; needs the same Lua treatment as `history_append` — scheduled with the 0.8 multi-worker hardening batch |
+| P2-9 + T2-2 (proxy-aware rate-limit key) | Resolved by documentation: `--proxy-headers --forwarded-allow-ips` + "unauthenticated mode must not face the internet" in DEPLOYMENT.md; the LB CIDR is deployment-specific and cannot be hardcoded |
+| P2-11 (incremental chain verification watermark) | Readiness no longer verifies the chain (the DoS vector is closed); full verification remains in the authenticated, rate-limited endpoint; watermarked incremental verify scheduled with the 1 M-trace soak work |
+| P2-16 (Prometheus exposition + correlation-ID logging) | Observability-stack work, no security impact; OTel spans already carry call/tenant context — scheduled for 0.8 |
+| P2-17 (classifier lazy-load + pre-baked model) | Partially mitigated: the app factory (P3-2) removes import-time builds when using `--factory`; moving `SentenceTransformer` load out of `__init__` touches the ml extra's startup contract — scheduled with the image pre-bake |
+| T1-3 residual (API JWT `jti` revocation list) | `aud` + explicit alg landed; tokens are ≤ 1 h TTL and the dashboard (long-lived sessions) already has Redis-backed revocation — denylist scheduled for 0.8 |
+| T1-4 (heuristic injection ceiling) | Accepted residual by design and documented: the load-bearing guarantee is deterministic rules + HITL outside the model; the `[ml]` classifier remains the recommended upgrade for regulated deployments |
+| T2-10 (CI actions pinned to SHAs; scanner image digests) | CI-pipeline change outside the five remediation phases; tracked for the next CI pass together with Dependabot for github-actions |
+| Appendix B residuals (lockfile, upper caps on remaining deps, pip-audit extras gap, SBOM) | Dependency-management batch tracked for the 0.8 release pipeline; no currently-known advisory in the shipped floors |
+| GDPR Art. 33/34 breach-notification runbook, DPA/RoPA templates, SECURITY.md/VDP, SOC 2 scoping | Organizational/documentation artefacts from the security assessment's 46–90-day roadmap, not code defects — tracked in the go-to-market hardening plan |
+
+**Supersedes the "Known residuals" note above:** the `cap_output` latency marker (P3-5)
+and the unconditional `CONTROL_MAP` attestations (P2-14) named there as open residuals
+are both closed in v0.7.1.
