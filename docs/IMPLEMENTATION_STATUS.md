@@ -1,6 +1,6 @@
 # Pramagent — Current Implementation Status
 
-_Last updated after the 2026-06-11 v0.7.1 enterprise-audit remediation release._
+_Last updated after the 2026-06-11 v0.7.2 CI/dependency cleanup release._
 
 This document is deliberately blunt. Pramagent is **strong trust middleware for
 AI agents** — deterministic guardrails, HITL, tool policy, and tamper-evident
@@ -144,6 +144,17 @@ Actions is configured to run the same suite on Python 3.10, 3.11, 3.12, and
 - Pilot-user production deployments
 
 ## Latest Workflow Evidence
+
+2026-06-11 v0.7.2 CI/dependency cleanup:
+
+- Carries the v0.7.1 enterprise-audit remediation.
+- Fixes GitHub Actions `pip-audit` invocation and authenticated ZAP CI sidecar
+  startup after the persistent-store startup refusal hardening.
+- Raises dependency floors to `aiohttp>=3.14.0` and
+  `python-multipart>=0.0.27` to avoid newly published parser advisories in the
+  default resolver path.
+- Local verification before release: **547 passed, 1 skipped**, Bandit 0
+  findings, Semgrep 0 findings, dynamic red-team 200/200 caught.
 
 2026-06-11 v0.7.1 enterprise-audit remediation:
 

@@ -66,8 +66,7 @@ Result:
 547 passed, 1 skipped
 ```
 
-Current package regression note: after the v0.7.1 enterprise-audit remediation
-release,
+Current package regression note: after the v0.7.2 CI/dependency cleanup release,
 the full local suite passed with `547 passed, 1 skipped`. The skip is the
 Postgres optional-driver negative test when `psycopg2` is installed locally.
 

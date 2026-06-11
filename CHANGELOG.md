@@ -4,6 +4,24 @@
 
 No unreleased changes.
 
+## v0.7.2 - 2026-06-11
+
+### Fixed
+
+- Fixed GitHub Actions `pip-audit` invocation by using the installed console
+  script instead of an invalid `python -m pip-audit` module call.
+- Fixed the authenticated ZAP CI sidecar startup by explicitly opting the CI
+  scan into volatile memory storage with `PRAMAGENT_ALLOW_MEMORY_STORE=1`.
+- Raised dependency floors for `aiohttp` and `python-multipart` to avoid newly
+  published parser advisories in the default resolver path.
+
+### Verified
+
+- `python -m pytest -q --tb=short` -> `547 passed, 1 skipped`.
+- Bandit -> no issues identified.
+- Semgrep `p/security-audit` + `p/python` -> `0 findings`.
+- Dynamic red-team smoke -> `200/200 caught`, `0` false positives.
+
 ## v0.7.1 - 2026-06-11
 
 ### Fixed

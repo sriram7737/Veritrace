@@ -81,6 +81,7 @@ jobs:
           PRAMAGENT_API_KEYS: default:ci-test-key
           PRAMAGENT_JWT_SECRET: ci-jwt-secret-change-me
           PRAMAGENT_SIGNING_KEY: ci-signing-key-change-me
+          PRAMAGENT_ALLOW_MEMORY_STORE: "1"
         run: |
           mkdir -p security-artifacts
           python -m uvicorn pramagent.api.app:app --host 0.0.0.0 --port 8080 &
