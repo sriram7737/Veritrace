@@ -15,7 +15,8 @@ import random
 import re
 from typing import Callable
 
-from .classifier import build_classifier
+from .classifier import build_classifier, build_safety_classifier
+from .types import Verdict
 
 
 DEFAULT_ATTACKS = [
@@ -371,7 +372,14 @@ def run_injection_benchmark(
     mode: str = "static",
     seed: int | None = None,
 ) -> RedTeamReport:
-    clf = classifier or build_classifier(force_keyword_only=force_keyword_only)
+    if classifier is None:
+        injection_clf = build_classifier(force_keyword_only=force_keyword_only)
+        safety_clf = build_safety_classifier(force_keyword_only=force_keyword_only)
+
+        def clf(prompt: str) -> bool:
+            return injection_clf(prompt) or safety_clf(prompt) == Verdict.BLOCK
+    else:
+        clf = classifier
     attack_set = attacks or DEFAULT_ATTACKS
     benign_set = benign or DEFAULT_BENIGN
 

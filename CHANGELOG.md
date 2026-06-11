@@ -4,6 +4,41 @@
 
 No unreleased changes.
 
+## v0.7.3 - 2026-06-11
+
+### Fixed
+
+- Fixed `SEC-2026-06-11-01`: compliance email scrubbing no longer runs an
+  unbounded regex over long no-match input before isolation. The isolation byte
+  cap now runs before compliance scrubbing, and email redaction uses bounded
+  `@`-window scanning.
+- Fixed `SEC-2026-06-11-02`: deterministic injection scanning now decodes
+  printable base64-looking tokens and covers authority/developer/tester
+  framing plus translation/indirection wrapper attacks.
+- Fixed the release red-team benchmark path so the broader first-party corpus
+  combines injection and safety classifiers without changing API pipeline
+  ordering. Weapon-construction prompts remain blocked by `SafetyLayer`, not
+  `IsolationLayer`.
+- Added regression corpus entries for base64, translation-wrapper, and
+  authority-framing bypass classes.
+
+### Documentation
+
+- Added `pramagent_security_test_results.md` with the June 11 active security
+  prompt results and remediation status.
+- Refreshed README, implementation status, live test results, red-team results,
+  release checklist, deployment examples, and full-audit notes for v0.7.3.
+
+### Verified
+
+- `python -m pytest tests/test_compliance.py tests/test_isolation.py -q --tb=short`
+  -> `41 passed`.
+- `python -m pytest tests/test_api.py::test_run_blocks_weapon_construction_via_safety_classifier tests/test_classifier.py -q --tb=short`
+  -> `73 passed`.
+- `python -m pramagent.cli redteam --json --dynamic --attacks 200 --seed 999`
+  -> `200/200 caught`, `0` false positives.
+- `python -m pytest tests/ -q --tb=no` -> `558 passed, 1 skipped`.
+
 ## v0.7.2 - 2026-06-11
 
 ### Fixed

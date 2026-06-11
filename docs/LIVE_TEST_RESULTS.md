@@ -1,6 +1,6 @@
 # Live Test Results
 
-Last refreshed: 2026-06-05
+Last refreshed: 2026-06-11
 
 These are release-validation smoke tests using real external services. They are
 not a penetration test, a scale test, or a compliance certification.
@@ -63,12 +63,45 @@ python -m pytest -q --tb=no
 Result:
 
 ```text
-547 passed, 1 skipped
+558 passed, 1 skipped
 ```
 
-Current package regression note: after the v0.7.2 CI/dependency cleanup release,
-the full local suite passed with `547 passed, 1 skipped`. The skip is the
+Current package regression note: after the v0.7.3 security remediation release,
+the full local suite passed with `558 passed, 1 skipped`. The skip is the
 Postgres optional-driver negative test when `psycopg2` is installed locally.
+
+## Active Security Prompt Remediation
+
+Result: **passed after remediation**
+
+Report:
+
+```text
+pramagent_security_test_results.md
+```
+
+Summary:
+
+- Initial active security prompt pass found no Critical or High auth,
+  tenant-isolation, HITL, or audit-chain bypasses.
+- `SEC-2026-06-11-01` exposed long-input CPU DoS in compliance email scrubbing.
+  Commit `085c7b4` fixed it by running the isolation byte cap before scrubbing
+  and by switching email redaction to bounded `@`-window scanning.
+- `SEC-2026-06-11-02` exposed deterministic injection gaps for base64,
+  authority/developer framing, and translation wrappers. Commit `e8392aa` fixed
+  it by decoding printable base64 tokens and adding authority/indirection
+  patterns plus corpus entries.
+- The release red-team gate then exposed benchmark-path gaps for opaque
+  base64-in-wrapper prompts and fictional weapon-construction wrappers. The
+  benchmark now combines injection and safety classifiers for its broader
+  first-party corpus without moving weapon-safety blocking into `IsolationLayer`.
+- Targeted validation: `tests/test_compliance.py tests/test_isolation.py` ->
+  `41 passed`.
+- Classifier/API regression validation:
+  `tests/test_api.py::test_run_blocks_weapon_construction_via_safety_classifier tests/test_classifier.py`
+  -> `73 passed`.
+- Full validation: `python -m pytest tests/ -q --tb=no` ->
+  `558 passed, 1 skipped`.
 
 ## Clean Environment Checks
 

@@ -6,6 +6,14 @@ controls, and third-party validation.
 
 ## What This Pass Added
 
+- v0.7.3 security remediation for the active security prompt:
+  - The isolation input-size cap now runs before compliance regex scrubbing.
+  - Email redaction uses bounded `@`-window scanning to avoid long-input regex
+    CPU DoS.
+  - Isolation decodes printable base64-looking tokens before heuristic scans.
+  - Authority-framing and translation/indirection wrapper probes are now in the
+    deterministic isolation coverage and red-team corpus.
+  - Evidence is tracked in `pramagent_security_test_results.md`.
 - Curated deterministic rule corpora under `pramagent.rules` for jailbreaks,
   OWASP LLM risks, injection payloads, fictional-wrapper bypasses, PHI, and
   financial PII.
@@ -59,7 +67,8 @@ Do next:
 
 - Expand the red-team corpus with third-party jailbreak sets, indirect prompt
   injection, tool-output poisoning, delimiter attacks, and multi-step tool
-  chains.
+  chains. The bundled corpus now includes base64, authority-framing, and
+  translation-wrapper regressions, but this is still first-party coverage.
 - Track bypass rate and false-positive rate per release in
   `docs/REDTEAM_RESULTS.md`.
 - Add an optional stronger semantic judge for high-risk deployments.

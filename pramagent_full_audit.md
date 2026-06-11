@@ -2,7 +2,10 @@
 
 **Auditor:** Principal Engineer (independent review)
 **Date:** 2026-06-09
-**Repo:** `pramagent` (working tree `…/veritrace`), branch `main`, version `0.5.20`
+**Repo:** `pramagent` (working tree `.../veritrace`), branch `main`, original audit version `0.5.20`
+**Current package note:** v0.7.3 includes the v0.7.1 enterprise remediation,
+the v0.7.2 CI/dependency cleanup, and the v0.7.3 security-prompt remediation.
+Current local suite: **558 passed, 1 skipped**.
 **Ground truth:** `docs/Pramagent-Design-Document.docx` (the "ten-layer trust stack" design)
 **Method:** Full read of every Python module in `pramagent/`, `deploy/`, and `tests/`; the
 design document read in full first; runtime verification of the highest-severity findings
@@ -702,3 +705,21 @@ fixed in one change and are listed together.
 **Supersedes the "Known residuals" note above:** the `cap_output` latency marker (P3-5)
 and the unconditional `CONTROL_MAP` attestations (P2-14) named there as open residuals
 are both closed in v0.7.1.
+
+---
+
+## v0.7.3 Security Prompt Remediation Status
+
+Date: 2026-06-11
+
+The active security prompt recorded in `pramagent_security_test_results.md`
+found no Critical or High auth, tenant-isolation, HITL, or audit-chain bypasses.
+It did find two Medium issues, both now closed:
+
+| Finding | Status | Fix | Verification |
+|---|---|---|---|
+| `SEC-2026-06-11-01` ComplianceLayer long-input regex CPU DoS | **RESOLVED** | `core.py` runs the isolation input-size cap before compliance scrubbing; `ComplianceLayer` redacts email through bounded `@`-window scanning instead of applying the email regex over long no-match text | `tests/test_compliance.py`, full suite `558 passed, 1 skipped` |
+| `SEC-2026-06-11-02` deterministic injection coverage gaps | **RESOLVED** | `IsolationLayer` decodes printable base64-looking tokens before scanning and adds authority-framing plus indirection-wrapper patterns; red-team corpus includes base64, translation-wrapper, and authority-framing variants; the release red-team benchmark now combines injection and safety classifiers for the broader first-party corpus | `tests/test_isolation.py`, `tests/test_classifier.py`, full suite `558 passed, 1 skipped` |
+
+This does not change the product maturity claim: Pramagent remains Alpha /
+pilot-ready middleware, not externally certified production infrastructure.

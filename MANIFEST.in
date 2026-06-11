@@ -1,6 +1,7 @@
 include README.md
 include CHANGELOG.md
 include pramagent_full_audit.md
+include pramagent_security_test_results.md
 include test_agent.py
 include test_agent_v2.py
 include examples/demo.py

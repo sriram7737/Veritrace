@@ -44,7 +44,7 @@ from .usage import (
     WebhookUsageSink,
 )
 
-__version__ = "0.7.2"
+__version__ = "0.7.3"
 __all__ = [
     "Pramagent",
     "AgentResponse",

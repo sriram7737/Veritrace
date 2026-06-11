@@ -27,7 +27,7 @@ python -m venv %TEMP%/pramagent-release-venv
 Optional extras install check:
 
 ```bash
-python -m pip install "dist/pramagent-0.7.2-py3-none-any.whl[all]"
+python -m pip install "dist/pramagent-0.7.3-py3-none-any.whl[all]"
 python - <<'PY'
 import anthropic, aiohttp, fastapi, uvicorn, jinja2, httpx, cryptography
 import opentelemetry, redis, psycopg2, web3, boto3
@@ -47,7 +47,7 @@ Confirm the release positioning:
 - README/PyPI long description contains the Alpha maturity notice.
 - README and implementation status call out known limits: Slack-first HITL
   decisions, no SSO/OIDC/RBAC, Sepolia/testnet anchoring maturity, scale/load
-  gaps, and incomplete prompt-injection defense.
+  gaps, and incomplete third-party prompt-injection assurance.
 - Release notes reference `docs/LIVE_TEST_RESULTS.md`.
 - `docs/IMPLEMENTATION_STATUS.md` and `docs/HARDENING_GUIDE.md` are included
   in the built artifacts.
@@ -72,8 +72,9 @@ One-time PyPI project setup:
   compromised push cannot publish without approval.
 
 The publish workflow uses OIDC through `pypa/gh-action-pypi-publish@release/v1`
-with `id-token: write`. Do not add `TWINE_PASSWORD`, `PYPI_API_TOKEN`, or other
-PyPI credentials to this workflow.
+with `id-token: write`. It runs on GitHub Release publish, manual dispatch, or
+`v*` tag push. Do not add `TWINE_PASSWORD`, `PYPI_API_TOKEN`, or other PyPI
+credentials to this workflow.
 
 ## Build
 
@@ -86,14 +87,17 @@ python -m twine check dist/*
 
 ```bash
 git status --short
-git tag -a v0.7.2 -m "v0.7.2"
+git tag -a v0.7.3 -m "v0.7.3"
 git push origin main
-git push origin v0.7.2
+git push origin v0.7.3
 ```
 
-Create a GitHub Release from tag `v0.7.2` and include:
+Create a GitHub Release from tag `v0.7.3` and include:
 
-- Test result: `547 passed, 1 skipped`
+- Test result: `558 passed, 1 skipped`
+- Security prompt remediation result: `SEC-2026-06-11-01` and
+  `SEC-2026-06-11-02` closed in commits `085c7b4` and `e8392aa`; evidence in
+  `pramagent_security_test_results.md`
 - Enterprise audit remediation result: 2 P0, 10 P1, 18 P2, and 20 P3 findings
   closed or explicitly deferred with reasons in `pramagent_full_audit.md`
 - Rule corpus result: 129 importable deterministic rules
@@ -123,8 +127,8 @@ workflow, not local Twine upload.
 Normal release path:
 
 1. Complete the preflight checks above.
-2. Push the release commit and tag.
-3. Create and publish the GitHub Release.
+2. Push the release commit and tag. The `v*` tag starts Trusted Publishing.
+3. Create and publish the GitHub Release for release notes and provenance.
 4. Confirm `.github/workflows/publish.yml` completes successfully.
 5. Verify the PyPI release page and run the post-release smoke check below.
 

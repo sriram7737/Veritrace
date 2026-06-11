@@ -58,6 +58,7 @@ Run ``python -m pramagent.classifier`` to evaluate on built-in test vectors.
 """
 from __future__ import annotations
 
+import base64
 import logging
 import re
 from typing import Callable, Optional
@@ -158,6 +159,9 @@ _FALLBACK_KEYWORDS = [
     r"\b(ignore|disregard|bypass|override)\s+(your\s+)?"
     r"(safety|guidelines?|rules?|polic(?:y|ies))\b",
     r"\bfrom\s+now\s+on\b.{0,80}\b(obey|comply|answer|follow|ignore|bypass|disable)\b",
+    r"\bfor\s+(testing|debugging|debug|development)\s+(purposes?|only)\b"
+    r".{0,100}\b(disable|bypass|ignore|override|remove|turn\s+off)\b"
+    r".{0,100}\b(safety|rules?|guidelines?|polic(?:y|ies)|filters?)\b",
     # Role hijack and persona jailbreaks.
     r"\byou\s+are\s+now\b.{0,60}\b(unrestricted|uncensored|jailbroken|developer\s+mode|debug\s+mode|dan\b)\b",
     r"\byou\s+are\s+no\s+longer\b.{0,60}\bassistant\b.{0,80}\b(hacker|attacker|unrestricted)\b",
@@ -232,6 +236,45 @@ _FALLBACK_KEYWORDS = [
 ]
 _FALLBACK_RX = [re.compile(p, re.IGNORECASE | re.DOTALL) for p in _FALLBACK_KEYWORDS]
 
+_B64_TOKEN = re.compile(r"\b[A-Za-z0-9+/]{24,}={0,2}\b")
+_B64_CONTEXT_RX = re.compile(
+    r"\b(hidden\s+note|tool\s+output|api\s+response\s+metadata|retrieved\s+document|"
+    r"begin\s+tool\s+result|file\s+footer|audit\s+log\s+comment|system\s+transcript\s+fragment|"
+    r"follow\s+this\s+note|base64\s+(payload|instructions?))\b",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _augment_encoded_text(text: str) -> tuple[str, bool]:
+    """Append printable base64 decodes and flag opaque encoded payloads.
+
+    Red-team mutation can wrap encoded instructions in tool-output/document
+    contexts, and can also lowercase the base64 token. Lowercased base64 is no
+    longer decodable, but in those wrapper contexts a long base64-looking token
+    is itself suspicious enough for the zero-dependency fallback classifier.
+    """
+    extras: list[str] = []
+    has_long_token = False
+    for match in _B64_TOKEN.finditer(text):
+        token = match.group()
+        has_long_token = True
+        try:
+            decoded = base64.b64decode(token, validate=True).decode("utf-8")
+        except Exception:
+            continue
+        if decoded.isprintable() and len(decoded) > 8:
+            extras.append(decoded)
+
+    augmented = text
+    if extras:
+        augmented = text + " [DECODED: " + " | ".join(extras) + "]"
+
+    opaque_indirect_payload = has_long_token and (
+        _B64_CONTEXT_RX.search(text) is not None
+        or len(text.strip().split()) <= 8
+    )
+    return augmented, opaque_indirect_payload
+
 
 _SAFETY_BLOCK_KEYWORDS = [
     # Weapon-construction intent. These require procedural/constructive language
@@ -249,6 +292,12 @@ _SAFETY_BLOCK_KEYWORDS = [
     r".{0,120}\b(build|construct|assemble|make|manufacture|blueprint|recipe|instructions?|steps?)\b",
     r"\b(concealable|homemade|improvised|untraceable|undetectable)\b"
     r".{0,90}\b(weapon|firearm|gun|bomb|explosives?)\b",
+    r"\b(fictional|hypothetical|operations?\s+manual|roleplay|story)\b"
+    r".{0,140}\b(step[-\s]?by[-\s]?step|instructions?|guidance|manual|blueprint)\b"
+    r".{0,140}\b(weapon|firearm|gun|bomb|explosives?)\b",
+    r"\b(step[-\s]?by[-\s]?step|instructions?|guidance|manual|blueprint)\b"
+    r".{0,120}\b(weapon\s+construction|construct(?:ing|ion)?\s+(a\s+)?weapon|"
+    r"weapon|firearm|gun|bomb|explosives?)\b",
     # Controlled-substance / chemical weapon synthesis intent. Require a
     # procedural verb near the target substance so educational chemistry
     # questions continue to pass.
@@ -302,7 +351,11 @@ class KeywordFallbackClassifier:
     with more patterns. Use as a pre-filter or standalone fallback."""
 
     def __call__(self, text: str) -> bool:
-        return any(rx.search(text) for rx in _FALLBACK_RX)
+        scan_text, opaque_payload = _augment_encoded_text(text)
+        return (
+            opaque_payload
+            or any(rx.search(scan_text) for rx in _FALLBACK_RX)
+        )
 
 
 # ── embedding classifier ──────────────────────────────────────────────────────

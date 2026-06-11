@@ -1,6 +1,6 @@
 # Pramagent — Current Implementation Status
 
-_Last updated after the 2026-06-11 v0.7.2 CI/dependency cleanup release._
+_Last updated after the 2026-06-11 v0.7.3 security remediation release._
 
 This document is deliberately blunt. Pramagent is **strong trust middleware for
 AI agents** — deterministic guardrails, HITL, tool policy, and tamper-evident
@@ -13,7 +13,7 @@ exist.
 
 ## Test status
 
-`python -m pytest -q --tb=short` -> **547 passing, 1 skipped**. The skip is
+`python -m pytest -q --tb=short` -> **558 passing, 1 skipped**. The skip is
 the Postgres optional-driver negative test when `psycopg2` is installed
 locally; there are no expected failures hiding classifier misses in the bundled
 suite.
@@ -50,9 +50,12 @@ Actions is configured to run the same suite on Python 3.10, 3.11, 3.12, and
   financial PII. Current total: 129 importable `Rule` objects.
 - Framework adapters under `pramagent.adapters`: LangGraph node, AutoGen hook,
   CrewAI guard, and generic `protect` / `protect_tool` helpers.
-- PII scrubbing (context-guarded patterns)
+- PII scrubbing (context-guarded patterns, bounded email handler, and
+  pre-scrub input-size cap)
 - Deterministic safety rule engine (pre/post, precedence veto)
-- Isolation heuristics + size caps + tenant/session-scoped memory
+- Isolation heuristics + size caps + tenant/session-scoped memory, including
+  decoded-base64 scanning, authority-framing patterns, and indirection-wrapper
+  patterns
 - **ToolGuardLayer** — Draft 2020-12 JSON Schema validation via `jsonschema`,
   arg-injection scan, output exfil scan, side-effect taxonomy, dangerous-chain
   detection, Redis/back-end-backed side-effect history and session call counters,
@@ -122,7 +125,8 @@ Actions is configured to run the same suite on Python 3.10, 3.11, 3.12, and
   broader enterprise approval workflows, admin queue UX, and owner rotation are
   not complete.
 - Prompt-injection defense: the bundled deterministic corpora and seeded
-  dynamic mutation smoke tests help, but the embedding classifier is optional
+  dynamic mutation smoke tests now include base64, translation-wrapper, and
+  authority-framing regressions, but the embedding classifier is optional
   (needs `sentence-transformers`); third-party and novel red-team sets are
   still required before high-stakes claims
 - Multi-process scaling — Redis backend exists and ToolGuard chain state can be
@@ -144,6 +148,25 @@ Actions is configured to run the same suite on Python 3.10, 3.11, 3.12, and
 - Pilot-user production deployments
 
 ## Latest Workflow Evidence
+
+2026-06-11 v0.7.3 security remediation:
+
+- Active security prompt found two Medium issues and no Critical/High auth,
+  tenant-isolation, HITL, or audit-chain bypasses.
+- `SEC-2026-06-11-01` fixed: the isolation input-size cap now runs before
+  compliance scrubbing, and email redaction uses bounded `@`-window scanning
+  instead of running a regex across long no-match text. The 262 KiB no-match
+  scrub regression is covered by `test_scrub_long_no_match_completes_fast`.
+- `SEC-2026-06-11-02` fixed: isolation now decodes printable base64-looking
+  tokens before heuristic scanning and adds authority-framing plus indirection
+  wrapper patterns. Regression tests cover base64, developer/admin/tester
+  framing, and translation wrappers.
+- Release-gate validation caught additional dynamic red-team bypasses in the
+  zero-dependency benchmark path. The red-team runner now combines injection
+  and safety classifiers for its broader corpus, while the API pipeline keeps
+  weapon-construction blocking in `SafetyLayer` rather than `IsolationLayer`.
+- Local verification after remediation: **558 passed, 1 skipped**.
+- Full evidence is in `pramagent_security_test_results.md`.
 
 2026-06-11 v0.7.2 CI/dependency cleanup:
 

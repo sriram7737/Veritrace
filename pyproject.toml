@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pramagent"
-version = "0.7.2"
+version = "0.7.3"
 description = "Alpha agent trust middleware: audit trails, safety guardrails, HITL, and tool validation"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -83,7 +83,7 @@ include-package-data = true
 "deploy.dashboard" = ["templates/*.html"]
 
 [tool.setuptools.data-files]
-"share/pramagent" = ["README.md", "CHANGELOG.md", "pramagent_full_audit.md"]
+"share/pramagent" = ["README.md", "CHANGELOG.md", "pramagent_full_audit.md", "pramagent_security_test_results.md"]
 "share/pramagent/docs" = [
     "docs/IMPLEMENTATION_STATUS.md",
     "docs/HARDENING_GUIDE.md",

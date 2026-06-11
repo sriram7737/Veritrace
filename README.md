@@ -35,6 +35,8 @@ or third-party-validated safety from the bundled benchmarks alone. Read
 [Live test results](https://github.com/sriram7737/pramagent/blob/main/docs/LIVE_TEST_RESULTS.md), and
 [Hardening guide](https://github.com/sriram7737/pramagent/blob/main/docs/HARDENING_GUIDE.md)
 before using it in a customer-facing pilot.
+The June 11 active security prompt results are tracked in
+[Security test results](https://github.com/sriram7737/pramagent/blob/main/pramagent_security_test_results.md).
 
 ## Bare Install Quickstart
 
@@ -111,7 +113,7 @@ pramagent redteam --json --attacks 100
 pramagent redteam --json --dynamic --attacks 200 --seed 999
 ```
 
-Current local result: `547 passed, 1 skipped`.
+Current local result: `558 passed, 1 skipped`.
 
 ## ToolGuard Example
 
@@ -303,13 +305,13 @@ and PCI DSS. This is engineering evidence, not a certification.
 | ToolGuard | Strong MVP | Draft 2020-12 JSON Schema, allow-lists, side-effect taxonomy, output scanning, Redis-backed chain state |
 | HITL | Beta | Slack callbacks, persistent SQLite/Postgres queues, quorum/escalation primitives, ServiceNow/PagerDuty/email/webhook notifiers |
 | Audit trail | Strong MVP | SHA-256 hash chain; optional real Sepolia anchoring |
-| PII redaction | Strong MVP | Context-aware patterns for common regulated data |
+| PII redaction | Strong MVP | Context-aware patterns for common regulated data; bounded email scrubbing avoids long-input regex DoS |
 | Auth/rate limits/quotas | Beta | JWT/API keys, token buckets, per-tenant quotas |
 | Framework adapters | MVP | LangGraph node, AutoGen hook, CrewAI guard, generic protect/protect_tool helpers |
 | Dashboard | Prototype | Shared-key fallback, optional SQL users with generated keys, tenant scoping, traces, approvals, metrics, usage page, CSRF |
 | Redis/Postgres backends | Beta | Wired and tested locally; needs scale/load testing |
 | OpenTelemetry | Partial | Per-layer spans exist; dashboards and alerting need hardening |
-| Red-team benchmark | MVP | Static and dynamic mutation modes with bypass/false-positive rates |
+| Red-team benchmark | MVP | Static and dynamic mutation modes; includes base64, translation-wrapper, and authority-framing regressions |
 | Billing hooks | MVP | In-memory hash-chain usage ledger plus fail-open webhook; no Stripe/Chargebee provider yet |
 | S3 cold archive | MVP | Gzip + encrypted trace archive wrapper; metadata sink hook |
 | Compliance evidence | MVP | `ComplianceReporter.generate()` for JSON/text/PDF-style evidence packages |
@@ -338,8 +340,9 @@ The reusable reviewer prompt for this is in
 ## Honest Limits
 
 - Prompt-injection defense is not complete. The bundled static corpus and
-  seeded dynamic mutation smoke tests now pass, but the embedding classifier is
-  optional and the project still needs larger third-party red-team sets.
+  seeded dynamic mutation smoke tests now include base64, translation-wrapper,
+  and authority-framing regressions, but the embedding classifier is optional
+  and the project still needs larger third-party red-team sets.
 - ToolGuard is a hard policy gate outside the model, but it is not a sandbox.
 - ToolGuard chain detection and per-session call limits are per-process unless
   a shared Redis backend is configured (`PRAMAGENT_TOOL_GUARD_REDIS_URL` or
@@ -393,6 +396,7 @@ metrics, and per-tenant usage.
 - [Implementation status](https://github.com/sriram7737/pramagent/blob/main/docs/IMPLEMENTATION_STATUS.md)
 - [Live test results](https://github.com/sriram7737/pramagent/blob/main/docs/LIVE_TEST_RESULTS.md)
 - [Hardening guide](https://github.com/sriram7737/pramagent/blob/main/docs/HARDENING_GUIDE.md)
+- [Security test results](https://github.com/sriram7737/pramagent/blob/main/pramagent_security_test_results.md)
 - [More documentation](https://github.com/sriram7737/pramagent/tree/main/docs)
 
 ## Author
