@@ -104,8 +104,12 @@ class Settings:
         # ── networking / backends ──────────────────────────────────────────────
         self.redis_url: str = _env(
             "PRAMAGENT_REDIS_URL", "redis://localhost:6379/0")
-        self.postgres_dsn: str = _env(
-            "PRAMAGENT_POSTGRES_DSN", "postgresql://pramagent:pramagent@localhost/pramagent")
+        # No phantom default DSN: an unset PRAMAGENT_POSTGRES_DSN means "not
+        # configured", never "assume localhost with a guessable password".
+        self.postgres_dsn: str = _env("PRAMAGENT_POSTGRES_DSN", "")
+        # Store selection (priority: postgres_dsn > db_path > opt-in memory).
+        self.db_path: str = _env("PRAMAGENT_DB", "")
+        self.allow_memory_store: bool = _env_bool("PRAMAGENT_ALLOW_MEMORY_STORE", False)
 
         # ── isolation / safety ────────────────────────────────────────────────
         self.max_input_bytes: int  = _env_int("PRAMAGENT_MAX_INPUT_BYTES",  64 * 1024)
@@ -165,15 +169,21 @@ class Settings:
 
     def validate(self) -> list[str]:
         """Return list of configuration warnings. Empty = all good."""
+        from .security import WEAK_SECRET_DENYLIST
+
         warnings = []
         if not self.api_key:
             warnings.append("PRAMAGENT_API_KEY is not set — API is unauthenticated")
-        if self.jwt_secret == "change-me-in-production":  # nosec B105
-            warnings.append("PRAMAGENT_JWT_SECRET is using the default value — insecure in production")
+        if self.jwt_secret.lower() in WEAK_SECRET_DENYLIST:
+            warnings.append("PRAMAGENT_JWT_SECRET is using a published default value — insecure in production")
         if not self.signing_key:
             warnings.append("PRAMAGENT_SIGNING_KEY is not set — audit chain cannot be verified")
         if not self.redis_url.startswith("redis"):
             warnings.append("PRAMAGENT_REDIS_URL does not look like a Redis URL")
+        if not self.postgres_dsn and not self.db_path and not self.allow_memory_store:
+            warnings.append(
+                "no persistent store configured — set PRAMAGENT_POSTGRES_DSN or "
+                "PRAMAGENT_DB (or PRAMAGENT_ALLOW_MEMORY_STORE=1 for dev only)")
         return warnings
 
     def redis_backend(self):

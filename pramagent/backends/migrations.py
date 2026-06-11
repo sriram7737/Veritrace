@@ -170,3 +170,48 @@ MIGRATIONS: list[Migration] = [
         up_sql="CREATE INDEX IF NOT EXISTS idx_traces_tenant ON traces(tenant_id, session_id)",
     ),
 ]
+
+
+# Postgres-flavoured migrations. Versions 1-2 mirror PostgresStore's bootstrap
+# DDL; version 3 re-keys pre-0.7.1 rows from this_hash to call_id — the v0.7.1
+# protocol fix (P1-6/T2-3) keys pramagent_traces.trace_id by the payload's
+# call_id so /v1/trace/{call_id} can find rows written by older releases.
+
+MIGRATIONS_PG: list[Migration] = [
+    Migration(
+        version=1,
+        name="create_pramagent_traces",
+        up_sql=(
+            "CREATE TABLE IF NOT EXISTS pramagent_traces ("
+            " id BIGSERIAL PRIMARY KEY,"
+            " tenant_id TEXT NOT NULL,"
+            " session_id TEXT NOT NULL,"
+            " trace_id TEXT NOT NULL UNIQUE,"
+            " payload JSONB NOT NULL,"
+            " created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+        ),
+    ),
+    Migration(
+        version=2,
+        name="create_pramagent_chain",
+        up_sql=(
+            "CREATE TABLE IF NOT EXISTS pramagent_chain ("
+            " id BIGSERIAL PRIMARY KEY,"
+            " this_hash TEXT NOT NULL UNIQUE,"
+            " prev_hash TEXT NOT NULL,"
+            " payload JSONB NOT NULL,"
+            " anchor_tx TEXT NOT NULL DEFAULT '',"
+            " created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+        ),
+    ),
+    Migration(
+        version=3,
+        name="key_traces_by_call_id",
+        up_sql=(
+            "UPDATE pramagent_traces"
+            " SET trace_id = payload->>'call_id'"
+            " WHERE payload->>'call_id' IS NOT NULL"
+            " AND trace_id IS DISTINCT FROM payload->>'call_id'"
+        ),
+    ),
+]

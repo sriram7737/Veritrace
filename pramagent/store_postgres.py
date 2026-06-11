@@ -39,6 +39,8 @@ from typing import Any, List, Optional
 
 log = logging.getLogger(__name__)
 
+GENESIS = "0" * 64
+
 
 class PostgresUnavailable(RuntimeError):
     """Raised when Postgres is configured but unreachable or misconfigured."""
@@ -235,7 +237,9 @@ class _PostgresBase:
         self._base_delay_s = base_delay_s
         self._breaker = _CircuitBreaker(threshold=breaker_threshold, cooldown_s=breaker_cooldown_s)
         self._head_lock = threading.Lock()
-        self._head = "0" * 64
+        self._head = GENESIS
+        # prev of the most recent append — core records it on the trace
+        self.last_prev_hash = GENESIS
 
     @classmethod
     def from_dsn(
@@ -333,14 +337,20 @@ class PostgresStore(_PostgresBase):
     """PostgreSQL-backed Store + HashChainBackend.
 
     Implements both interfaces so a single instance can be passed as both
-    ``store=db`` and ``audit=db`` to Pramagent.
+    ``store=db`` and ``audit=db`` to Pramagent. Conforms to the same
+    ``TraceStore`` protocol as SQLiteStore (call_id keying, TraceEvent
+    returns, KeyError/PermissionError semantics) and uses the same
+    ``canonical_hash(payload, prev)`` chained hashing, so the tamper-evidence
+    guarantee is identical on the production backend (T2-3 / P1-6).
     """
 
     # ── Store interface ───────────────────────────────────────────────────
 
     def save(self, trace) -> None:
         payload = trace.to_dict() if hasattr(trace, "to_dict") else vars(trace)
-        trace_id = payload.get("this_hash") or payload.get("input_hash", "")
+        # Rows are keyed by call_id — the id the API fetches by — never by
+        # this_hash (which the chain redaction may legitimately rewrite).
+        trace_id = payload.get("call_id") or payload.get("this_hash", "")
 
         def _fn(conn, cur):
             cur.execute(
@@ -358,12 +368,63 @@ class PostgresStore(_PostgresBase):
             )
         self._run(_fn)
 
-    def get(self, trace_id: str) -> Optional[dict]:
+    def get(self, trace_id: str, tenant_id: Optional[str] = None):
+        """Fetch one trace by call_id.
+
+        Raises KeyError when missing and PermissionError on tenant mismatch —
+        the contract _fetch_trace() in the API maps onto 404-not-403.
+        """
         def _fn(conn, cur):
             cur.execute("SELECT payload FROM pramagent_traces WHERE trace_id = %s", (trace_id,))
             row = cur.fetchone()
             return _as_dict(row[0]) if row else None
-        return self._run(_fn)
+        payload = self._run(_fn)
+        if payload is None:
+            raise KeyError(trace_id)
+        if tenant_id is not None and payload.get("tenant_id") != tenant_id:
+            raise PermissionError(
+                f"trace {trace_id} does not belong to tenant {tenant_id}")
+        from .types import TraceEvent
+        return TraceEvent.from_dict(payload)
+
+    def list_all(self, limit: Optional[int] = None):
+        """Return traces oldest-first (most recent N when limit is given)."""
+        def _fn(conn, cur):
+            if limit is not None:
+                cur.execute(
+                    "SELECT payload FROM pramagent_traces ORDER BY created_at DESC LIMIT %s",
+                    (int(limit),),
+                )
+            else:
+                cur.execute(
+                    "SELECT payload FROM pramagent_traces ORDER BY created_at ASC")
+            return [_as_dict(r[0]) for r in cur.fetchall()]
+        rows = self._run(_fn)
+        if limit is not None:
+            rows.reverse()
+        from .types import TraceEvent
+        return [TraceEvent.from_dict(r) for r in rows]
+
+    def list_by_tenant(self, tenant_id: str, session_id: Optional[str] = None,
+                       limit: int = 100):
+        """Tenant-scoped listing returning TraceEvents (same shape as SQLiteStore)."""
+        def _fn(conn, cur):
+            if session_id:
+                cur.execute(
+                    "SELECT payload FROM pramagent_traces"
+                    " WHERE tenant_id = %s AND session_id = %s"
+                    " ORDER BY created_at DESC LIMIT %s",
+                    (tenant_id, session_id, int(limit)),
+                )
+            else:
+                cur.execute(
+                    "SELECT payload FROM pramagent_traces WHERE tenant_id = %s"
+                    " ORDER BY created_at DESC LIMIT %s",
+                    (tenant_id, int(limit)),
+                )
+            return [_as_dict(r[0]) for r in cur.fetchall()]
+        from .types import TraceEvent
+        return [TraceEvent.from_dict(r) for r in self._run(_fn)]
 
     def list_for_tenant(self, tenant_id: str, limit: int = 100) -> List[dict]:
         def _fn(conn, cur):
@@ -373,6 +434,13 @@ class PostgresStore(_PostgresBase):
             )
             return [_as_dict(r[0]) for r in cur.fetchall()]
         return self._run(_fn)
+
+    def ping(self) -> bool:
+        """O(1) connectivity check for readiness probes."""
+        def _fn(conn, cur):
+            cur.execute("SELECT 1")
+            return True
+        return bool(self._run(_fn))
 
     def delete_for_tenant(self, tenant_id: str) -> int:
         """GDPR erasure: delete the tenant's trace rows AND tombstone its
@@ -385,11 +453,11 @@ class PostgresStore(_PostgresBase):
         return deleted
 
     def redact_for_tenant(self, tenant_id: str) -> int:
-        """Tombstone PII fields in this tenant's chain payloads and recompute
-        the content hashes so verify() still passes without the erased text.
-        Returns the number of payloads redacted."""
-        import hashlib
-        from .audit import redact_chain_payload
+        """Tombstone PII fields in this tenant's chain payloads, then re-anchor:
+        every link from the first redaction onward gets recomputed prev/this
+        hashes (same canonical_hash chaining as SQLiteStore) so verify_chain()
+        still passes without the erased content. Returns payloads redacted."""
+        from .audit import canonical_hash, redact_chain_payload
 
         def _read(conn, cur):
             cur.execute(
@@ -399,45 +467,47 @@ class PostgresStore(_PostgresBase):
         rows = self._run(_read)
 
         redacted = 0
-        rehash = False   # once a payload changes, relink every later row
-        prev = "0" * 64
-        for row_id, this_hash, stored_prev, payload_raw in rows:
+        rehash = False   # once a payload changes, every later row re-hashes
+        prev = GENESIS
+        for row_id, stored_hash, _stored_prev, payload_raw in rows:
             payload = _as_dict(payload_raw)
             if payload.get("tenant_id") == tenant_id and redact_chain_payload(payload):
                 redacted += 1
                 rehash = True
-                blob = json.dumps(payload, sort_keys=True).encode()
-                this_hash = hashlib.sha256(blob).hexdigest()
+            if rehash:
+                new_hash = canonical_hash(payload, prev)
 
                 def _update(conn, cur, *, _id=row_id, _payload=payload,
-                            _hash=this_hash, _prev=prev):
+                            _hash=new_hash, _prev=prev):
                     cur.execute(
                         "UPDATE pramagent_chain SET payload = %s, this_hash = %s,"
                         " prev_hash = %s WHERE id = %s",
                         (json.dumps(_payload), _hash, _prev, _id),
                     )
                 self._run(_update)
-            elif rehash and stored_prev != prev:
-                def _relink(conn, cur, *, _id=row_id, _prev=prev):
-                    cur.execute(
-                        "UPDATE pramagent_chain SET prev_hash = %s WHERE id = %s",
-                        (_prev, _id),
-                    )
-                self._run(_relink)
-            prev = this_hash
+                prev = new_hash
+            else:
+                prev = stored_hash
         if rehash:
             with self._head_lock:
                 self._head = prev
         return redacted
 
-    def prune_older_than(self, cutoff_ts: float) -> int:
-        """Delete traces older than UNIX timestamp cutoff_ts. Returns count deleted."""
+    def prune_older_than(self, cutoff_ts: float, tenant_id: Optional[str] = None) -> int:
+        """Delete traces older than UNIX timestamp cutoff_ts. Returns count deleted.
+
+        When tenant_id is given the prune is scoped to that tenant only."""
         import datetime
-        dt = datetime.datetime.utcfromtimestamp(cutoff_ts).replace(
-            tzinfo=datetime.timezone.utc
-        )
+        dt = datetime.datetime.fromtimestamp(cutoff_ts, tz=datetime.timezone.utc)
+
         def _fn(conn, cur):
-            cur.execute("DELETE FROM pramagent_traces WHERE created_at < %s", (dt,))
+            if tenant_id is None:
+                cur.execute("DELETE FROM pramagent_traces WHERE created_at < %s", (dt,))
+            else:
+                cur.execute(
+                    "DELETE FROM pramagent_traces WHERE created_at < %s AND tenant_id = %s",
+                    (dt, tenant_id),
+                )
             return cur.rowcount
         return self._run(_fn)
 
@@ -448,28 +518,49 @@ class PostgresStore(_PostgresBase):
         with self._head_lock:
             return self._head
 
-    def append(self, payload: dict, prev_hash: str) -> tuple[str, str]:
-        import hashlib
-        blob = json.dumps(payload, sort_keys=True).encode()
-        this_hash = hashlib.sha256(blob).hexdigest()
+    def append(self, payload: dict, prev_hash: Optional[str] = None) -> tuple[str, str]:
+        """Append one chain link.
+
+        The hash material includes prev_hash — canonical_hash(payload, prev) —
+        exactly like SQLiteStore, so deleting or reordering rows breaks every
+        subsequent link (T2-3). `prev` is re-read from the DB inside the
+        transaction with FOR UPDATE, serializing concurrent writers across
+        processes so the chain can never fork (P1-5 / T2-4)."""
+        from .audit import canonical_hash
 
         def _fn(conn, cur):
+            cur.execute(
+                "SELECT this_hash FROM pramagent_chain ORDER BY id DESC LIMIT 1 FOR UPDATE"
+            )
+            row = cur.fetchone()
+            prev = row[0] if row else GENESIS
+            this_hash = canonical_hash(payload, prev)
             cur.execute(
                 """
                 INSERT INTO pramagent_chain (this_hash, prev_hash, payload)
                 VALUES (%s, %s, %s)
                 ON CONFLICT (this_hash) DO NOTHING
                 """,
-                (this_hash, prev_hash, json.dumps(payload)),
+                (this_hash, prev, json.dumps(payload)),
             )
-        self._run(_fn)
+            return prev, this_hash
+        prev, this_hash = self._run(_fn)
 
         with self._head_lock:
+            self.last_prev_hash = prev
             self._head = this_hash
-        return this_hash, ""  # anchor_tx_id placeholder
+        return this_hash, f"postgres:{this_hash[:16]}"
+
+    def verify_chain(self) -> bool:
+        """Walk rows in id order; True only when every this_hash matches
+        canonical_hash(payload, prev) AND stored_prev links to the previous
+        row's this_hash. Same contract as SQLiteStore.verify_chain()."""
+        return not self.verify()
 
     def verify(self) -> list[dict]:
         """Verify hash-chain integrity. Returns list of broken links (empty = ok)."""
+        from .audit import canonical_hash
+
         def _fn(conn, cur):
             cur.execute(
                 "SELECT this_hash, prev_hash, payload FROM pramagent_chain ORDER BY id ASC"
@@ -477,14 +568,15 @@ class PostgresStore(_PostgresBase):
             return cur.fetchall()
         rows = self._run(_fn)
 
-        import hashlib
         broken = []
-        for this_hash, prev_hash, payload_raw in rows:
+        prev = GENESIS
+        for this_hash, stored_prev, payload_raw in rows:
             payload = _as_dict(payload_raw)
-            blob = json.dumps(payload, sort_keys=True).encode()
-            expected = hashlib.sha256(blob).hexdigest()
-            if expected != this_hash:
+            if canonical_hash(payload, prev) != this_hash:
                 broken.append({"this_hash": this_hash, "reason": "hash mismatch"})
+            elif stored_prev != prev:
+                broken.append({"this_hash": this_hash, "reason": "broken prev link"})
+            prev = this_hash
         return broken
 
     # ── compliance export ─────────────────────────────────────────────────

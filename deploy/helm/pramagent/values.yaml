@@ -12,6 +12,10 @@ env:
   PRAMAGENT_RATE_LIMIT_REFILL: "10"
 # Secrets (PRAMAGENT_API_KEY, PRAMAGENT_JWT_SECRET, PRAMAGENT_REDIS_URL, PRAMAGENT_POSTGRES_DSN) come from
 # an existing Kubernetes Secret named below.
+# PRAMAGENT_POSTGRES_DSN is REQUIRED: the API refuses to start without a
+# persistent store (PRAMAGENT_POSTGRES_DSN > PRAMAGENT_DB > explicit
+# PRAMAGENT_ALLOW_MEMORY_STORE=1 dev opt-in). With replicaCount > 1 only the
+# Postgres DSN gives all replicas one shared trace set and one audit chain.
 existingSecret: pramagent-secrets
 postgres:
   enabled: true

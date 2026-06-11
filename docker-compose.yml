@@ -80,6 +80,9 @@ services:
       PRAMAGENT_PORT: "8080"
       PRAMAGENT_LOG_LEVEL: ${PRAMAGENT_LOG_LEVEL:-info}
       PRAMAGENT_REDIS_URL: "redis://:${REDIS_PASSWORD}@redis:6379/0"
+      # Store priority: PRAMAGENT_POSTGRES_DSN > PRAMAGENT_DB > opt-in memory.
+      # The API refuses to start without one of the three (P0-1), so this DSN
+      # is what makes the stack actually persist traces + the audit chain.
       PRAMAGENT_POSTGRES_DSN: "postgresql://${POSTGRES_USER:-pramagent}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-pramagent}"
       PRAMAGENT_API_KEY: ${PRAMAGENT_API_KEY:?PRAMAGENT_API_KEY is required}
       PRAMAGENT_API_KEYS: "default:${PRAMAGENT_API_KEY}"

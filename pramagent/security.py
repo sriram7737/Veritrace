@@ -9,6 +9,35 @@ class UnsafeURLError(ValueError):
     """Raised when a configured outbound URL is not safe to call."""
 
 
+# Every placeholder spelling that has ever shipped in this repo's examples,
+# CI config, or docs. A secret matching any of these is publicly known and
+# therefore forgeable — startup must refuse it (P0-2 / T1-1).
+WEAK_SECRET_DENYLIST = frozenset({
+    "change-me-in-production",
+    "change_me_in_production",
+    "changeme",
+    "change-me",
+    "secret",
+    "password",
+    "default",
+    "ci-jwt-secret-change-me",
+})
+
+
+def assert_strong_secret(name: str, value: str, *, min_len: int = 16) -> None:
+    """Refuse startup when a secret is unset, published, or too short.
+
+    Shared by the API factory and the dashboard so every spelling of the
+    repo's placeholder secrets is rejected by both services.
+    """
+    if not value or value.lower() in WEAK_SECRET_DENYLIST or len(value) < min_len:
+        raise RuntimeError(
+            f"{name} is unset, a published default, or shorter than {min_len} "
+            f"chars; generate one with: python -c "
+            f"\"import secrets; print(secrets.token_urlsafe(32))\""
+        )
+
+
 def _literal_ip(hostname: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
     try:
         return ipaddress.ip_address(hostname)

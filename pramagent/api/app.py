@@ -141,13 +141,29 @@ class TokenResponse(BaseModel):
 
 # ─────────────────────────── default configuration ─────────────────────────
 def build_default_armor() -> Pramagent:
-    """Build from env. Set PRAMAGENT_DB=path.db for persistent traces; unset for in-memory."""
-    db_path = os.environ.get("PRAMAGENT_DB")
-    if db_path:
+    """Build from env. Store priority: PRAMAGENT_POSTGRES_DSN > PRAMAGENT_DB >
+    explicit opt-in volatile memory (PRAMAGENT_ALLOW_MEMORY_STORE=1).
+
+    Refuses to start without one of the three so the reference deployment can
+    never silently boot on a MemoryStore that loses every trace on restart
+    (P0-1 / T1-12)."""
+    dsn = os.environ.get("PRAMAGENT_POSTGRES_DSN", "").strip()
+    db_path = os.environ.get("PRAMAGENT_DB", "").strip()
+    if dsn:
+        from ..store_postgres import PostgresStore
+        db = PostgresStore.from_dsn(dsn)
+        store, audit = db, db          # single object handles both
+    elif db_path:
         db = SQLiteStore(db_path)
         store, audit = db, db          # single object handles both
-    else:
+    elif os.environ.get("PRAMAGENT_ALLOW_MEMORY_STORE", "").lower() in {"1", "true"}:
         store, audit = None, None       # Pramagent defaults to MemoryStore + HashChainBackend
+    else:
+        raise RuntimeError(
+            "no persistent store configured: set PRAMAGENT_POSTGRES_DSN or "
+            "PRAMAGENT_DB, or opt into volatile storage with "
+            "PRAMAGENT_ALLOW_MEMORY_STORE=1 (dev only)"
+        )
 
     slack_approver = build_slack_approver_from_env()
     hitl_timeout = float(os.environ.get("PRAMAGENT_HITL_TIMEOUT_S", "2.0"))
@@ -370,8 +386,16 @@ def create_app(armor: Optional[Pramagent] = None,
         backend=app.state.tool_guard_backend
     )
     app.state.usage = usage_tracker or UsageTracker.from_env()
+    # A configured JWT secret must never be a published placeholder: the repo's
+    # own .env.example values would let anyone forge tenant tokens offline
+    # (P0-2 / T1-1). Unset → per-process random fallback (token issuance is
+    # separately refused in that mode, see issue_token).
+    jwt_secret = os.environ.get("PRAMAGENT_JWT_SECRET", "")
+    if jwt_secret:
+        from ..security import assert_strong_secret
+        assert_strong_secret("PRAMAGENT_JWT_SECRET", jwt_secret)
     app.state.jwt = JWTManager.from_env(
-        fallback_secret=os.environ.get("PRAMAGENT_JWT_SECRET") or secrets.token_urlsafe(32)
+        fallback_secret=jwt_secret or secrets.token_urlsafe(32)
     )
     # Rate limit: capacity tokens per key, refill rate per second.
     # Defaults: 60 requests burst, 1 req/sec sustained per tenant/IP.

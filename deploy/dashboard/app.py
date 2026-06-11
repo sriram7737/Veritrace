@@ -104,17 +104,15 @@ log = logging.getLogger("pramagent.dashboard")
 def validate_dashboard_config() -> None:
     """Refuse to serve with a missing or well-known JWT secret.
 
-    Mirrors ``pramagent.config.Settings.validate()`` for the API: the JWT
-    secret signs every session cookie, so the default value means anyone can
-    forge a super-admin (tenant "*") session.
+    Uses the shared denylist from ``pramagent.security`` so EVERY published
+    placeholder spelling (hyphenated, underscored, "changeme", …) is refused —
+    the previous equality check only caught the hyphenated variant, letting
+    the repo's own ``change_me_in_production`` example value sail through
+    (P0-2 / T1-1). The JWT secret signs every session cookie, so a known
+    secret means anyone can forge a super-admin (tenant "*") session.
     """
-    if not PRAMAGENT_JWT_SECRET or PRAMAGENT_JWT_SECRET == _DEFAULT_JWT_SECRET:
-        raise RuntimeError(
-            "PRAMAGENT_JWT_SECRET is unset or still the default "
-            f"'{_DEFAULT_JWT_SECRET}'. Session cookies signed with a known "
-            "secret are forgeable; set a strong random value before starting "
-            "the dashboard."
-        )
+    from pramagent.security import assert_strong_secret
+    assert_strong_secret("PRAMAGENT_JWT_SECRET", PRAMAGENT_JWT_SECRET)
 
 
 @app.on_event("startup")
