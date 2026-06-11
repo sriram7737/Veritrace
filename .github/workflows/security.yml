@@ -79,8 +79,8 @@ jobs:
         env:
           PRAMAGENT_API_KEY: ci-test-key
           PRAMAGENT_API_KEYS: default:ci-test-key
-          PRAMAGENT_JWT_SECRET: ci-jwt-secret-change-me
-          PRAMAGENT_SIGNING_KEY: ci-signing-key-change-me
+          PRAMAGENT_JWT_SECRET: pramagent-ci-jwt-secret-v0-7-zap-6b43f1e98bd04dc6
+          PRAMAGENT_SIGNING_KEY: pramagent-ci-signing-key-v0-7-zap-91e4dbf7c2504bb8
           PRAMAGENT_ALLOW_MEMORY_STORE: "1"
         run: |
           mkdir -p security-artifacts
