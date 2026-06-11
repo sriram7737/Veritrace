@@ -427,7 +427,12 @@ def test_unversioned_hitl_decide_blocks_cross_tenant(auth_client):
                         json={"approved": True},
                         headers={"Authorization": f"Bearer {key_b}"})
     assert cross.status_code == 404
-    assert registry._pending[pending.request_id].decision is None
+    # the request must still be pending — asserted through the public API,
+    # not the registry's private state (P3-17)
+    still_pending = client.get(
+        "/hitl/pending",
+        headers={"Authorization": f"Bearer {key_a}"}).json()["items"]
+    assert any(p["request_id"] == pending.request_id for p in still_pending)
     own = client.post(f"/hitl/{pending.request_id}/decide",
                       json={"approved": True},
                       headers={"Authorization": f"Bearer {key_a}"})

@@ -496,7 +496,12 @@ def create_app(armor: Optional[Pramagent] = None,
         refill_per_sec=float(os.environ.get("PRAMAGENT_RCA_RATE_PER_SEC", "0.2")),
     )
 
-    def require_tenant(request: Request = None,
+    # P3-1: the old `request: Request = None` annotation lied about
+    # nullability. FastAPI special-cases the bare Request annotation (it is
+    # not a Pydantic field, so Optional[...] is rejected) and always injects
+    # the request for dependencies — the truthful signature is a required,
+    # non-Optional Request with no default.
+    def require_tenant(request: Request,
                        authorization: Optional[str] = Header(None)) -> str:
         """Resolve the tenant for this request and apply rate limiting.
 
@@ -971,5 +976,10 @@ def create_app(armor: Optional[Pramagent] = None,
     return app
 
 
-# Module-level ASGI app: uvicorn pramagent.api.app:app
-app = create_app()
+# Preferred: factory pattern, which defers env parsing and classifier builds
+# to server start instead of module import (P3-2):
+#     uvicorn pramagent.api.app:create_app --factory
+# The module-level `app` is kept for back-compat (uvicorn pramagent.api.app:app)
+# behind an opt-out switch.
+if os.environ.get("PRAMAGENT_EAGER_APP", "1") == "1":
+    app = create_app()

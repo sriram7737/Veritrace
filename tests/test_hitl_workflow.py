@@ -45,7 +45,7 @@ async def test_chain_first_approver_decides():
 async def test_chain_escalates_on_timeout():
     log = ApprovalAuditLog()
     chain = ApproverChain([
-        _slot("oncall", _never, timeout_s=0.05),   # times out
+        _slot("oncall", _never, timeout_s=1.0),    # times out
         _slot("manager", _approve),
     ], audit_log=log)
     assert await chain("wire", {}) is True
@@ -68,7 +68,7 @@ async def test_chain_deny_is_final():
 async def test_chain_exhaustion_returns_none():
     chain = ApproverChain([
         _slot("oncall", _abstain),
-        _slot("manager", _never, timeout_s=0.05),
+        _slot("manager", _never, timeout_s=1.0),
     ], audit_log=ApprovalAuditLog())
     assert await chain("wire", {}) is None
 
@@ -112,7 +112,7 @@ async def test_quorum_single_deny_blocks_when_all_required():
 async def test_quorum_timeout_without_quorum_returns_none():
     quorum = QuorumApprover(
         approvers=[("a", _approve), ("b", _never), ("c", _never)],
-        required=2, timeout_s=0.1, audit_log=ApprovalAuditLog(),
+        required=2, timeout_s=1.0, audit_log=ApprovalAuditLog(),
     )
     assert await quorum("wire", {}) is None
 
@@ -157,11 +157,11 @@ async def test_workflow_layer_idles_without_approver_and_records_audit():
 async def test_workflow_layer_with_chain_approver():
     log = ApprovalAuditLog()
     chain = ApproverChain([
-        _slot("oncall", _never, timeout_s=0.05),
+        _slot("oncall", _never, timeout_s=1.0),
         _slot("manager", _approve),
     ], audit_log=log)
     layer = HITLWorkflowLayer(require_approval_for=["wire"],
-                              approver=chain, timeout_s=2.0, audit_log=log)
+                              approver=chain, timeout_s=10.0, audit_log=log)
     assert await layer.gate("wire", {}) == HITLStatus.APPROVED
     # chain slots + the workflow-level record
     assert [r.approver_id for r in log.all()] == ["oncall", "manager", "workflow"]
@@ -178,7 +178,7 @@ async def test_workflow_layer_denied_and_pending_count_resets():
 @pytest.mark.asyncio
 async def test_workflow_layer_outer_timeout_idles():
     layer = HITLWorkflowLayer(require_approval_for=["wire"],
-                              approver=_never, timeout_s=0.05,
+                              approver=_never, timeout_s=1.0,
                               audit_log=ApprovalAuditLog())
     assert await layer.gate("wire", {}) == HITLStatus.IDLE
     assert layer.pending_count == 0

@@ -240,7 +240,15 @@ class ComplianceReporter:
     def build(self, *, tenant_id: Optional[str] = None,
               framework: str = "EU_AI_ACT") -> dict:
         """Return a structured compliance report as a dict (JSON-serialisable)."""
-        stats = self._trace_stats(tenant_id)
+        # A store outage must never yield a report silently asserting zero
+        # traces as signed evidence (P3-12) — the failure is stamped into
+        # the report so an auditor sees it.
+        store_error = ""
+        try:
+            stats = self._trace_stats(tenant_id)
+        except Exception as exc:
+            stats = {"total": 0, "tenant": 0}
+            store_error = repr(exc)[:200]
         consents = (self.consent.for_tenant(tenant_id) if tenant_id
                     else [r for recs in [self.consent.for_tenant(t)
                           for t in {k[0] for k in self.consent._records}]
@@ -257,6 +265,7 @@ class ComplianceReporter:
                 "hash_chain_verified": self._chain_valid(),
                 "trace_records_total": stats["total"],
                 "trace_records_tenant": stats["tenant"],
+                **({"store_error": store_error} if store_error else {}),
             },
             "retention": {
                 "retention_days": self.retention.retention_days,
@@ -386,13 +395,13 @@ class ComplianceReporter:
     def _traces_in_window(self, period_start: Optional[float],
                           period_end: Optional[float],
                           tenant_id: Optional[str]) -> list:
-        """Return traces in the requested period (and tenant scope)."""
+        """Return traces in the requested period (and tenant scope).
+
+        Store failures propagate — collect_evidence stamps them into the
+        evidence package instead of silently reporting zero traces (P3-12)."""
         if self.store is None:
             return []
-        try:
-            traces = self.store.list_all()
-        except Exception:
-            return []
+        traces = self.store.list_all()
         ps = period_start if period_start is not None else 0.0
         pe = period_end if period_end is not None else time.time() + 1
         out = []
@@ -433,7 +442,12 @@ class ComplianceReporter:
         """Gather the raw evidence payload (used by ``generate``)."""
         ps = self._parse_period(period_start)
         pe = self._parse_period(period_end)
-        traces = self._traces_in_window(ps, pe, tenant_id)
+        store_error = ""
+        try:
+            traces = self._traces_in_window(ps, pe, tenant_id)
+        except Exception as exc:
+            traces = []
+            store_error = repr(exc)[:200]
 
         blocked = []
         approvals = []
@@ -488,6 +502,7 @@ class ComplianceReporter:
             "redaction_total": sum(redaction_counts.values()),
             "chain_verified": self._chain_valid(),
             "controls": controls_rows,
+            **({"store_error": store_error} if store_error else {}),
         }
 
     def generate(self, *, framework: str = "SOC2",

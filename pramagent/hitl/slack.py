@@ -155,7 +155,16 @@ class SlackApprovalRegistry:
         return request.decision
 
     def decide(self, request_id: str, approved: bool) -> bool:
-        # Signal via backend (visible to all workers).
+        # "Found" means this process knows the request OR the shared backend
+        # still holds it (created by another worker). An unknown/expired id
+        # now genuinely reports not-found, so the Slack "expired" reply path
+        # is reachable (P3-10).
+        known_in_backend = False
+        try:
+            known_in_backend = self._backend.get(f"hitl:{request_id}") is not None
+        except Exception:
+            known_in_backend = False
+        # Signal via backend (visible to all workers; harmless for unknown ids).
         self._backend.signal(f"hitl:decision:{request_id}", int(approved))
         self._backend.delete(f"hitl:{request_id}")
         # Also resolve in-process for same-process callbacks.
@@ -164,8 +173,7 @@ class SlackApprovalRegistry:
             request.decision = approved
             request.event.set()
             return True
-        # Request came in on a different worker — that's fine.
-        return True
+        return known_in_backend
 
     def discard(self, request_id: str) -> None:
         self._pending.pop(request_id, None)

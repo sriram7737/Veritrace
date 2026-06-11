@@ -186,7 +186,7 @@ class RCAEngine:
             f"  cost=${t.provider_cost_usd:.6f}  fallback={t.used_fallback}",
             f"pre_verdict={t.pre_verdict}  post_verdict={t.post_verdict}  hitl={t.hitl_status}",
             f"pii_redactions={t.pii_redactions}",
-            "rules_fired=" + ", ".join(r.rule_id for r in t.rules_evaluated if r.fired) or "rules_fired=(none)",
+            "rules_fired=" + (", ".join(r.rule_id for r in t.rules_evaluated if r.fired) or "(none)"),
             f"chain: prev={t.prev_hash[:12]}… -> this={t.this_hash[:12]}…  anchor={t.anchor_tx_id}",
             "decision path: " + " -> ".join(e.layer for e in t.layer_events),
         ]

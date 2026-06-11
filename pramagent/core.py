@@ -357,10 +357,11 @@ class Pramagent:
                 output, _ = self.compliance.scrub(output)
 
             # 5b) Output size cap
+            t0 = time.perf_counter()
             output, was_truncated = self.isolation.truncate_output(output)
             if was_truncated:
                 mark("IsolationLayer.cap_output", "truncated",
-                     f"capped at {self.isolation.max_output_bytes}B", time.perf_counter())
+                     f"capped at {self.isolation.max_output_bytes}B", t0)
 
             # 5c) ToolGuard output validation — exfiltration scan (AWS keys,
             # private keys, JWTs, …) on the provider output, plus output

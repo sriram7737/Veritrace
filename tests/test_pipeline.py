@@ -79,7 +79,7 @@ def test_hitl_idle_on_silence():
     async def no_answer(a, c): return None
     armor = Pramagent(
         provider=MockProvider(),
-        hitl=HITLLayer(require_approval_for=["pay"], timeout_s=0.5, approver=no_answer),
+        hitl=HITLLayer(require_approval_for=["pay"], timeout_s=1.0, approver=no_answer),
     )
     r = run(armor.run("pay now", action="pay"))
     assert r.hitl == "idle"

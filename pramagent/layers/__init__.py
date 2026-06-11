@@ -300,6 +300,10 @@ class HITLLayer:
         self.store = store
         self.poll_interval_s = max(0.05, float(poll_interval_s))
         self.on_enqueue = on_enqueue  # notification hook (Slack, email, etc.)
+        # Operational counter (P3-11): a notification outage leaves queued
+        # approvals invisible to humans until timeout — surface it as a
+        # number ops can alert on, not only a log line.
+        self.enqueue_notify_failures = 0
 
     def is_consequential(self, action: str) -> bool:
         return action in self.require_approval_for
@@ -346,9 +350,12 @@ class HITLLayer:
             try:
                 await self.on_enqueue(req.request_id, action, context)
             except Exception as exc:
+                self.enqueue_notify_failures += 1
                 log.warning(
-                    "HITL enqueue notification failed for request %s: %s",
+                    "HITL enqueue notification failed for request %s "
+                    "(failure #%d): %s",
                     req.request_id,
+                    self.enqueue_notify_failures,
                     exc,
                 )
 

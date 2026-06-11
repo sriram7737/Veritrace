@@ -363,44 +363,28 @@ class UsageTracker:
     @classmethod
     def from_env(cls, *, backend: Optional[Any] = None) -> "UsageTracker":
         limits = UsageLimits(
-            max_calls=_env_int_optional("PRAMAGENT_QUOTA_CALLS", "PRAMAGENT_QUOTA_CALLS"),
-            max_tool_validations=_env_int_optional(
-                "PRAMAGENT_QUOTA_TOOL_VALIDATIONS", "PRAMAGENT_QUOTA_TOOL_VALIDATIONS"
-            ),
-            max_cost_usd=_env_float_optional(
-                "PRAMAGENT_QUOTA_COST_USD", "PRAMAGENT_QUOTA_COST_USD"
-            ),
-            window_s=_env_int_optional(
-                "PRAMAGENT_QUOTA_WINDOW_S", "PRAMAGENT_QUOTA_WINDOW_S"
-            ) or 86_400,
+            max_calls=_env_int_optional("PRAMAGENT_QUOTA_CALLS"),
+            max_tool_validations=_env_int_optional("PRAMAGENT_QUOTA_TOOL_VALIDATIONS"),
+            max_cost_usd=_env_float_optional("PRAMAGENT_QUOTA_COST_USD"),
+            window_s=_env_int_optional("PRAMAGENT_QUOTA_WINDOW_S") or 86_400,
         )
         fail_open_raw = os.environ.get("PRAMAGENT_QUOTA_FAIL_OPEN", "true").lower()
         fail_open = fail_open_raw not in {"0", "false", "no", "off"}
         sinks: list[UsageEventSink] = []
-        webhook_url = _env_str_optional(
-            "PRAMAGENT_BILLING_WEBHOOK_URL",
-            "PRAMAGENT_BILLING_WEBHOOK_URL",
-        )
+        webhook_url = _env_str_optional("PRAMAGENT_BILLING_WEBHOOK_URL")
         if webhook_url:
             sinks.append(
                 WebhookUsageSink(
                     webhook_url,
-                    secret=_env_str_optional(
-                        "PRAMAGENT_BILLING_WEBHOOK_SECRET",
-                        "PRAMAGENT_BILLING_WEBHOOK_SECRET",
-                    ),
+                    secret=_env_str_optional("PRAMAGENT_BILLING_WEBHOOK_SECRET"),
                     timeout_s=_env_float_optional(
-                        "PRAMAGENT_BILLING_WEBHOOK_TIMEOUT_S",
-                        "PRAMAGENT_BILLING_WEBHOOK_TIMEOUT_S",
-                    ) or 2.0,
+                        "PRAMAGENT_BILLING_WEBHOOK_TIMEOUT_S") or 2.0,
                 )
             )
         ledger = None
         ledger_mode = _env_str_optional(
             "PRAMAGENT_USAGE_LEDGER",
-            "PRAMAGENT_USAGE_LEDGER",
-            "PRAMAGENT_BILLING_LEDGER",
-            "PRAMAGENT_BILLING_LEDGER",
+            "PRAMAGENT_BILLING_LEDGER",   # legacy alias
         ).lower()
         if ledger_mode in {"1", "true", "yes", "on", "memory", "in-memory", "hash-chain"}:
             ledger = InMemoryUsageLedger()

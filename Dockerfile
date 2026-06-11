@@ -3,7 +3,8 @@ FROM python:3.11-slim AS builder
 
 WORKDIR /build
 
-# System deps for psycopg2
+# System deps for psycopg (v3) source fallback; the [binary] extra usually
+# ships prebuilt wheels and skips these
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc libpq-dev \
     && rm -rf /var/lib/apt/lists/*
@@ -12,7 +13,6 @@ COPY pyproject.toml ./
 COPY pramagent/ pramagent/
 COPY README.md ./
 COPY CHANGELOG.md ./
-COPY docs/ docs/
 
 # Install with all optional extras
 RUN pip install --no-cache-dir --prefix=/install \

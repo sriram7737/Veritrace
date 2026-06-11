@@ -11,6 +11,7 @@ of silently importing a broken backend.
 """
 from __future__ import annotations
 
+import threading
 import time
 from typing import Optional
 
@@ -77,17 +78,46 @@ class PostgresHITLQueue:
         # validate table name strictly to keep parameterised queries safe
         if not table.replace("_", "").isalnum():
             raise ValueError(f"unsafe table name: {table!r}")
-        with self._connect() as conn:
-            with conn.cursor() as cur:
-                schema = _SCHEMA.replace("pramagent_hitl_queue", table)
-                cur.execute(schema)
-            conn.commit()
+        # Thread-local connection cache (P3-8): the HITL waiter polls get()
+        # every poll_interval_s — opening a fresh connection per poll would
+        # hammer Postgres for nothing. One connection per thread, reused.
+        self._local = threading.local()
+        self._run(lambda cur: cur.execute(
+            _SCHEMA.replace("pramagent_hitl_queue", table)))
 
-    # ── driver-flavor helpers ──────────────────────────────────────────
-    def _connect(self):
-        if self._flavor == "psycopg3":
-            return self._driver.connect(self.dsn)
-        return self._driver.connect(self.dsn)
+    # ── connection helpers ─────────────────────────────────────────────
+    def _connection(self):
+        """Return this thread's cached connection, reopening if stale."""
+        conn = getattr(self._local, "conn", None)
+        if conn is not None:
+            try:
+                if not getattr(conn, "closed", 0):
+                    return conn
+            except Exception:
+                pass
+            self._local.conn = None
+        conn = self._driver.connect(self.dsn)
+        self._local.conn = conn
+        return conn
+
+    def _run(self, fn):
+        """Execute fn(cursor) on the cached connection with commit/rollback;
+        a failed connection is evicted so the next call reconnects."""
+        conn = self._connection()
+        try:
+            with conn.cursor() as cur:
+                result = fn(cur)
+            conn.commit()
+            return result
+        except Exception:
+            try:
+                conn.rollback()
+            except Exception:
+                try:
+                    conn.close()
+                finally:
+                    self._local.conn = None
+            raise
 
     @staticmethod
     def _rowdict(cur, row) -> dict:
@@ -105,25 +135,23 @@ class PostgresHITLQueue:
             "VALUES (%s, %s, %s::jsonb, %s, %s, %s, %s, %s, %s) "
             "ON CONFLICT (request_id) DO NOTHING"
         )
-        with self._connect() as conn:
-            with conn.cursor() as cur:
-                cur.execute(sql, (
-                    row["request_id"], row["action"], row["context"],
-                    row["tenant_id"], row["created_at"], row["decided_at"],
-                    row["status"], row["decided_by"], row["notes"],
-                ))
-            conn.commit()
+        self._run(lambda cur: cur.execute(sql, (
+            row["request_id"], row["action"], row["context"],
+            row["tenant_id"], row["created_at"], row["decided_at"],
+            row["status"], row["decided_by"], row["notes"],
+        )))
         return request.request_id
 
     def get(self, request_id: str) -> Optional[QueuedRequest]:
         sql = f"SELECT * FROM {self.table} WHERE request_id = %s"  # nosec B608
-        with self._connect() as conn:
-            with conn.cursor() as cur:
-                cur.execute(sql, (request_id,))
-                r = cur.fetchone()
-                if not r:
-                    return None
-                d = self._rowdict(cur, r)
+
+        def _fn(cur):
+            cur.execute(sql, (request_id,))
+            r = cur.fetchone()
+            return self._rowdict(cur, r) if r else None
+        d = self._run(_fn)
+        if d is None:
+            return None
         # context arrives as a dict from psycopg3 JSONB; from_row handles both
         if isinstance(d.get("context"), dict):
             import json
@@ -141,16 +169,16 @@ class PostgresHITLQueue:
             sql = (f"SELECT * FROM {self.table} "  # nosec B608
                    "WHERE status = %s ORDER BY created_at ASC LIMIT %s")
             args = (RequestStatus.PENDING.value, int(limit))
+
+        def _fn(cur):
+            cur.execute(sql, args)
+            return [self._rowdict(cur, r) for r in cur.fetchall()]
         out: list[QueuedRequest] = []
-        with self._connect() as conn:
-            with conn.cursor() as cur:
-                cur.execute(sql, args)
-                for r in cur.fetchall():
-                    d = self._rowdict(cur, r)
-                    if isinstance(d.get("context"), dict):
-                        import json
-                        d["context"] = json.dumps(d["context"])
-                    out.append(from_row(d))
+        for d in self._run(_fn):
+            if isinstance(d.get("context"), dict):
+                import json
+                d["context"] = json.dumps(d["context"])
+            out.append(from_row(d))
         return out
 
     def decide(self, request_id: str, *, approved: bool,
@@ -160,22 +188,20 @@ class PostgresHITLQueue:
         sql = (f"UPDATE {self.table} "  # nosec B608
                "SET status=%s, decided_at=%s, decided_by=%s, notes=%s "
                "WHERE request_id=%s AND status=%s")
-        with self._connect() as conn:
-            with conn.cursor() as cur:
-                cur.execute(sql, (new_status, time.time(), decided_by, notes,
-                                  request_id, RequestStatus.PENDING.value))
-                changed = cur.rowcount > 0
-            conn.commit()
-        return changed
+
+        def _fn(cur):
+            cur.execute(sql, (new_status, time.time(), decided_by, notes,
+                              request_id, RequestStatus.PENDING.value))
+            return cur.rowcount > 0
+        return self._run(_fn)
 
     def expire(self, request_id: str) -> bool:
         sql = (f"UPDATE {self.table} "  # nosec B608
                "SET status=%s, decided_at=%s "
                "WHERE request_id=%s AND status=%s")
-        with self._connect() as conn:
-            with conn.cursor() as cur:
-                cur.execute(sql, (RequestStatus.EXPIRED.value, time.time(),
-                                  request_id, RequestStatus.PENDING.value))
-                changed = cur.rowcount > 0
-            conn.commit()
-        return changed
+
+        def _fn(cur):
+            cur.execute(sql, (RequestStatus.EXPIRED.value, time.time(),
+                              request_id, RequestStatus.PENDING.value))
+            return cur.rowcount > 0
+        return self._run(_fn)
