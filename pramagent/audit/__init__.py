@@ -16,6 +16,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import threading
 from typing import Protocol
 
 from ..anchoring.ethereum import EthereumAnchor, EthereumAnchorReceipt
@@ -78,18 +79,26 @@ class HashChainBackend:
     def __init__(self) -> None:
         self._records: list[dict] = []   # each: {payload, prev_hash, this_hash}
         self._head: str = self.GENESIS
+        # prev of the most recent append — core records it on the trace
+        self.last_prev_hash: str = self.GENESIS
+        # Appends may arrive from worker threads (core offloads persistence
+        # via asyncio.to_thread); deriving prev and inserting must be one
+        # critical section or concurrent writers fork the chain (P1-5/T2-4).
+        self._lock = threading.Lock()
 
     @property
     def head(self) -> str:
         return self._head
 
     def append(self, payload: dict, prev_hash: str | None = None) -> tuple[str, str]:
-        prev = prev_hash if prev_hash is not None else self._head
-        this_hash = canonical_hash(payload, prev)
-        self._records.append({"payload": payload, "prev_hash": prev, "this_hash": this_hash})
-        self._head = this_hash
-        # anchor_tx_id is local for HashChain; external backends return a real tx id
-        return this_hash, f"local:{this_hash[:16]}"
+        with self._lock:
+            prev = prev_hash if prev_hash is not None else self._head
+            this_hash = canonical_hash(payload, prev)
+            self._records.append({"payload": payload, "prev_hash": prev, "this_hash": this_hash})
+            self.last_prev_hash = prev
+            self._head = this_hash
+            # anchor_tx_id is local for HashChain; external backends return a real tx id
+            return this_hash, f"local:{this_hash[:16]}"
 
     def verify_chain(self) -> bool:
         """Recompute every hash; return False if any link is broken (tampering)."""
@@ -159,6 +168,10 @@ class EthereumBackend:
     def head(self) -> str:
         return self._chain.head
 
+    @property
+    def last_prev_hash(self) -> str:
+        return self._chain.last_prev_hash
+
     def append(self, payload: dict, prev_hash: str | None = None) -> tuple[str, str]:
         this_hash, _ = self._chain.append(payload, prev_hash)
         self.last_anchor = None
@@ -214,6 +227,10 @@ class HyperledgerBackend:
     @property
     def head(self) -> str:
         return self._chain.head
+
+    @property
+    def last_prev_hash(self) -> str:
+        return self._chain.last_prev_hash
 
     def append(self, payload: dict, prev_hash: str | None = None) -> tuple[str, str]:
         this_hash, _ = self._chain.append(payload, prev_hash)

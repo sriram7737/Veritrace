@@ -148,6 +148,7 @@ async def test_gemini_provider_parses_generate_content(monkeypatch):
 
     def fake_urlopen(req, timeout):
         seen["url"] = req.full_url
+        seen["headers"] = dict(req.header_items())
         seen["body"] = json.loads(req.data.decode("utf-8"))
         return FakeHTTPResponse({
             "candidates": [{
@@ -164,7 +165,11 @@ async def test_gemini_provider_parses_generate_content(monkeypatch):
 
     result = await provider.complete("hi gemini")
 
-    assert seen["url"] == "https://gemini.example/v1beta/models/gemini-test:generateContent?key=gemini-key"
+    # the key travels as a header, never in the URL (T2-7/P2-6)
+    assert seen["url"] == "https://gemini.example/v1beta/models/gemini-test:generateContent"
+    assert "key=" not in seen["url"]
+    header_keys = {k.lower(): v for k, v in seen["headers"].items()}
+    assert header_keys["x-goog-api-key"] == "gemini-key"
     assert seen["body"]["contents"][0]["parts"][0]["text"] == "hi gemini"
     assert result.text == "hello from gemini"
     assert result.model == "gemini-test"

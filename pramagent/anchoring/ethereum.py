@@ -10,6 +10,7 @@ That gives a public timestamped receipt without forcing Solidity into the MVP.
 """
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass
 from typing import Any, Optional
 
@@ -69,6 +70,9 @@ class EthereumAnchor:
         if not private_key:
             raise EthereumAnchorError("private_key is required for Ethereum anchoring")
         self._account = self._w3.eth.account.from_key(private_key)
+        # get_transaction_count → sign → send must be one critical section or
+        # concurrent anchors race the nonce and overwrite each other (P1-1).
+        self._nonce_lock = threading.Lock()
 
     @staticmethod
     def _load_web3(rpc_url: str) -> Any:
@@ -82,23 +86,40 @@ class EthereumAnchor:
             ) from exc
         return Web3(Web3.HTTPProvider(rpc_url))
 
-    def anchor(self, trace_hash: str) -> EthereumAnchorReceipt:
+    def anchor(self, trace_hash: str, *, wait_for_receipt: bool = False) -> EthereumAnchorReceipt:
+        """Submit an anchoring transaction.
+
+        Default is submit-and-return: the receipt comes back with status=-1
+        (submitted, unconfirmed) and block_number=0 immediately — mining can
+        take minutes and must never stall the request path (P1-1/T1-7).
+        Confirmation is reconciled out-of-band via verify_on_chain() (or pass
+        wait_for_receipt=True from a background job).
+        """
         clean_hash = _normalize_trace_hash(trace_hash)
         to_address = self.contract_address or self._account.address
-        nonce = self._w3.eth.get_transaction_count(self._account.address)
-        tx = {
-            "to": to_address,
-            "value": 0,
-            "data": "0x" + clean_hash,
-            "nonce": nonce,
-            "chainId": self.chain_id,
-            "gas": self.gas_limit,
-        }
-        tx.update(_fee_fields(self._w3))
-        signed = self._w3.eth.account.sign_transaction(tx, self.private_key)
-        raw = getattr(signed, "raw_transaction", None) or getattr(signed, "rawTransaction")
-        tx_hash_raw = self._w3.eth.send_raw_transaction(raw)
+        with self._nonce_lock:
+            nonce = self._w3.eth.get_transaction_count(self._account.address)
+            tx = {
+                "to": to_address,
+                "value": 0,
+                "data": "0x" + clean_hash,
+                "nonce": nonce,
+                "chainId": self.chain_id,
+                "gas": self.gas_limit,
+            }
+            tx.update(_fee_fields(self._w3))
+            signed = self._w3.eth.account.sign_transaction(tx, self.private_key)
+            raw = getattr(signed, "raw_transaction", None) or getattr(signed, "rawTransaction")
+            tx_hash_raw = self._w3.eth.send_raw_transaction(raw)
         tx_hash = _to_hex(self._w3, tx_hash_raw)
+        if not wait_for_receipt:
+            return EthereumAnchorReceipt(
+                tx_hash=tx_hash,
+                block_number=0,
+                status=-1,          # -1 = submitted, unconfirmed
+                chain_id=self.chain_id,
+                anchored_hash=clean_hash,
+            )
         receipt = self._w3.eth.wait_for_transaction_receipt(
             tx_hash,
             timeout=self.wait_timeout,

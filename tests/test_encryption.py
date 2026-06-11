@@ -130,6 +130,68 @@ def test_chain_integrity_under_encryption():
         os.unlink(path)
 
 
+def test_encrypted_erasure_redacts_chain_and_reanchors():
+    """Parity with test_sqlite_erasure_redacts_chain_and_reanchors (P1-2/T3-1):
+    erasure on the encrypted store must tombstone the tenant's chain payloads
+    and re-anchor — encryption under one global key is retention, not erasure."""
+    from pramagent.layers import ComplianceLayer
+
+    path = _new_db()
+    key = Fernet.generate_key()
+    try:
+        db = EncryptedSQLiteStore(path, key=key)
+        # compliance disabled simulates PII that reached the record anyway —
+        # erasure must remove it from the chain regardless of how it got there
+        armor = Pramagent(
+            provider=MockProvider(),
+            compliance=ComplianceLayer(enabled=False),
+            store=db, audit=db,
+        )
+        run(armor.run("subject SSN 123-45-6789 email bob@x.com", tenant_id="erase-me"))
+        run(armor.run("keeper tenant data", tenant_id="keeper"))
+        chain_before = str([r["payload"] for r in db.records()])
+        assert "123-45-6789" in chain_before
+
+        deleted = db.delete_for_tenant("erase-me")
+
+        assert deleted == 1
+        chain_after = str([r["payload"] for r in db.records()])
+        assert "123-45-6789" not in chain_after
+        assert "bob@x.com" not in chain_after
+        assert "keeper tenant data" in chain_after    # other tenant untouched
+        assert db.verify_chain()                      # re-anchored, still valid
+        assert db.head == db.records()[-1]["this_hash"]
+        assert len(db.list_by_tenant("keeper")) == 1
+        assert len(db.list_by_tenant("erase-me")) == 0
+        db.close()
+
+        # the redaction must survive a restart
+        db2 = EncryptedSQLiteStore(path, key=key)
+        assert "123-45-6789" not in str([r["payload"] for r in db2.records()])
+        assert db2.verify_chain()
+        db2.close()
+    finally:
+        os.unlink(path)
+
+
+def test_encrypted_store_protocol_signatures():
+    """list_all(limit) and prune_older_than(tenant_id) must match the
+    TraceStore protocol the API depends on (P1-2 drift)."""
+    path = _new_db()
+    key = Fernet.generate_key()
+    try:
+        db = EncryptedSQLiteStore(path, key=key)
+        armor = Pramagent(provider=MockProvider(), store=db, audit=db)
+        for s in ["a", "b", "c"]:
+            run(armor.run(s, tenant_id="t", session_id="s"))
+        assert len(db.list_all(limit=2)) == 2          # no TypeError
+        assert db.prune_older_than(0.0, tenant_id="other") == 0   # scoped, no-op
+        assert db.ping() is True
+        db.close()
+    finally:
+        os.unlink(path)
+
+
 def test_missing_key_raises():
     """Constructing the store without a key (and no env var) must fail loudly."""
     path = _new_db()

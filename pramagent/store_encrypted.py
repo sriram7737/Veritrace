@@ -40,8 +40,9 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import threading
 
-from .audit import canonical_hash
+from .audit import canonical_hash, redact_chain_payload
 from .store import GENESIS
 from .types import TraceEvent
 
@@ -78,8 +79,12 @@ class EncryptedSQLiteStore:
 
         self._conn = sqlite3.connect(path, check_same_thread=False)
         self._conn.execute("PRAGMA journal_mode=WAL")
+        # Same shared-connection serialization as SQLiteStore (P1-5/T2-4).
+        self._lock = threading.RLock()
         self._create_tables()
         self._head = self._load_head()
+        # prev of the most recent append — core records it on the trace
+        self.last_prev_hash = GENESIS
 
     # ── encryption helpers ────────────────────────────────────────────────
     def _encrypt(self, data: str) -> bytes:
@@ -137,11 +142,16 @@ class EncryptedSQLiteStore:
                 f"trace {call_id} does not belong to tenant {tenant_id}")
         return TraceEvent.from_dict(json.loads(self._decrypt(row[0])))
 
-    def list_all(self) -> list[TraceEvent]:
-        rows = self._conn.execute(
-            "SELECT data_enc FROM traces ORDER BY created_at"
-        ).fetchall()
-        return [TraceEvent.from_dict(json.loads(self._decrypt(r[0]))) for r in rows]
+    def list_all(self, limit: int | None = None) -> list[TraceEvent]:
+        sql = "SELECT data_enc FROM traces ORDER BY created_at"
+        if limit is not None:
+            sql += f" DESC LIMIT {int(limit)}"
+        with self._lock:
+            rows = self._conn.execute(sql).fetchall()
+        out = [TraceEvent.from_dict(json.loads(self._decrypt(r[0]))) for r in rows]
+        if limit is not None:
+            out.reverse()
+        return out
 
     def list_by_tenant(self, tenant_id: str, session_id: str | None = None,
                        limit: int = 100) -> list[TraceEvent]:
@@ -159,17 +169,61 @@ class EncryptedSQLiteStore:
             ).fetchall()
         return [TraceEvent.from_dict(json.loads(self._decrypt(r[0]))) for r in rows]
 
-    def prune_older_than(self, cutoff_ts: float) -> int:
-        cur = self._conn.execute(
-            "DELETE FROM traces WHERE created_at < ?", (cutoff_ts,))
-        self._conn.commit()
-        return cur.rowcount
+    def prune_older_than(self, cutoff_ts: float, tenant_id: str | None = None) -> int:
+        """Delete trace rows older than cutoff. When tenant_id is given the
+        prune is scoped to that tenant only (TraceStore protocol parity)."""
+        with self._lock:
+            if tenant_id is None:
+                cur = self._conn.execute(
+                    "DELETE FROM traces WHERE created_at < ?", (cutoff_ts,))
+            else:
+                cur = self._conn.execute(
+                    "DELETE FROM traces WHERE created_at < ? AND tenant_id = ?",
+                    (cutoff_ts, tenant_id))
+            self._conn.commit()
+            return cur.rowcount
 
     def delete_for_tenant(self, tenant_id: str) -> int:
-        cur = self._conn.execute(
-            "DELETE FROM traces WHERE tenant_id = ?", (tenant_id,))
-        self._conn.commit()
-        return cur.rowcount
+        """GDPR erasure for one tenant: deletes the trace rows AND redacts the
+        tenant's payloads inside audit_chain — identical semantics to
+        SQLiteStore (P1-2/T3-1). Encryption under a single global key is
+        retention, not erasure; the PII-bearing fields must be tombstoned."""
+        with self._lock:
+            cur = self._conn.execute(
+                "DELETE FROM traces WHERE tenant_id = ?", (tenant_id,))
+            self.redact_for_tenant(tenant_id)
+            self._conn.commit()
+            return cur.rowcount
+
+    def redact_for_tenant(self, tenant_id: str) -> int:
+        """Tombstone PII fields in this tenant's chain payloads, then
+        re-anchor: every link from the first redaction onward gets recomputed
+        prev/this hashes (over the plaintext payload, exactly as append hashes
+        it) so verify_chain() still passes. Returns payloads redacted."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT seq, payload_enc, prev_hash, this_hash FROM audit_chain ORDER BY seq"
+            ).fetchall()
+            prev, redacted, rehash = GENESIS, 0, False
+            for seq, payload_enc, _stored_prev, stored_hash in rows:
+                payload = json.loads(self._decrypt(payload_enc))
+                if payload.get("tenant_id") == tenant_id and redact_chain_payload(payload):
+                    redacted += 1
+                    rehash = True
+                if rehash:
+                    new_hash = canonical_hash(payload, prev)
+                    blob = self._encrypt(json.dumps(payload, sort_keys=True,
+                                                    separators=(",", ":")))
+                    self._conn.execute(
+                        "UPDATE audit_chain SET payload_enc=?, prev_hash=?, this_hash=?"
+                        " WHERE seq=?", (blob, prev, new_hash, seq))
+                    prev = new_hash
+                else:
+                    prev = stored_hash
+            if rehash:
+                self._head = prev
+                self._conn.commit()
+            return redacted
 
     # ── AuditBackend interface ────────────────────────────────────────────
     @property
@@ -177,16 +231,26 @@ class EncryptedSQLiteStore:
         return self._head
 
     def append(self, payload: dict, prev_hash: str | None = None) -> tuple[str, str]:
-        prev = prev_hash if prev_hash is not None else self._head
-        canonical_json = json.dumps(payload, sort_keys=True, separators=(",", ":"))
-        this_hash = canonical_hash(payload, prev)
-        self._conn.execute(
-            "INSERT INTO audit_chain (payload_enc, prev_hash, this_hash) VALUES (?, ?, ?)",
-            (self._encrypt(canonical_json), prev, this_hash),
-        )
-        self._conn.commit()
-        self._head = this_hash
-        return this_hash, f"sqlite-enc:{this_hash[:16]}"
+        """Append one chain link. `prev` is re-read from the DB inside
+        BEGIN IMMEDIATE under the write lock — same fork-proof linkage
+        derivation as SQLiteStore (P1-5/T2-4); the prev_hash parameter is
+        retained for interface compatibility and ignored."""
+        with self._lock:
+            self._conn.execute("BEGIN IMMEDIATE")   # cross-process write lock
+            row = self._conn.execute(
+                "SELECT this_hash FROM audit_chain ORDER BY seq DESC LIMIT 1"
+            ).fetchone()
+            prev = row[0] if row else GENESIS       # re-read under the lock
+            canonical_json = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+            this_hash = canonical_hash(payload, prev)
+            self._conn.execute(
+                "INSERT INTO audit_chain (payload_enc, prev_hash, this_hash) VALUES (?, ?, ?)",
+                (self._encrypt(canonical_json), prev, this_hash),
+            )
+            self._conn.commit()
+            self.last_prev_hash = prev
+            self._head = this_hash
+            return this_hash, f"sqlite-enc:{this_hash[:16]}"
 
     def verify_chain(self) -> bool:
         rows = self._conn.execute(
@@ -214,8 +278,15 @@ class EncryptedSQLiteStore:
             for r in rows
         ]
 
+    def ping(self) -> bool:
+        """O(1) connectivity check for readiness probes."""
+        with self._lock:
+            self._conn.execute("SELECT 1").fetchone()
+        return True
+
     def _load_head(self) -> str:
-        row = self._conn.execute(
-            "SELECT this_hash FROM audit_chain ORDER BY seq DESC LIMIT 1"
-        ).fetchone()
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT this_hash FROM audit_chain ORDER BY seq DESC LIMIT 1"
+            ).fetchone()
         return row[0] if row else GENESIS

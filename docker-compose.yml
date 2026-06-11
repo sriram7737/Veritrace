@@ -32,20 +32,26 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./deploy/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+    # internal-only: never published to the host (P1-10/T2-9)
+    expose:
+      - "5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pramagent} -d ${POSTGRES_DB:-pramagent}"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 10s
+    mem_limit: 512m
+    cpus: 1.0
     logging: *default-logging
 
   # ── Redis ──────────────────────────────────────────────────────────────────
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    environment:
+      # consumed by the healthcheck inside the container ($$REDIS_PASSWORD)
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
     command: >
       redis-server
       --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
@@ -54,13 +60,19 @@ services:
       --appendonly yes
     volumes:
       - redis_data:/data
-    ports:
-      - "${REDIS_PORT:-6379}:6379"
+    # internal-only: never published to the host (P1-10/T2-9)
+    expose:
+      - "6379"
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      # $$ defers expansion to the container shell so the password is read
+      # from the environment at run time, not baked into the inspectable
+      # healthcheck command line
+      test: ["CMD-SHELL", "redis-cli --no-auth-warning -a \"$$REDIS_PASSWORD\" ping | grep PONG"]
       interval: 10s
       timeout: 5s
       retries: 5
+    mem_limit: 384m
+    cpus: 0.5
     logging: *default-logging
 
   # ── Pramagent API ──────────────────────────────────────────────────────────
@@ -111,6 +123,8 @@ services:
       timeout: 5s
       retries: 3
       start_period: 15s
+    mem_limit: 1g
+    cpus: 1.0
     logging: *default-logging
 
   # ── Dashboard ──────────────────────────────────────────────────────────────
@@ -140,6 +154,8 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+    mem_limit: 512m
+    cpus: 0.5
     logging: *default-logging
 
 volumes:

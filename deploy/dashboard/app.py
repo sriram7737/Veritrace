@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import html
 import json
 import logging
 import os
@@ -837,7 +838,8 @@ async def approve(
         msg, cls = "Approved", "badge-ok"
     except Exception as exc:
         msg, cls = f"Error: {exc}", "badge-block"
-    return HTMLResponse(f'<span class="badge {cls}">{msg}</span>')
+    # Upstream error bodies can carry markup — escape before rendering (T2-1)
+    return HTMLResponse(f'<span class="badge {cls}">{html.escape(msg)}</span>')
 
 
 @app.post("/approvals/{request_id}/deny", response_class=HTMLResponse)
@@ -853,7 +855,8 @@ async def deny(
         msg, cls = "Denied", "badge-block"
     except Exception as exc:
         msg, cls = f"Error: {exc}", "badge-block"
-    return HTMLResponse(f'<span class="badge {cls}">{msg}</span>')
+    # Upstream error bodies can carry markup — escape before rendering (T2-1)
+    return HTMLResponse(f'<span class="badge {cls}">{html.escape(msg)}</span>')
 
 
 # ── metrics ───────────────────────────────────────────────────────────────────
@@ -924,7 +927,9 @@ async def export_csv(
         if value is None:
             return ""
         if isinstance(value, (dict, list)):
-            return json.dumps(value, sort_keys=True)
+            value = json.dumps(value, sort_keys=True)
+        if isinstance(value, str) and value[:1] in ("=", "+", "-", "@", "\t"):
+            return "'" + value          # neutralize spreadsheet formulas (T2-1)
         return value
 
     params: dict = {"limit": 10000}

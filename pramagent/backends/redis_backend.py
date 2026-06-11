@@ -385,11 +385,14 @@ class RedisBackend(AbstractBackend):
             **kwargs,
         )
         client = redis.Redis(connection_pool=pool)
+        # Compose URLs embed the password (redis://:pw@host) — redact before
+        # the URL reaches a log line or exception message (P2-7/T2-9).
+        safe_url = url.split("@")[-1] if "@" in url else url
         try:
             client.ping()
         except Exception as e:
-            raise RedisUnavailable(f"Redis not reachable at {url}: {e}") from e
-        log.info("RedisBackend connected: %s (pool max=%d)", url, max_connections)
+            raise RedisUnavailable(f"Redis not reachable at {safe_url}: {e}") from e
+        log.info("RedisBackend connected: %s (pool max=%d)", safe_url, max_connections)
         return cls(
             client,
             max_retries=max_retries,

@@ -274,10 +274,13 @@ class GeminiProvider(BaseProvider):
             },
         }
         data = json.dumps(body).encode("utf-8")
+        # API key travels as a header, never in the URL — query strings end up
+        # in proxy logs, error reprs, and tracing systems (T2-7/P2-6).
         req = urllib.request.Request(
-            f"{self.base_url}/models/{model}:generateContent?key={self.api_key}",
+            f"{self.base_url}/models/{model}:generateContent",
             data=data,
-            headers={"Content-Type": "application/json"},
+            headers={"Content-Type": "application/json",
+                     "x-goog-api-key": self.api_key},
             method="POST",
         )
         payload = _json_request(req, timeout=self.timeout_s)
@@ -299,7 +302,14 @@ class OllamaProvider(BaseProvider):
 
     def __init__(self, model: str = "llama3.2:1b", host: str = "http://localhost:11434"):
         self.model = model
-        self.host = host
+        # Validated like every other provider URL; private/loopback targets
+        # are expected for a local daemon, so allow them explicitly (P3-7).
+        self.host = validate_http_url(
+            host.rstrip("/"),
+            allow_http_localhost=True,
+            allow_private=True,
+            context="Ollama host URL",
+        )
 
     async def complete(self, prompt: str, **kwargs) -> ProviderResult:
         import aiohttp  # lazy import

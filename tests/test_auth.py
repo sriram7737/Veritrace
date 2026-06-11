@@ -28,19 +28,60 @@ def test_unauthenticated_mode_works_when_no_keys_configured():
     client = TestClient(create_app(registry=APIKeyRegistry()))
     r = client.post("/v1/run", json={"prompt": "hi", "tenant_id": "t1"})
     assert r.status_code == 200
-    # auth flag exposed in readiness so operators can see what mode they're in
+    # readiness deliberately discloses nothing beyond dependency status
     ready = client.get("/health/ready").json()
-    assert ready["auth_enabled"] is False
+    assert ready["status"] == "ready"
 
 
 # ── authenticated mode ─────────────────────────────────────────────────
+# A strong shared JWT secret mirrors production: token issuance refuses to
+# mint per-process tokens when no shared secret is configured (P2-12).
+_TEST_JWT_SECRET = "unit-test-jwt-secret-0123456789abcdef"
+
+
 @pytest.fixture
-def auth_client():
+def auth_client(monkeypatch):
+    monkeypatch.setenv("PRAMAGENT_JWT_SECRET", _TEST_JWT_SECRET)
     reg = APIKeyRegistry()
     key_a = reg.issue_key("tenant_a")
     key_b = reg.issue_key("tenant_b")
     client = TestClient(create_app(registry=reg))
     return client, key_a, key_b
+
+
+def test_token_endpoint_refuses_without_shared_secret(monkeypatch):
+    """Auth on + no PRAMAGENT_JWT_SECRET(S) → 503, never a per-process random
+    secret whose tokens other workers cannot verify (P2-12/T2-6)."""
+    monkeypatch.delenv("PRAMAGENT_JWT_SECRET", raising=False)
+    monkeypatch.delenv("PRAMAGENT_JWT_SECRETS", raising=False)
+    reg = APIKeyRegistry()
+    key = reg.issue_key("tenant_a")
+    client = TestClient(create_app(registry=reg))
+    r = client.post("/v1/auth/token", json={"api_key": key, "ttl_s": 120})
+    assert r.status_code == 503
+    assert "PRAMAGENT_JWT_SECRET" in r.json()["detail"]
+
+
+def test_token_endpoint_is_rate_limited(monkeypatch):
+    """The bootstrap endpoint carries an IP-keyed bucket: exhausting it
+    returns 429 with Retry-After (T1-2)."""
+    monkeypatch.setenv("PRAMAGENT_JWT_SECRET", _TEST_JWT_SECRET)
+    monkeypatch.setenv("PRAMAGENT_RATE_BURST", "3")
+    monkeypatch.setenv("PRAMAGENT_RATE_PER_SEC", "0.001")
+    reg = APIKeyRegistry()
+    reg.issue_key("tenant_a")
+    client = TestClient(create_app(registry=reg))
+    statuses = [
+        client.post("/v1/auth/token",
+                    json={"api_key": "wrong-key", "ttl_s": 120}).status_code
+        for _ in range(6)
+    ]
+    assert 429 in statuses
+    # everything before exhaustion is the normal invalid-key 401
+    assert statuses[0] == 401
+    last = client.post("/v1/auth/token", json={"api_key": "wrong-key", "ttl_s": 120})
+    assert last.status_code == 429
+    assert "Retry-After" in last.headers
 
 
 def test_missing_bearer_token_is_401(auth_client):

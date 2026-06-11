@@ -65,11 +65,24 @@ def test_ethereum_anchor_submits_hash_as_calldata():
     receipt = anchor.anchor("a" * 64)
 
     assert receipt.tx_hash == "0x" + "12" * 32
-    assert receipt.block_number == 123
-    assert receipt.status == 1
+    # default is submit-and-return: never wait for mining on the hot path
+    # (P1-1/T1-7); -1 = submitted, unconfirmed
+    assert receipt.block_number == 0
+    assert receipt.status == -1
     assert w3.eth.account.last_tx["data"] == "0x" + "a" * 64
     assert w3.eth.account.last_tx["gasPrice"] == 10
     assert w3.eth.sent_raw == b"signed-tx"
+
+
+def test_ethereum_anchor_waits_for_receipt_only_on_request():
+    """Background reconciliation jobs can opt into the blocking wait."""
+    w3 = _Web3()
+    anchor = EthereumAnchor(web3=w3, private_key="secret")
+
+    receipt = anchor.anchor("a" * 64, wait_for_receipt=True)
+
+    assert receipt.block_number == 123
+    assert receipt.status == 1
 
 
 def test_ethereum_anchor_uses_eip1559_fee_fields_when_available():
@@ -106,7 +119,10 @@ def test_ethereum_backend_records_real_anchor_metadata():
 
     assert tx_hash.startswith("eth:0x")
     assert backend.last_anchor is not None
-    assert backend.last_anchor.block_number == 123
+    # hot path submits without waiting for mining (P1-1/T1-7); confirmation
+    # is reconciled out-of-band via verify_on_chain
+    assert backend.last_anchor.status == -1
+    assert backend.last_anchor.block_number == 0
     assert backend.verify_on_chain(tx_hash, expected_hash=trace_hash).status == 1
 
 
@@ -119,8 +135,10 @@ def test_trace_stores_anchor_block_number_from_backend():
     response = asyncio.run(armor.run("hello", tenant_id="t", session_id="s"))
 
     assert response.trace.anchor_tx_id.startswith("eth:0x")
-    assert response.trace.anchor_block_number == 123
-    assert response.trace.anchor_metadata["status"] == 1
+    # unconfirmed at write time — the request never waits for mining
+    assert response.trace.anchor_block_number == 0
+    assert response.trace.anchor_metadata["status"] == -1
+    assert response.trace.anchor_metadata["tx_hash"].startswith("0x")
 
 
 def test_ethereum_backend_does_not_reuse_stale_anchor_after_fail_open():

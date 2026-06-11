@@ -19,6 +19,7 @@ any side effect is executed. Unregistered tools are blocked by default.
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 import time
@@ -174,7 +175,7 @@ class Pramagent:
                               f"'{self.consent_purpose}'")
                     root_span.set_attribute("blocked", True)
                     root_span.set_attribute("block_reason", reason)
-                    response = self._finalize(tr, output="", blocked=True,
+                    response = await self._finalize(tr, output="", blocked=True,
                                               reason=reason, t_start=t_start)
                     self.observability.record_result(
                         blocked=True,
@@ -215,17 +216,18 @@ class Pramagent:
                     span.set_attribute("blocked", True)
                     span.set_attribute("block_reason", reason)
                     mark("IsolationLayer", "blocked", str(exc)[:120], t0)
-                    response = self._finalize(tr, output="", blocked=True,
+                    response = await self._finalize(tr, output="", blocked=True,
                                               reason=reason, t_start=t_start)
                     self.observability.record_result(
                         blocked=True, latency_ms=response.trace.total_latency_ms,
                         block_reason=reason)
                     return response
 
-            # 3) Safety pre
+            # 3) Safety pre — rule + classifier screening may run embedding
+            # inference; keep it off the event loop (P1-8).
             t0 = time.perf_counter()
             with trace_layer("SafetyLayer.pre") as span:
-                pre_verdict, pre_rules = self.safety.pre(clean)
+                pre_verdict, pre_rules = await asyncio.to_thread(self.safety.pre, clean)
                 span.set_attribute("verdict", pre_verdict.value)
                 fired = [r.rule_id for r in pre_rules if r.fired]
                 span.set_attribute("rules_fired", ",".join(fired))
@@ -235,7 +237,7 @@ class Pramagent:
                  ",".join(r.rule_id for r in pre_rules if r.fired) or "no rules fired", t0)
 
             if pre_verdict == Verdict.BLOCK:
-                response = self._finalize(tr, output="", blocked=True,
+                response = await self._finalize(tr, output="", blocked=True,
                                           reason="blocked by input safety rule", t_start=t_start)
                 self.observability.record_result(blocked=True,
                     latency_ms=response.trace.total_latency_ms,
@@ -261,7 +263,7 @@ class Pramagent:
                      side_effect=td.side_effect, decision_id=td.decision_id)
                 if td.verdict == Verdict.BLOCK:
                     reason = f"tool blocked by policy: {td.reason}"
-                    response = self._finalize(tr, output="", blocked=True,
+                    response = await self._finalize(tr, output="", blocked=True,
                                               reason=reason, t_start=t_start)
                     self.observability.record_result(blocked=True,
                         latency_ms=response.trace.total_latency_ms, block_reason=reason)
@@ -289,7 +291,7 @@ class Pramagent:
                         reason = (f"tool '{tool_name}' requires human approval: "
                                   + ("denied" if status == HITLStatus.DENIED
                                      else "no response"))
-                        response = self._finalize(
+                        response = await self._finalize(
                             tr, output="[action not executed - awaiting/declined human approval]",
                             blocked=True, reason=reason, t_start=t_start)
                         self.observability.record_result(blocked=True,
@@ -317,7 +319,7 @@ class Pramagent:
                          f"{self.provider.name}/{result.model}", t0)
                 except CircuitOpenError:
                     span.set_attribute("circuit_open", True)
-                    response = self._finalize(
+                    response = await self._finalize(
                         tr, output="[service temporarily unavailable]",
                         blocked=True, reason="circuit breaker open", t_start=t_start)
                     self.observability.record_result(blocked=True,
@@ -332,7 +334,7 @@ class Pramagent:
                     log.warning("provider call failed (tenant=%s session=%s): %r",
                                 tenant_id, session_id, e)
                     mark("ReliabilityLayer", "degraded", str(e)[:80], t0)
-                    response = self._finalize(
+                    response = await self._finalize(
                         tr, output="[safe default: unable to complete]",
                         blocked=True, reason="provider error", t_start=t_start)
                     self.observability.record_result(blocked=True,
@@ -340,10 +342,10 @@ class Pramagent:
                         block_reason="provider error")
                     return response
 
-            # 5) Safety post
+            # 5) Safety post — same off-loop treatment as the pre pass
             t0 = time.perf_counter()
             with trace_layer("SafetyLayer.post") as span:
-                post_verdict, post_rules = self.safety.post(output)
+                post_verdict, post_rules = await asyncio.to_thread(self.safety.post, output)
                 span.set_attribute("verdict", post_verdict.value)
             tr.post_verdict = post_verdict.value
             tr.rules_evaluated.extend(post_rules)
@@ -385,13 +387,13 @@ class Pramagent:
             if status in (HITLStatus.DENIED, HITLStatus.IDLE) and self.hitl.is_consequential(action):
                 output = "[action not executed - awaiting/declined human approval]"
 
-            response = self._finalize(tr, output=output, blocked=False, reason="", t_start=t_start)
+            response = await self._finalize(tr, output=output, blocked=False, reason="", t_start=t_start)
             root_span.set_attribute("total_latency_ms", response.trace.total_latency_ms)
             root_span.set_attribute("blocked", False)
             self.observability.record_result(blocked=False, latency_ms=response.trace.total_latency_ms)
             return response
 
-    def _finalize(self, tr, *, output, blocked, reason, t_start):
+    async def _finalize(self, tr, *, output, blocked, reason, t_start):
         # The caller receives `output` as-is; the durable record (trace +
         # audit chain) keeps only the scrubbed copy, mirroring input_text.
         scrubbed_output, _ = self.compliance.scrub(output)
@@ -406,12 +408,20 @@ class Pramagent:
             "prev_hash",
         ):
             payload.pop(k, None)
-        tr.prev_hash = self.audit.head
-        tr.this_hash, tr.anchor_tx_id = self.audit.append(payload, tr.prev_hash)
+        # The audit backend owns chain linkage: it derives prev inside its own
+        # critical section (lock / BEGIN IMMEDIATE / FOR UPDATE), so two
+        # concurrent writers can never both link from the same stale pre-read
+        # head and fork the chain (P1-5/T2-4). Persistence is blocking I/O
+        # (SQLite fsync, Postgres round-trip, anchoring) — keep it off the
+        # event loop (P1-1/P1-8/T1-7).
+        prev_guess = getattr(self.audit, "head", "")
+        tr.this_hash, tr.anchor_tx_id = await asyncio.to_thread(
+            self.audit.append, payload)
+        tr.prev_hash = getattr(self.audit, "last_prev_hash", prev_guess)
         anchor_receipt = getattr(self.audit, "last_anchor", None)
         if anchor_receipt is not None:
             tr.anchor_block_number = int(getattr(anchor_receipt, "block_number", 0) or 0)
             if hasattr(anchor_receipt, "to_dict"):
                 tr.anchor_metadata = anchor_receipt.to_dict()
-        self.store.save(tr)
+        await asyncio.to_thread(self.store.save, tr)
         return AgentResponse(output=output, trace=tr, blocked=blocked, block_reason=reason)

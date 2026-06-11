@@ -147,13 +147,39 @@ class S3ColdArchiveStore:
         return self.primary.prune_older_than(cutoff_ts, tenant_id=tenant_id)
 
     def delete_for_tenant(self, tenant_id: str) -> int:
-        candidates = [
-            trace for trace in self.primary.list_all()
-            if trace.tenant_id == tenant_id
-        ]
-        for trace in candidates:
-            self._archive_trace(trace)
+        """GDPR erasure: destroy, never archive (P1-7/T3-2).
+
+        Archive-then-delete is correct for prune_older_than (retention) but
+        is the opposite of erasure — it would preserve the personal data in
+        cold storage indefinitely. Erasure bypasses archival entirely and
+        also deletes every object this bucket already holds under the
+        tenant's prefix (covering archives written by other processes)."""
+        self._delete_archived_for_tenant(tenant_id)
         return self.primary.delete_for_tenant(tenant_id)
+
+    def _delete_archived_for_tenant(self, tenant_id: str) -> int:
+        """Remove all archived S3 objects under tenant={id}/ and drop their
+        in-memory metadata. Returns the number of objects deleted."""
+        prefix = f"{self.prefix}/tenant={tenant_id}/"
+        deleted = 0
+        token: Optional[str] = None
+        while True:
+            kwargs: dict[str, Any] = {"Bucket": self.bucket, "Prefix": prefix}
+            if token:
+                kwargs["ContinuationToken"] = token
+            page = self.s3.list_objects_v2(**kwargs)
+            keys = [{"Key": item["Key"]} for item in page.get("Contents", [])]
+            if keys:
+                self.s3.delete_objects(
+                    Bucket=self.bucket, Delete={"Objects": keys, "Quiet": True})
+                deleted += len(keys)
+            if not page.get("IsTruncated"):
+                break
+            token = page.get("NextContinuationToken")
+        for call_id, record in list(self._metadata.items()):
+            if record.tenant_id == tenant_id:
+                self._metadata.pop(call_id, None)
+        return deleted
 
     def archive_metadata(self) -> list[dict[str, Any]]:
         return [record.to_dict() for record in self._metadata.values()]

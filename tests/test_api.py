@@ -43,9 +43,29 @@ def test_api_security_headers_and_default_cors(client):
     assert "access-control-allow-origin" not in r.headers
 
 
-def test_ready_reports_chain_valid(client):
+def test_ready_is_o1_and_discloses_nothing(client):
+    """Readiness is O(1) dependency pings only — no chain verification, no
+    trace counts, no auth/Slack details on the unauthenticated surface
+    (P1-3/T1-5/P2-18)."""
+    # seed one trace so the probe runs against a non-empty store
+    client.post("/v1/run", json={"prompt": "seed", "tenant_id": "t"})
     r = client.get("/health/ready")
-    assert r.status_code == 200 and r.json()["chain_valid"] is True
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "ready"
+    assert body["checks"] == {"store": True, "redis": True}
+    assert set(body.keys()) == {"status", "checks"}
+
+
+def test_ready_degrades_to_503_when_store_ping_fails(client):
+    def broken_ping():
+        raise RuntimeError("disk gone")
+
+    client.app.state.armor.store.ping = broken_ping
+    r = client.get("/health/ready")
+    assert r.status_code == 503
+    assert r.json()["status"] == "degraded"
+    assert r.json()["checks"]["store"] is False
 
 
 def test_run_returns_trace_fields(client):

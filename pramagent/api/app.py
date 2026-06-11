@@ -30,6 +30,7 @@ Endpoints
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -39,8 +40,9 @@ import uuid
 from urllib.parse import parse_qs
 from typing import Optional
 
-from fastapi import Request, Response
+from fastapi import Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 log = logging.getLogger("pramagent.api")
@@ -464,9 +466,25 @@ def create_app(armor: Optional[Pramagent] = None,
         return {"status": "ok"}
 
     @app.post("/v1/auth/token", response_model=TokenResponse)
-    async def issue_token(body: TokenRequest):
+    async def issue_token(body: TokenRequest, request: Request):
+        # This endpoint is by design unauthenticated (it bootstraps auth), so
+        # it gets an IP-keyed rate bucket instead of the tenant one (T1-2).
+        ip = request.client.host if request.client else "anon"
+        allowed, retry_after = app.state.bucket.allow(f"token:{ip}")
+        if not allowed:
+            raise HTTPException(
+                status_code=429, detail="rate limit exceeded",
+                headers={"Retry-After": str(int(retry_after) + 1)})
         if len(app.state.registry) == 0:
             raise HTTPException(status_code=400, detail="API-key auth is not enabled")
+        # Without a shared signing secret each worker would mint tokens only
+        # it can verify — intermittent 401s across replicas (P2-12). Refuse
+        # issuance instead of minting un-verifiable tokens.
+        if not os.environ.get("PRAMAGENT_JWT_SECRET") and not os.environ.get("PRAMAGENT_JWT_SECRETS"):
+            raise HTTPException(
+                status_code=503,
+                detail="JWT issuance requires PRAMAGENT_JWT_SECRET (or "
+                       "PRAMAGENT_JWT_SECRETS) shared across workers")
         tenant = app.state.registry.tenant_for_key(body.api_key)
         if tenant is None:
             raise HTTPException(status_code=401, detail="invalid api key")
@@ -479,20 +497,30 @@ def create_app(armor: Optional[Pramagent] = None,
 
     @app.get("/health/ready")
     async def ready():
+        """O(1) readiness: dependency connectivity only.
+
+        Never integrity-verifies the chain or counts traces — that is O(n)
+        work an unauthenticated probe must not trigger (P1-3/T1-5); chain
+        verification lives in /v1/audit/verify (authenticated, rate-limited).
+        Operational detail (auth mode, Slack errors, counts) is not disclosed
+        on this unauthenticated surface (P2-18/T1-9)."""
         a = app.state.armor
-        slack = app.state.slack_hitl
-        return {
-            "status": "ready",
-            "chain_valid": a.audit.verify_chain(),
-            "traces": len(a.store.list_all()),
-            "auth_enabled": len(app.state.registry) > 0,
-            "jwt_enabled": len(app.state.registry) > 0,
-            "slack_hitl_configured": isinstance(slack, SlackHITLApprover),
-            "slack_last_error": getattr(slack, "last_error", "") if slack else "",
-            "usage_quota_enabled": app.state.usage.enabled,
-            "usage_event_sinks": len(getattr(app.state.usage, "event_sinks", [])),
-            "tool_guard_distributed": app.state.tool_guard_backend is not None,
-        }
+        checks: dict[str, bool] = {}
+        ping = getattr(a.store, "ping", None)
+        try:
+            checks["store"] = bool(await asyncio.to_thread(ping)) if ping else True
+        except Exception:
+            checks["store"] = False
+        backend = app.state.tool_guard_backend
+        try:
+            checks["redis"] = (bool(await asyncio.to_thread(backend.ping))
+                               if backend is not None else True)
+        except Exception:
+            checks["redis"] = False
+        ok = all(checks.values())
+        return JSONResponse(
+            {"status": "ready" if ok else "degraded", "checks": checks},
+            status_code=200 if ok else 503)
 
     @app.post("/v1/run", response_model=RunResponse)
     async def run(req: RunRequest, request: Request,
@@ -501,14 +529,18 @@ def create_app(armor: Optional[Pramagent] = None,
         # When auth is on, the tenant comes from the key — ignore any body assertion.
         # When auth is off, fall back to body or "default".
         effective_tenant = tenant if tenant else (req.tenant_id or "default")
-        quota_decision = app.state.usage.reserve_call(effective_tenant)
+        # Quota accounting may hit Redis and fan out to the billing webhook
+        # (sync urllib) — keep both off the event loop (P1-8/T1-7).
+        quota_decision = await asyncio.to_thread(
+            app.state.usage.reserve_call, effective_tenant)
         if not quota_decision.allowed:
             _raise_quota(quota_decision)
         r = await a.run(req.prompt, tenant_id=effective_tenant,
                         session_id=req.session_id, action=req.action,
                         trace_headers=dict(request.headers))
         t = r.trace
-        app.state.usage.record_cost(effective_tenant, t.provider_cost_usd)
+        await asyncio.to_thread(
+            app.state.usage.record_cost, effective_tenant, t.provider_cost_usd)
         return RunResponse(
             call_id=t.call_id, output=r.output, blocked=r.blocked,
             block_reason=r.block_reason, hitl=r.hitl,
@@ -556,7 +588,8 @@ def create_app(armor: Optional[Pramagent] = None,
     async def validate_tool(req: ToolValidateRequest,
                             tenant: str = Depends(require_tenant)):
         effective_tenant = tenant if tenant else (req.tenant_id or "default")
-        quota_decision = app.state.usage.reserve_tool_validation(effective_tenant)
+        quota_decision = await asyncio.to_thread(
+            app.state.usage.reserve_tool_validation, effective_tenant)
         if not quota_decision.allowed:
             _raise_quota(quota_decision)
         decision = await app.state.tool_guard.evaluate_async(
@@ -607,30 +640,31 @@ def create_app(armor: Optional[Pramagent] = None,
         return await _handle_slack_hitl_action(request)
 
 
+    # RCA is per-trace: fetch the single trace (ownership enforced by
+    # _fetch_trace, 404 on cross-tenant) instead of deserializing the whole
+    # store per request (P1-4/T1-6).
+
     @app.post("/v1/rca/{call_id}/replay")
     async def rca_replay(call_id: str, request: Request,
                          tenant: str = Depends(require_tenant)):
         _require_rca_quota(tenant or "anon", request)
-        _fetch_trace(call_id, tenant)  # enforce tenant ownership (404 if cross-tenant)
-        engine = RCAEngine(app.state.armor.store.list_all())
-        return engine.replay(call_id)
+        trace = _fetch_trace(call_id, tenant)
+        return RCAEngine([trace]).replay(call_id)
 
     @app.post("/v1/rca/{call_id}/counterfactual")
     async def rca_counterfactual(call_id: str, body: CounterfactualRequest,
                                  request: Request,
                                  tenant: str = Depends(require_tenant)):
         _require_rca_quota(tenant or "anon", request)
-        _fetch_trace(call_id, tenant)
-        engine = RCAEngine(app.state.armor.store.list_all())
-        return engine.counterfactual(call_id, disable_rule=body.disable_rule)
+        trace = _fetch_trace(call_id, tenant)
+        return RCAEngine([trace]).counterfactual(call_id, disable_rule=body.disable_rule)
 
     @app.get("/v1/rca/{call_id}/incident")
     async def rca_incident(call_id: str, request: Request,
                            tenant: str = Depends(require_tenant)):
         _require_rca_quota(tenant or "anon", request)
-        _fetch_trace(call_id, tenant)
-        engine = RCAEngine(app.state.armor.store.list_all())
-        return {"report": engine.incident_report(call_id)}
+        trace = _fetch_trace(call_id, tenant)
+        return {"report": RCAEngine([trace]).incident_report(call_id)}
 
     @app.post("/v1/retention/prune")
     async def retention_prune(older_than_days: int,
@@ -736,13 +770,15 @@ def create_app(armor: Optional[Pramagent] = None,
         tenant_id: str = "",
         session_id: str = "",
         blocked: str = "",
-        limit: int = 50,
+        limit: int = Query(50, ge=1, le=500),
         tenant: str = Depends(require_tenant),
     ):
         """Return recent traces. Dashboard uses this for the trace browser.
 
         When auth is enabled the listing is hard-scoped to the caller's tenant
-        — the tenant_id query parameter cannot widen it."""
+        — the tenant_id query parameter cannot widen it. The tenant filter is
+        pushed into SQL (idx_traces_tenant) so a busy neighbor tenant can
+        never crowd a caller's rows out of the page (P1-9)."""
         def trace_to_dict(trace):
             if isinstance(trace, dict):
                 return trace
@@ -754,16 +790,13 @@ def create_app(armor: Optional[Pramagent] = None,
             tenant_id = tenant
 
         store = app.state.armor.store
-        items = []
-        if hasattr(store, "list_all"):
-            items = store.list_all(limit=limit)
-        elif hasattr(store, "_traces"):
-            # MemoryStore: return sorted by recency
-            all_traces = list(store._traces.values())
-            all_traces.sort(key=lambda t: getattr(t, "total_latency_ms", 0), reverse=False)
-            items = all_traces[-limit:]
+        if tenant_id and hasattr(store, "list_by_tenant"):
+            items = await asyncio.to_thread(
+                store.list_by_tenant, tenant_id, session_id or None, limit)
+        else:
+            items = await asyncio.to_thread(store.list_all, limit)
         items = [trace_to_dict(t) for t in items]
-        # filters
+        # filters (post-filter keeps stores without list_by_tenant correct)
         if tenant_id:
             items = [t for t in items if t.get("tenant_id") == tenant_id]
         if session_id:
