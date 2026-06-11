@@ -91,6 +91,11 @@ class MemoryStore:
         self._traces = [t for t in self._traces if t.tenant_id != tenant_id]
         return before - len(self._traces)
 
+    def count(self, tenant_id: str | None = None) -> int:
+        if tenant_id:
+            return sum(1 for t in self._traces if t.tenant_id == tenant_id)
+        return len(self._traces)
+
 
 # ──────────────────────────── SQLite (persistent) ──────────────────────────
 class SQLiteStore:
@@ -315,6 +320,17 @@ class SQLiteStore:
         with self._lock:
             self._conn.execute("SELECT 1").fetchone()
         return True
+
+    def count(self, tenant_id: str | None = None) -> int:
+        """Trace count via SQL COUNT — never a full-table load (P2-14)."""
+        with self._lock:
+            if tenant_id:
+                row = self._conn.execute(
+                    "SELECT COUNT(*) FROM traces WHERE tenant_id = ?",
+                    (tenant_id,)).fetchone()
+            else:
+                row = self._conn.execute("SELECT COUNT(*) FROM traces").fetchone()
+        return int(row[0])
 
     def _load_head(self) -> str:
         with self._lock:

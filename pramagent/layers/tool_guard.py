@@ -50,7 +50,7 @@ import re
 import threading
 import time
 import uuid
-from collections import defaultdict
+from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -261,6 +261,11 @@ class ToolPolicy:
     # None = use action field only.
     escalate_if_severity_gte: Optional[str] = None
 
+    # Compiled jsonschema validators, built once at registration so evaluate()
+    # never re-checks/rebuilds the schema per call (P2-3). Internal.
+    _validator: Any = field(default=None, init=False, repr=False, compare=False)
+    _output_validator: Any = field(default=None, init=False, repr=False, compare=False)
+
 
 # ── decision ──────────────────────────────────────────────────────────────────
 
@@ -332,26 +337,41 @@ _TYPE_MAP: dict[str, type | tuple] = {
 }
 
 
+def compile_schema_validator(schema: dict[str, Any]):
+    """Compile a Draft 2020-12 validator once for reuse across calls (P2-3).
+
+    Returns None when jsonschema is unavailable. Raises SchemaError for an
+    invalid schema (callers that compile eagerly catch it and fall back to
+    the per-call path, which reports the error in the decision reason)."""
+    if Draft202012Validator is None:
+        return None
+    Draft202012Validator.check_schema(schema)
+    return Draft202012Validator(
+        schema,
+        format_checker=FormatChecker() if FormatChecker else None,
+    )
+
+
 def validate_schema(
     value: Any,
     schema: dict[str, Any],
     *,
     path: str = "$",
     defs: Optional[dict[str, Any]] = None,
+    validator: Any = None,
 ) -> tuple[bool, str]:
     """Validate with JSON Schema Draft 2020-12.
 
     Returns the historical ``(ok, reason)`` tuple so ToolGuard callers do not
-    need to know which validation engine is underneath. If jsonschema is not
-    importable, the legacy in-module validator below is used as a fallback.
+    need to know which validation engine is underneath. Pass a prebuilt
+    ``validator`` (see compile_schema_validator) to skip the per-call
+    check_schema + constructor cost. If jsonschema is not importable, the
+    legacy in-module validator below is used as a fallback.
     """
     if Draft202012Validator is not None:
         try:
-            Draft202012Validator.check_schema(schema)
-            validator = Draft202012Validator(
-                schema,
-                format_checker=FormatChecker() if FormatChecker else None,
-            )
+            if validator is None:
+                validator = compile_schema_validator(schema)
             errors = sorted(validator.iter_errors(value), key=lambda e: list(e.absolute_path))
         except SchemaError as exc:
             message = getattr(exc, "message", str(exc))
@@ -600,7 +620,7 @@ class ToolGuardLayer:
         backend: Optional[Any] = None,
         chain_ttl_s: int = 300,
     ) -> None:
-        self.policies: dict[str, ToolPolicy] = {p.name: p for p in (policies or [])}
+        self.policies: dict[str, ToolPolicy] = {}
         self.default_verdict = default_verdict
         self.chain_window = chain_window
         self.chain_ttl_s = chain_ttl_s
@@ -613,18 +633,37 @@ class ToolGuardLayer:
         self._lock = threading.Lock()
         # (tenant_id, session_id) -> list of side_effects (bounded to chain_window)
         self._side_effect_history: dict[tuple[str, str], list[str]] = defaultdict(list)
-        # per-(tenant, session, tool) call counter
-        self._call_counts: dict[tuple[str, str, str], int] = defaultdict(int)
-        # per-session output provenance log
-        self._provenance_log: list[OutputProvenance] = []
-        self.audit_log: list[ToolDecision] = []
+        # per-(tenant, session, tool) -> (count, window_started); the window
+        # resets after chain_ttl_s so keys cannot grow without bound (P2-2)
+        self._call_counts: dict[tuple[str, str, str], tuple[int, float]] = {}
+        # Bounded: appended on every run() since validate_output was wired
+        # into the pipeline — unbounded lists leak linearly with traffic
+        # (P2-2). Durable audit lives in the trace store, not here.
+        self._provenance_log: deque[OutputProvenance] = deque(maxlen=10_000)
+        self.audit_log: deque[ToolDecision] = deque(maxlen=10_000)
         # Optional LLMJudge: a semantic safety net consulted for
         # high-severity tools via evaluate_async(). It can only make a
         # decision STRICTER (ALLOW->ESCALATE/BLOCK), never looser.
         self.judge = judge
+        for p in (policies or []):
+            self.register(p)
 
     def register(self, policy: ToolPolicy) -> None:
-        """Register a new tool policy at runtime."""
+        """Register a new tool policy at runtime.
+
+        Validators are compiled once here, not per evaluate() call (P2-3).
+        An invalid schema leaves the compiled validator unset; the per-call
+        path then reports the schema error in the decision reason, exactly
+        as before."""
+        try:
+            policy._validator = compile_schema_validator(policy.schema)
+        except Exception:
+            policy._validator = None
+        if policy.output_schema is not None:
+            try:
+                policy._output_validator = compile_schema_validator(policy.output_schema)
+            except Exception:
+                policy._output_validator = None
         self.policies[policy.name] = policy
 
     @staticmethod
@@ -645,9 +684,15 @@ class ToolGuardLayer:
                 ))
             except Exception as exc:
                 log.warning("ToolGuard backend call count unavailable; falling back to memory: %s", exc)
+        now = time.time()
         with self._lock:
-            self._call_counts[key] += 1
-            return self._call_counts[key]
+            count, window_started = self._call_counts.get(key, (0, now))
+            if now - window_started >= self.chain_ttl_s:
+                # window elapsed: reset, mirroring the backend key TTL (P2-2)
+                count, window_started = 0, now
+            count += 1
+            self._call_counts[key] = (count, window_started)
+            return count
 
     def _append_side_effect(self, tenant_id: str, session_id: str,
                             side_effect: str) -> list[str]:
@@ -740,8 +785,10 @@ class ToolGuardLayer:
                                f"action '{action_label}' is not allowed for '{tool_name}'",
                                side_effect=policy.side_effect)
 
-        # 4. Argument schema validation (full JSON Schema)
-        ok, schema_reason = validate_schema(arguments, policy.schema)
+        # 4. Argument schema validation (full JSON Schema, compiled once
+        #    at registration — P2-3)
+        ok, schema_reason = validate_schema(arguments, policy.schema,
+                                            validator=policy._validator)
         if not ok:
             return self._block(tool_name, tenant_id, session_id, action_label,
                                f"argument schema violation: {schema_reason}",
@@ -911,7 +958,8 @@ class ToolGuardLayer:
         # Schema validation
         schema_ok = False
         if policy.output_schema is not None:
-            ok, reason = validate_schema(output, policy.output_schema)
+            ok, reason = validate_schema(output, policy.output_schema,
+                                         validator=policy._output_validator)
             if not ok:
                 prov = _prov(False, [])
                 return OutputValidationResult(

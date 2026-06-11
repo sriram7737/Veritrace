@@ -186,13 +186,23 @@ class InMemoryUsageLedger(UsageEventSink):
     This is not a billing provider. It gives deployments a deterministic,
     tamper-evident local ledger that can be mirrored to Stripe/Chargebee or a
     warehouse by another sink.
+
+    GROWTH CAP (P2-2): the ledger is deliberately NOT silently truncated — a
+    hash-chained ledger that drops its oldest links can no longer verify from
+    genesis, which would defeat its purpose as billing evidence. Instead a
+    warning is logged once when entries exceed WARN_ENTRIES (~tens of MB of
+    RAM). In-memory storage is a pilot tool: long-lived production processes
+    must mirror events to a durable sink (webhook/warehouse) and restart the
+    ledger on rotation, or back it with a persistent store.
     """
 
     GENESIS_HASH = "0" * 64
+    WARN_ENTRIES = 100_000
 
     def __init__(self) -> None:
         self._entries: list[UsageLedgerEntry] = []
         self._lock = Lock()
+        self._warned = False
 
     def emit(self, event: UsageEvent) -> None:
         with self._lock:
@@ -207,6 +217,13 @@ class InMemoryUsageLedger(UsageEventSink):
                     this_hash=this_hash,
                 )
             )
+            if not self._warned and len(self._entries) > self.WARN_ENTRIES:
+                self._warned = True
+                log.warning(
+                    "InMemoryUsageLedger exceeds %d entries and grows without "
+                    "bound; mirror to a durable sink and rotate the process, "
+                    "or back the ledger with persistent storage",
+                    self.WARN_ENTRIES)
 
     def entries(
         self,

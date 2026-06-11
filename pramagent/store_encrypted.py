@@ -284,6 +284,17 @@ class EncryptedSQLiteStore:
             self._conn.execute("SELECT 1").fetchone()
         return True
 
+    def count(self, tenant_id: str | None = None) -> int:
+        """Trace count via SQL COUNT — never a full-table load (P2-14)."""
+        with self._lock:
+            if tenant_id:
+                row = self._conn.execute(
+                    "SELECT COUNT(*) FROM traces WHERE tenant_id = ?",
+                    (tenant_id,)).fetchone()
+            else:
+                row = self._conn.execute("SELECT COUNT(*) FROM traces").fetchone()
+        return int(row[0])
+
     def _load_head(self) -> str:
         with self._lock:
             row = self._conn.execute(

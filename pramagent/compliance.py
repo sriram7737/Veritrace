@@ -213,10 +213,14 @@ class ComplianceReporter:
     def _trace_stats(self, tenant_id: Optional[str]) -> dict:
         if self.store is None:
             return {"total": 0, "tenant": 0}
-        try:
-            all_traces = self.store.list_all()
-        except Exception:
-            all_traces = []
+        # SQL COUNT when the store supports it — never a full-table load
+        # just to count rows (P2-14).
+        counter = getattr(self.store, "count", None)
+        if counter is not None:
+            total = counter()
+            tenant = counter(tenant_id) if tenant_id else total
+            return {"total": total, "tenant": tenant}
+        all_traces = self.store.list_all()
         total = len(all_traces)
         if tenant_id:
             tenant = sum(1 for t in all_traces
@@ -268,16 +272,48 @@ class ComplianceReporter:
             "controls": self._controls(framework),
         }
 
+    def _has_active_consent(self) -> bool:
+        """True when at least one active consent record is on file."""
+        try:
+            return any(r.active for r in self.consent._records.values())
+        except Exception:
+            return False
+
+    def _control_in_place(self, evidence: str) -> bool:
+        """Probe the live system for a control instead of attesting it (P2-14).
+
+        Controls whose evidence names a probeable object (the audit chain,
+        the consent registry, the retention policy, the store) are measured
+        at report time; purely structural controls (deterministic rules,
+        redaction patterns — properties of the shipped code, not of runtime
+        state) remain True by construction."""
+        ev = evidence.lower()
+        if "chain" in ev or "audit" in ev:
+            return self._chain_valid() is True
+        if "consent" in ev:
+            return self._has_active_consent()
+        if "retention" in ev:
+            return self.retention.retention_days >= self.retention.legal_floor_days
+        if "delete_for_tenant" in ev or "store." in ev:
+            return self.store is not None and hasattr(self.store, "delete_for_tenant")
+        return True
+
     def _controls(self, framework: str) -> list[dict]:
-        """Map implemented Pramagent controls to a framework's expectations."""
+        """Map implemented Pramagent controls to a framework's expectations.
+
+        Live-system rows are probed at report time (P2-14): the audit row
+        reflects an actual verify_chain() run, the retention row an actual
+        policy comparison. Structural rows (scrubbing, HITL gating) are
+        properties of the pipeline code itself."""
         base = [
             ("audit_trail", "Tamper-evident hash-chained audit log",
-             self._chain_valid() is not False),
+             self._chain_valid() is True),
             ("pii_minimization", "PII scrubbed before model exposure", True),
             ("access_control", "Per-tenant API-key + JWT auth, tenant isolation", True),
             ("human_oversight", "HITL approval gate for consequential actions", True),
             ("retention_limit",
-             f"Retention floor {self.retention.legal_floor_days}d enforced", True),
+             f"Retention floor {self.retention.legal_floor_days}d enforced",
+             self.retention.retention_days >= self.retention.legal_floor_days),
         ]
         return [{"control_id": cid, "description": desc, "in_place": ok}
                 for cid, desc, ok in base]
@@ -426,9 +462,12 @@ class ComplianceReporter:
                 redaction_counts[label] = redaction_counts.get(label, 0) + 1
 
         controls = self.CONTROL_MAP.get(framework, [])
+        # in_place is measured, not attested: probeable controls (chain,
+        # consent, retention, store) are checked against the live objects at
+        # evidence-generation time (P2-14).
         controls_rows = [
             {"control_id": cid, "description": desc, "evidence": ev,
-             "in_place": True}
+             "in_place": self._control_in_place(ev)}
             for cid, desc, ev in controls
         ]
 

@@ -48,4 +48,6 @@ EXPOSE 8080
 HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=3 \
     CMD curl -f http://localhost:${PRAMAGENT_PORT}/health || exit 1
 
-CMD ["sh", "-c", "python -m uvicorn pramagent.api.app:app --host ${PRAMAGENT_HOST} --port ${PRAMAGENT_PORT} --log-level ${PRAMAGENT_LOG_LEVEL}"]
+# --timeout-graceful-shutdown drains in-flight requests on SIGTERM before
+# the lifespan shutdown closes the stores (P2-15)
+CMD ["sh", "-c", "python -m uvicorn pramagent.api.app:app --host ${PRAMAGENT_HOST} --port ${PRAMAGENT_PORT} --log-level ${PRAMAGENT_LOG_LEVEL} --timeout-graceful-shutdown 30"]

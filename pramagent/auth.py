@@ -316,11 +316,14 @@ class JWTManager:
             raise ValueError("cannot retire active JWT key")
         return self._secrets.pop(kid, None) is not None
 
+    AUDIENCE = "pramagent-api"
+
     def issue(self, tenant_id: str, *, ttl_s: int = 900) -> str:
         now = int(time.time())
         header = {"alg": "HS256", "typ": "JWT", "kid": self.active_kid}
         payload = {
             "iss": self.issuer,
+            "aud": self.AUDIENCE,
             "sub": tenant_id,
             "tenant_id": tenant_id,
             "iat": now,
@@ -350,6 +353,10 @@ class JWTManager:
             header = json.loads(_b64url_decode(parts[0]))
         except Exception as exc:
             raise JWTError("malformed header") from exc
+        # Explicit HS256 allow-list: this is the none-algorithm defense (and
+        # the RS256→HS256 key-confusion defense) — any alg value other than
+        # the one we sign with, including "none", is rejected before any
+        # signature work happens (P3-4/T1-3).
         if header.get("alg") != "HS256" or header.get("typ") != "JWT":
             raise JWTError("unsupported token header")
         kid = header.get("kid")
@@ -377,6 +384,10 @@ class JWTManager:
             raise JWTError("malformed payload") from exc
         if payload.get("iss") != self.issuer:
             raise JWTError("invalid issuer")
+        # aud pins the token to this API so a token minted for another
+        # service signed with a shared secret cannot be replayed here (T1-3).
+        if payload.get("aud") != self.AUDIENCE:
+            raise JWTError("invalid audience")
         exp = payload.get("exp")
         if not isinstance(exp, int):
             raise JWTError("missing expiration")

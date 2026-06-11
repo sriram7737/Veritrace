@@ -124,6 +124,33 @@ def test_token_endpoint_rejects_invalid_api_key(auth_client):
     assert r.status_code == 401
 
 
+def test_jwt_audience_is_issued_and_verified():
+    """aud pins tokens to this API (P3-4/T1-3): issued tokens carry it and
+    tokens without (or with a foreign) audience are rejected."""
+    mgr = JWTManager("a-strong-unit-test-secret-123456")
+    token = mgr.issue("tenant_a", ttl_s=60)
+    payload = mgr.verify(token)
+    assert payload["aud"] == "pramagent-api"
+
+    # forge a same-secret token without the aud claim → rejected
+    import base64 as _b64
+    import hashlib as _hashlib
+    import hmac as _hmac
+    import time as _time
+
+    def b64(x: bytes) -> str:
+        return _b64.urlsafe_b64encode(x).rstrip(b"=").decode()
+
+    hdr = b64(json.dumps({"alg": "HS256", "typ": "JWT"}).encode())
+    pl = b64(json.dumps({"iss": "pramagent", "sub": "tenant_a",
+                         "tenant_id": "tenant_a",
+                         "exp": int(_time.time()) + 600}).encode())
+    sig = b64(_hmac.new(b"a-strong-unit-test-secret-123456",
+                        f"{hdr}.{pl}".encode(), _hashlib.sha256).digest())
+    with pytest.raises(JWTError, match="audience"):
+        mgr.verify(f"{hdr}.{pl}.{sig}")
+
+
 def test_invalid_jwt_is_rejected(auth_client):
     client, key_a, _ = auth_client
     token = client.post("/v1/auth/token", json={"api_key": key_a, "ttl_s": 60}).json()["access_token"]

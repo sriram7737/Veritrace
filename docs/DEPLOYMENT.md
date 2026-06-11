@@ -213,6 +213,21 @@ Includes readiness/liveness probes, HorizontalPodAutoscaler (3–10 replicas), a
 secret-based config. Point `otel.endpoint` at any OTLP collector (Jaeger,
 Honeycomb, Datadog, Grafana Tempo) for distributed traces.
 
+## Reverse proxy / request body limits
+`RunRequest.prompt` is capped at 256 KiB by the API itself (oversized bodies
+are rejected with 422 before they reach the pipeline). Add a defense-in-depth
+cap at the proxy so oversized bodies never reach uvicorn at all:
+
+```nginx
+# nginx in front of the API
+client_max_body_size 1m;
+```
+
+When the API sits behind a load balancer, also run uvicorn with
+`--proxy-headers --forwarded-allow-ips=<lb-cidr>` so per-IP rate limiting
+keys on the real client address instead of the proxy's. Unauthenticated mode
+must never face the internet directly.
+
 ## Cloud notes
 - **Postgres**: any managed PG (RDS, Cloud SQL, Neon). Set `PRAMAGENT_POSTGRES_DSN`.
 - **Redis**: any managed Redis (ElastiCache, Memorystore, Upstash). Set `PRAMAGENT_REDIS_URL`.

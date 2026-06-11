@@ -97,11 +97,6 @@ PRAMAGENT_DASHBOARD_SIGNUP_TENANT = _normalize_dashboard_tenant(
     False,
 )
 
-app = FastAPI(title="Pramagent Dashboard", docs_url=None, redoc_url=None)
-templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
-log = logging.getLogger("pramagent.dashboard")
-
-
 def validate_dashboard_config() -> None:
     """Refuse to serve with a missing or well-known JWT secret.
 
@@ -116,9 +111,20 @@ def validate_dashboard_config() -> None:
     assert_strong_secret("PRAMAGENT_JWT_SECRET", PRAMAGENT_JWT_SECRET)
 
 
-@app.on_event("startup")
-async def _refuse_default_jwt_secret() -> None:
+from contextlib import asynccontextmanager
+
+
+@asynccontextmanager
+async def _lifespan(app_: FastAPI):
+    # lifespan replaces the deprecated @app.on_event("startup") hook (P3-3)
     validate_dashboard_config()
+    yield
+
+
+app = FastAPI(title="Pramagent Dashboard", docs_url=None, redoc_url=None,
+              lifespan=_lifespan)
+templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
+log = logging.getLogger("pramagent.dashboard")
 
 
 def _build_user_store() -> DashboardUserStore | None:

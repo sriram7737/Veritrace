@@ -442,6 +442,19 @@ class PostgresStore(_PostgresBase):
             return True
         return bool(self._run(_fn))
 
+    def count(self, tenant_id: Optional[str] = None) -> int:
+        """Trace count via SQL COUNT — never a full-table load (P2-14)."""
+        def _fn(conn, cur):
+            if tenant_id:
+                cur.execute(
+                    "SELECT COUNT(*) FROM pramagent_traces WHERE tenant_id = %s",
+                    (tenant_id,))
+            else:
+                cur.execute("SELECT COUNT(*) FROM pramagent_traces")
+            row = cur.fetchone()
+            return int(row[0]) if row else 0
+        return self._run(_fn)
+
     def delete_for_tenant(self, tenant_id: str) -> int:
         """GDPR erasure: delete the tenant's trace rows AND tombstone its
         payloads in the hash chain (see redact_for_tenant)."""

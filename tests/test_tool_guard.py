@@ -372,7 +372,8 @@ def test_tool_guard_in_memory_state_is_thread_safe():
     for t in threads:
         t.join()
 
-    assert guard._call_counts[("t", "s", "read_record")] == n_threads * calls_per_thread
+    count, _window_started = guard._call_counts[("t", "s", "read_record")]
+    assert count == n_threads * calls_per_thread
     history = guard._side_effect_history[("t", "s")]
     assert len(history) == 10                       # bounded to chain_window
     assert all(h == "read" for h in history)

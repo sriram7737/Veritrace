@@ -68,9 +68,14 @@ from ..usage import UsageTracker
 
 # ──────────────────────────── request / response ───────────────────────────
 class RunRequest(BaseModel):
+    # max_length rejects oversized bodies with 422 BEFORE they are handed to
+    # the pipeline — the 64 KiB isolation cap runs after FastAPI has already
+    # parsed the JSON into memory, so it cannot defend the parse itself
+    # (P2-4/T1-8). Pair with a reverse-proxy body cap (see DEPLOYMENT.md).
     prompt: str = Field(
         ...,
         min_length=1,
+        max_length=262_144,
         description="The input to run through the trust stack",
     )
     tenant_id: Optional[str] = Field(
@@ -138,6 +143,66 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     expires_in: int
+    tenant_id: str
+
+
+# Typed response models for the stable surfaces (P2-10): shape changes can
+# no longer ship silently, and the OpenAPI schema documents real fields.
+
+class RuleResultModel(BaseModel):
+    rule_id: str
+    fired: bool
+    action: str
+    detail: str = ""
+    phase: str = "pre"
+
+
+class LayerEventModel(BaseModel):
+    layer: str
+    decision: str
+    detail: str = ""
+    latency_ms: float = 0.0
+    data: dict = Field(default_factory=dict)
+
+
+class TraceModel(BaseModel):
+    """Mirror of pramagent.types.TraceEvent for the API surface."""
+    call_id: str
+    tenant_id: str
+    session_id: str
+    created_at: float
+    input_text: str
+    input_hash: str
+    output_text: str
+    pii_redactions: list[str]
+    pre_verdict: Optional[str]
+    post_verdict: Optional[str]
+    rules_evaluated: list[RuleResultModel]
+    provider: str
+    provider_model: str
+    provider_cost_usd: float
+    provider_latency_ms: float
+    provider_prompt_tokens: int
+    provider_completion_tokens: int
+    used_fallback: bool
+    hitl_status: str
+    layer_events: list[LayerEventModel]
+    total_latency_ms: float
+    prev_hash: str
+    this_hash: str
+    anchor_tx_id: str
+    anchor_block_number: int
+    anchor_metadata: dict
+
+
+class EraseResponse(BaseModel):
+    deleted: int
+    tenant_id: str
+
+
+class PruneResponse(BaseModel):
+    pruned: int
+    older_than_days: int
     tenant_id: str
 
 
@@ -320,12 +385,32 @@ def create_app(armor: Optional[Pramagent] = None,
       * If the registry is empty, the API runs unauthenticated and the tenant
         is read from the request body (single-tenant or trusted-network mode).
     """
+    from contextlib import asynccontextmanager
+
     from fastapi import Depends, FastAPI, Header, HTTPException
+
+    @asynccontextmanager
+    async def _lifespan(app_):
+        # lifespan context manager replaces the deprecated on_event hooks
+        # (P3-3); shutdown closes the stores so SQLite WAL checkpoints and
+        # Postgres connections are released cleanly on SIGTERM (P2-15).
+        yield
+        log.info("shutdown: closing stores")
+        armor_obj = app_.state.armor
+        for obj in {id(armor_obj.store): armor_obj.store,
+                    id(armor_obj.audit): armor_obj.audit}.values():
+            close = getattr(obj, "close", None)
+            if close:
+                try:
+                    close()
+                except Exception:
+                    log.warning("store close failed", exc_info=True)
 
     app = FastAPI(
         title="Pramagent",
-        version="0.5.20",
+        version="0.7.1",
         description="Trust middleware for AI agents: deterministic guardrails, HITL, tool policy, tamper-evident traces.",
+        lifespan=_lifespan,
     )
     if os.environ.get("PRAMAGENT_OTEL_ENDPOINT") or os.environ.get("PRAMAGENT_OTEL_CONSOLE") == "1":
         configure_otel(
@@ -551,7 +636,7 @@ def create_app(armor: Optional[Pramagent] = None,
             total_latency_ms=t.total_latency_ms,
         )
 
-    @app.get("/v1/trace/{call_id}")
+    @app.get("/v1/trace/{call_id}", response_model=TraceModel)
     async def get_trace(call_id: str, tenant: str = Depends(require_tenant)):
         return _fetch_trace(call_id, tenant).to_dict()
 
@@ -666,7 +751,7 @@ def create_app(armor: Optional[Pramagent] = None,
         trace = _fetch_trace(call_id, tenant)
         return {"report": RCAEngine([trace]).incident_report(call_id)}
 
-    @app.post("/v1/retention/prune")
+    @app.post("/v1/retention/prune", response_model=PruneResponse)
     async def retention_prune(older_than_days: int,
                               tenant: str = Depends(require_tenant)):
         """Prune traces older than `older_than_days`.
@@ -705,7 +790,7 @@ def create_app(armor: Optional[Pramagent] = None,
         return {"pruned": deleted, "older_than_days": older_than_days,
                 "tenant_id": tenant}
 
-    @app.delete("/v1/tenant/{tenant_id}/traces")
+    @app.delete("/v1/tenant/{tenant_id}/traces", response_model=EraseResponse)
     async def erase_tenant_traces(tenant_id: str,
                                   tenant: str = Depends(require_tenant)):
         """GDPR right-to-erasure: delete all traces for `tenant_id`.

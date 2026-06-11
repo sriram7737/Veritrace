@@ -52,10 +52,12 @@ Usage
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
 import uuid
+from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
@@ -172,7 +174,9 @@ class LLMJudge:
     ) -> None:
         self._provider = provider
         self._policies = policies or [JudgePolicy()]
-        self.audit_log: list[JudgeDecision] = []
+        # Bounded: long-lived processes must not leak one entry per judged
+        # call forever (P2-2). Durable audit lives in the trace store.
+        self.audit_log: deque[JudgeDecision] = deque(maxlen=10_000)
 
     def _select_policy(self, side_effect: str) -> Optional[JudgePolicy]:
         for pol in self._policies:
@@ -208,13 +212,15 @@ class LLMJudge:
 
         t0 = time.perf_counter()
         try:
-            import asyncio
             raw = await asyncio.wait_for(
                 self._call_provider(prompt), timeout=policy.timeout_s
             )
             latency_ms = (time.perf_counter() - t0) * 1000
             return self._parse_response(tool_name, raw, latency_ms, policy)
-        except TimeoutError:
+        # On Python 3.10 asyncio.TimeoutError is NOT builtins.TimeoutError
+        # (they were unified in 3.11) — catch both so a timeout never falls
+        # into the generic path (P2-13).
+        except (TimeoutError, asyncio.TimeoutError):
             latency_ms = (time.perf_counter() - t0) * 1000
             log.warning("LLM judge timed out for %s (%.0fms); escalating", tool_name, latency_ms)
             return self._record(JudgeDecision(
@@ -228,14 +234,16 @@ class LLMJudge:
             ))
         except Exception as exc:
             latency_ms = (time.perf_counter() - t0) * 1000
-            log.error("LLM judge error for %s: %s; escalating", tool_name, exc)
+            log.error("LLM judge error for %s: %r; escalating", tool_name, exc)
+            # reason flows to API callers via ToolDecision — keep it generic;
+            # the exception detail stays in the audit log only (P2-13).
             return self._record(JudgeDecision(
                 decision_id=str(uuid.uuid4()),
                 tool_name=tool_name,
                 verdict=Verdict.ESCALATE,
-                reason=f"LLM judge error: {exc}",
+                reason="LLM judge unavailable — escalating for human review",
                 confidence=0.0,
-                raw_response=str(exc),
+                raw_response=repr(exc)[:500],
                 latency_ms=latency_ms,
             ))
 

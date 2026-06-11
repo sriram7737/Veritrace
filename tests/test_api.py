@@ -105,6 +105,13 @@ def test_run_blocks_disallowed_input(client):
     assert r.json()["blocked"] is True
 
 
+def test_oversized_prompt_is_rejected_before_the_pipeline(client):
+    """Bodies past max_length are refused with 422 at parse time — the
+    isolation cap alone runs too late to defend the parse (P2-4/T1-8)."""
+    r = client.post("/v1/run", json={"prompt": "x" * 300_000})
+    assert r.status_code == 422
+
+
 def test_run_blocks_weapon_construction_via_safety_classifier(client):
     r = client.post(
         "/v1/run",

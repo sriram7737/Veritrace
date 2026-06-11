@@ -58,7 +58,11 @@ def cmd_init(args) -> int:
             PRAMAGENT_BILLING_WEBHOOK_SECRET=
             PRAMAGENT_BILLING_WEBHOOK_TIMEOUT_S=2.0
         """)
-        with open(env_path, "w") as f:
+        # owner-only permissions: the file holds freshly generated secrets,
+        # so it must never be created world-readable via the default umask
+        # (P3-9). No-op on Windows, where mode bits are not enforced.
+        fd = os.open(env_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
             f.write(env_content)
         print(f"  [ok] {env_path}")
 

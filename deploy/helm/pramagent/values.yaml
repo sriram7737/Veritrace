@@ -1,8 +1,24 @@
 replicaCount: 3
 image:
   repository: pramagent
-  tag: "0.3.0"
+  tag: "0.7.1"
   pullPolicy: IfNotPresent
+# Hardened pod defaults (P3-13/T2-9): non-root, read-only root FS, no
+# privilege escalation, all capabilities dropped. A writable emptyDir is
+# mounted at /tmp for scratch space.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1001
+  seccompProfile:
+    type: RuntimeDefault
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 2
 service:
   type: ClusterIP
   port: 8080
