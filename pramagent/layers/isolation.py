@@ -26,6 +26,7 @@ outputs, and runtime constraints on the model action space.
 from __future__ import annotations
 
 import base64
+import binascii
 import re
 from typing import Callable, Optional
 
@@ -234,8 +235,8 @@ class IsolationLayer:
         extras: list[str] = []
         for match in _B64_TOKEN.finditer(text):
             try:
-                decoded = base64.b64decode(match.group()).decode("utf-8")
-            except Exception:
+                decoded = base64.b64decode(match.group(), validate=True).decode("utf-8")
+            except (binascii.Error, UnicodeDecodeError, ValueError):
                 continue
             if decoded.isprintable() and len(decoded) > 8:
                 extras.append(decoded)

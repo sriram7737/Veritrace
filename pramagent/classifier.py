@@ -59,6 +59,7 @@ Run ``python -m pramagent.classifier`` to evaluate on built-in test vectors.
 from __future__ import annotations
 
 import base64
+import binascii
 import logging
 import re
 from typing import Callable, Optional
@@ -260,7 +261,7 @@ def _augment_encoded_text(text: str) -> tuple[str, bool]:
         has_long_token = True
         try:
             decoded = base64.b64decode(token, validate=True).decode("utf-8")
-        except Exception:
+        except (binascii.Error, UnicodeDecodeError, ValueError):
             continue
         if decoded.isprintable() and len(decoded) > 8:
             extras.append(decoded)
